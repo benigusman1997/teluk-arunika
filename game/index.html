@@ -1,19 +1,102 @@
-<!doctype html>
-<html lang="en">
+<!DOCTYPE html>
+<html lang="id">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Block Dodger</title>
-<style>
-  html, body { margin: 0; height: 100%; overflow: hidden; background: #11141b; }
-  #game { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
-  /* Read aloud, never shown: the status line screen readers announce. */
-  #status { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
-</style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TELUK ARUNIKA: 7 Hari Utang — FPS 3D</title>
+<link rel="stylesheet" href="style.css">
 </head>
 <body>
-<canvas id="game" aria-label="Block Dodger: move the paddle left and right to dodge falling blocks and catch coins"></canvas>
-<p id="status" role="status" aria-live="polite"></p>
-<script type="module" src="./src/main.js"></script>
+<div id="stage">
+  <canvas id="view"></canvas>
+  <div id="shade"></div>
+  <div id="sight"><i></i></div>
+  <div id="flash"></div>
+
+  <!-- heads-up display -->
+  <div id="hud" class="hide">
+    <div class="hud-corner tl">
+      <div id="stars"></div>
+      <div id="dayclock">HARI 1/7 &nbsp; 08:00 &nbsp; HUJAN</div>
+      <div id="cash">$ 250</div>
+    </div>
+    <div class="hud-corner tr">
+      <div id="station">RADIO: —</div>
+      <div id="goal">Tujuan: —</div>
+    </div>
+    <div id="meters">
+      <div class="meter"><label>HP</label><div class="rail"><div id="hpbar"></div></div><b id="hpval">100</b></div>
+      <div class="meter"><label>ARMOR</label><div class="rail"><div id="armorbar"></div></div><b id="armorval">0</b></div>
+      <div class="meter"><label>UANG</label><b id="cashval">$250</b></div>
+    </div>
+    <canvas id="map" width="190" height="190"></canvas>
+    <div id="bearing">N · 0°</div>
+    <div id="speed" class="hide">0 <small>km/h</small></div>
+    <div id="gun">1 · PISTOL ∞</div>
+    <div id="hint"></div>
+    <div id="jack" class="hide"><div id="jackfill"></div></div>
+    <div id="notice"></div>
+    <div id="saving" class="hide">Saving...</div>
+    <div id="heatline"></div>
+    <div id="clickhint">Klik untuk membidik (mouse look)</div>
+  </div>
+
+  <div id="wheel" class="hide">
+    <div class="wheel-head">SENJATA — tekan 1 / 2 / 3 atau Q</div>
+    <div class="wheel-row">
+      <div class="slot" data-w="0"><b>1</b> PISTOL<br><small>tak terbatas</small></div>
+      <div class="slot" data-w="1"><b>2</b> SMG<br><small id="ammo-smg">120 peluru</small></div>
+      <div class="slot" data-w="2"><b>3</b> SHOTGUN<br><small id="ammo-shot">24 peluru</small></div>
+    </div>
+  </div>
+
+  <div id="dialog" class="hide">
+    <div id="who">DARMA WIJAYA</div>
+    <div id="what"></div>
+    <div id="dlg-hint">E / klik untuk lanjut</div>
+    <div id="choices" class="hide"></div>
+  </div>
+
+  <div id="menu">
+    <div class="menu-box">
+      <div class="kicker">KOTA PELABUHAN HUJAN TROPIS · OPEN WORLD · FIRST-PERSON 3D</div>
+      <h1>TELUK<br>ARUNIKA</h1>
+      <div class="subtitle">7 HARI UTANG</div>
+      <p class="story">Raka, sopir taksi. Utang pada Darma Wijaya jatuh tempo dalam <b>7 hari</b>.
+      Lunasi, atau bengkel ayahnya disita. Kota ini tidak pernah berhenti hujan —
+      dan polisi tidak pernah berhenti mengawasi.</p>
+      <div class="btn-row">
+        <button id="btn-new">NEW GAME</button>
+        <button id="btn-continue">CONTINUE</button>
+      </div>
+      <div class="controls">Klik untuk mouse look · WASD jalan · E masuk / curi mobil (tahan) · Shift lari · Klik tembak · 1/2/3 senjata · R radio · T taksi · P / Esc pause &amp; save · M minimap</div>
+      <div class="foot">Teluk Arunika — kota, karakter, dan cerita orisinal. Bukan GTA, bukan Rockstar.</div>
+    </div>
+  </div>
+
+  <div id="pause" class="hide">
+    <div class="menu-box">
+      <h2>PAUSE — TELUK ARUNIKA</h2>
+      <div id="pause-info"></div>
+      <div class="save-label">SAVE SLOT</div>
+      <div class="btn-row">
+        <button data-slot="1">SLOT 1 — SIMPAN</button>
+        <button data-slot="2">SLOT 2 — SIMPAN</button>
+        <button data-slot="3">SLOT 3 — SIMPAN</button>
+      </div>
+      <div class="btn-row">
+        <button id="btn-load1">MUAT SLOT 1</button>
+        <button id="btn-resume">LANJUTKAN</button>
+        <button id="btn-quit">MENU UTAMA</button>
+      </div>
+      <div class="foot">Autosave aktif · P / Esc untuk lanjut</div>
+    </div>
+  </div>
+
+  <div id="testbox" class="hide"></div>
+  <div id="gl-error" class="hide">WebGL tidak tersedia di browser ini.</div>
+</div>
+<script src="vendor/three.min.js"></script>
+<script src="game.js"></script>
 </body>
 </html>
