@@ -1,3 +1,9 @@
+# teluk-arunika
+
+[![make.fun · gta6-01](https://make.fun/badge/gta6-01.svg)](https://make.fun/bounty/gta6-01?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
+[![rank](https://make.fun/badge/gta6-01/benigusman1997/teluk-arunika/rank.svg)](https://make.fun/bounty/gta6-01/leaderboard?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
+[![reward](https://make.fun/badge/gta6-01/benigusman1997/teluk-arunika/reward.svg)](https://make.fun/bounty/gta6-01?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
+
 # TELUK ARUNIKA: 7 Hari Utang — FPS 3D
 
 Rain-soaked first-person open-world crime game for make.fun bounty **gta6-01** —
@@ -11,16 +17,20 @@ or his father's workshop is seized. A fictional tropical port city — monsoon
 rain, wet neon streets, harbour, market, narrow alleys. Original characters
 and story only — nothing from Rockstar.
 
-## How to play
+## Run it
 
-Open `game/index.html` in a desktop browser (Chrome recommended), or serve
-`game/` with `node serve.ts` and open http://localhost:8080. No server needed.
+```sh
+node serve.ts
+```
 
-- **Click** the game to lock the mouse (mouse look) · **WASD** walk/drive ·
-  **Shift** run · **E** enter car / hold E to carjack · **Click** shoot ·
-  **1/2/3** pistol / SMG / shotgun, **Q** weapon wheel · **R** radio (3 stations) ·
-  **T** taxi side job · **Y** parcel delivery side job · **P / Esc** pause & save ·
-  **M** minimap zoom
+Then open http://localhost:8080 — or open `game/index.html` directly in a
+desktop browser (Chrome recommended). No server needed, no install step.
+
+- **Click** the game to lock the mouse (mouse look; drag works as a fallback) ·
+  **WASD** walk / drive · **Shift** run · **E** enter car, hold E to carjack ·
+  **Click** shoot · **1/2/3/4** pistol / SMG / shotgun / rifle, **Q** weapon wheel ·
+  **R** radio (3 stations) · **T** taxi side job · **Y** parcel delivery ·
+  **P / Esc** pause & save · **M** minimap zoom
 
 ## Features
 
@@ -28,22 +38,27 @@ Open `game/index.html` in a desktop browser (Chrome recommended), or serve
   rain makes handling slippery
 - 3D city: 60+ textured buildings with lit windows, neon signs, street lamps,
   traffic lights, wet reflective roads with puddles, day/night cycle, harbour
-  with containers and cranes, sea
+  with containers and cranes, sea; at dusk (17:00) the harbour sky turns orange
+  over the wet streets — the setting of the 'Senja di Pelabuhan' mission
 - Live traffic (cars stop at red lights, honk, avoid) + reactive pedestrians
   (cross streets, flee when shots are fired)
 - Real carjacking: hold E to pull the driver out, alarm, wanted +1 instantly;
-  repaint at the garage or hide at the safehouse to lose wanted
+  repaint at the garage or hide at the safehouse to lose wanted; a dedicated
+  story mission has you steal a car to order for Darma and deliver it to the garage
 - Wanted 1–5 stars with escalating police: foot patrol, patrol cars, roadblocks,
-  spike strips, Air One helicopter with spotlight; cool-down escape
-- 7 story missions (one per day) with cutscene dialogue + day-5 branching
-  mission (pay Darma $500 or betray him), taxi + parcel delivery side jobs,
-  economy (buy ammo/armor at the weapon shop)
-- Combat: weapon wheel, HP + armor, enemies using container cover, muzzle flash,
-  tracers, exploding cars, enemy HP bars
+  spike strips, ELANG-1 police helicopter with a bright spotlight that circles
+  and pursues; cool-down escape
+- 9 story missions (one per day, plus a car-theft job and a dusk run at the
+  harbour) with cutscene dialogue + day-5 branching mission (pay Darma $500
+  or betray him), taxi + parcel delivery side jobs, economy (buy ammo/armor
+  at the weapon shop)
+- Combat: weapon wheel with 4 weapons (pistol / SMG / shotgun / rifle), HP +
+  armor, enemies using container cover, muzzle flash, tracers, exploding cars,
+  enemy HP bars
 - Live HUD + minimap (police blips, mission marker, taxi, safehouse), compass,
   clock + weather; rain + night change visibility and handling
 - Start screen (New Game / Continue), pause with 3 save slots + autosave,
-  "Saving..."
+  "Menyimpan…" indicator
 
 ## Build / validate
 
@@ -68,3 +83,5 @@ Air One), `screenshots/shot3.jpg` (port shootout, weapon wheel + Darma dialogue)
   recorded music.
 - The city is procedural low-poly with canvas textures; there are no
   licensed or photoreal assets.
+
+Entered on [make.fun](https://make.fun/?ref=9s0rhqbz&utm_source=github&utm_medium=readme&utm_campaign=gta6-01) · AI agents build software for cash rewards
