@@ -1,108 +1,141 @@
 <!DOCTYPE html>
-<html lang="id">
+<html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="description" content="TELUK ARUNIKA: 7 Hari Utang — first-person 3D open-world crime game in a rain-soaked tropical port city. Raka the taxi driver has 7 days to pay crime boss Darma Wijaya. Playable offline in a desktop browser.">
-<title>TELUK ARUNIKA: 7 Hari Utang — FPS 3D</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Teluk Arunika — 7 Hari Utang</title>
+<link rel="icon" href="data:,">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<div id="app">
-  <canvas id="view"></canvas>
-  <div id="shade"></div>
-  <div id="aim"><span></span></div>
-  <div id="flash"></div>
+<div id="stage">
+  <canvas id="gl"></canvas>
+  <div id="rain-vignette"></div>
 
-  <!-- in-game HUD -->
-  <div id="hud" class="off">
-    <div class="hud-corner hud-tl">
-      <div id="stars"></div>
-      <div id="dayline">HARI 1 / 7 &nbsp;·&nbsp; 08:00 &nbsp;·&nbsp; HUJAN</div>
-      <div id="cashline">$ 250</div>
+  <!-- ============ HUD ============ -->
+  <div id="hud" class="hidden">
+    <div id="hud-top-left">
+      <div id="wanted-row"><span id="wanted-stars">☆☆☆☆☆</span><span id="wanted-label">WANTED</span></div>
+      <div id="money-row">$<span id="money">250</span></div>
+      <div id="day-row">HARI <span id="day-num">1</span>/7 · <span id="debt-left">$4.750</span> UTANG</div>
     </div>
-    <div class="hud-corner hud-tr">
-      <div id="station">RADIO: —</div>
-      <div id="goal">Tujuan: —</div>
+
+    <div id="hud-top-center">
+      <div id="compass"><span id="compass-text">N · NE · E · SE · S · SW · W · NW</span></div>
+      <div id="mission-banner"><span id="mission-title">Misi 1 — Taksi Pertama</span></div>
     </div>
-    <div id="meters">
-      <div class="meter"><label>HP</label><div class="track"><div id="hpbar"></div></div><b id="hpval">100</b></div>
-      <div class="meter"><label>ARMOR</label><div class="track"><div id="armorbar"></div></div><b id="armorval">0</b></div>
-      <div class="meter"><label>UANG</label><b id="moneyval">$250</b></div>
+
+    <div id="hud-top-right">
+      <div id="clock-row"><span id="clock">08:00</span> <span id="weather">🌧 HUJAN</span></div>
+      <div id="radio-row">♪ <span id="radio-track">RADIO ARUNIKA — Dangdut Neon</span></div>
+      <div id="save-flash" class="hidden">Menyimpan…</div>
     </div>
-    <canvas id="map" width="200" height="200"></canvas>
-    <div id="bearing">N · 0°</div>
-    <div id="speed" class="off">0 <small>km/h</small></div>
-    <div id="gun">1 · PISTOL ∞</div>
-    <div id="cue"></div>
-    <div id="jack" class="off"><div id="jackfill"></div></div>
-    <div id="note"></div>
-    <div id="autosave" class="off">Menyimpan…</div>
-    <div id="danger"></div>
-    <div id="dragtip">Klik untuk membidik · seret mouse bila pointer lock tidak aktif</div>
+
+    <div id="hud-bottom-left">
+      <div class="bar-label">HP</div>
+      <div class="bar"><div id="hp-fill"></div></div>
+      <div class="bar-label">ARMOR</div>
+      <div class="bar"><div id="armor-fill"></div></div>
+      <div id="weapon-row">
+        <span class="wslot" data-w="0">1 Pistol</span>
+        <span class="wslot" data-w="1">2 SMG</span>
+        <span class="wslot" data-w="2">3 Shotgun</span>
+        <span class="wslot" data-w="3">4 Rifle</span>
+      </div>
+      <div id="ammo-row">AMMO <span id="ammo">12 / ∞</span></div>
+    </div>
+
+    <div id="hud-bottom-right">
+      <canvas id="minimap" width="190" height="190"></canvas>
+      <div id="speedo" class="hidden"><span id="speed-val">0</span><span id="speed-unit"> km/h</span></div>
+    </div>
+
+    <div id="crosshair">+</div>
+    <div id="hitmarker" class="hidden">✕</div>
+
+    <div id="toast-stack"></div>
+    <div id="prompt-bar" class="hidden"></div>
+    <div id="jack-bar" class="hidden">
+      <div id="jack-label">MEMBOBOL MOBIL…</div>
+      <div id="jack-track"><div id="jack-fill"></div></div>
+    </div>
+    <div id="alarm-banner" class="hidden">🚨 ALARM MOBIL! POLISI DIPANGGIL 🚨</div>
+
+    <div id="dialogue" class="hidden">
+      <div id="dialogue-speaker">DARMA WIJAYA</div>
+      <div id="dialogue-text"></div>
+      <div id="dialogue-hint">Tekan E untuk lanjut</div>
+    </div>
+
+    <div id="wheel" class="hidden">
+      <div class="wheel-title">SENJATA</div>
+      <div class="wheel-grid">
+        <div class="wheel-item" data-w="0"><b>1</b><span>Pistol</span><i>cepat · 25 dmg</i></div>
+        <div class="wheel-item" data-w="1"><b>2</b><span>SMG</span><i>cepat · 14 dmg</i></div>
+        <div class="wheel-item" data-w="2"><b>3</b><span>Shotgun</span><i>dekat · 60 dmg</i></div>
+        <div class="wheel-item" data-w="3"><b>4</b><span>Rifle</span><i>jauh · 45 dmg</i></div>
+      </div>
+    </div>
+
+    <div id="shop" class="hidden">
+      <div class="shop-title">TOKO SENJATA — PAK AMIR</div>
+      <div class="shop-item" data-buy="armor">Rompi Anti Peluru — $200 <button> BELI </button></div>
+      <div class="shop-item" data-buy="smg">SMG Bekas — $350 <button> BELI </button></div>
+      <div class="shop-item" data-buy="shotgun">Shotgun — $450 <button> BELI </button></div>
+      <div class="shop-item" data-buy="rifle">Rifle — $700 <button> BELI </button></div>
+      <div class="shop-hint">Tekan E untuk tutup</div>
+    </div>
+
+    <div id="branch" class="hidden">
+      <div class="branch-title">HARI 5 — KEPUTUSAN DARMA</div>
+      <div class="branch-text">Bayar Darma $500 dan lunas, atau khianati dia dan rebut pelabuhan?</div>
+      <button id="branch-pay">BAYAR $500</button>
+      <button id="branch-betray">KHIANATI DARMA</button>
+    </div>
+
+    <div id="enemy-bars"></div>
+    <div id="objective">📍 Antar penumpang ke Pasar Ikan — ikuti penanda kuning</div>
   </div>
 
-  <!-- weapon wheel -->
-  <div id="wheel" class="off">
-    <div class="wheel-head">SENJATA — tekan 1 / 2 / 3 / 4 atau Q untuk menutup</div>
-    <div class="wheel-grid">
-      <div class="wheel-cell" data-slot="0"><b>1</b> PISTOL<br><small>peluru tak terbatas</small></div>
-      <div class="wheel-cell" data-slot="1"><b>2</b> SMG<br><small id="ammo2">120 peluru</small></div>
-      <div class="wheel-cell" data-slot="2"><b>3</b> SHOTGUN<br><small id="ammo3">24 peluru</small></div>
-      <div class="wheel-cell" data-slot="3"><b>4</b> RIFLE<br><small id="ammo4">60 peluru</small></div>
-    </div>
-  </div>
-
-  <!-- cutscene dialogue -->
-  <div id="talk" class="off">
-    <div id="talker">DARMA WIJAYA</div>
-    <div id="talkline"></div>
-    <div id="talknext">E / klik — lanjut</div>
-    <div id="talkpick" class="off"></div>
-  </div>
-
-  <!-- title screen -->
-  <div id="menu">
-    <div class="menu-box">
-      <div class="menu-kicker">KOTA PELABUHAN HUJAN TROPIS · OPEN WORLD · FIRST-PERSON 3D</div>
+  <!-- ============ START SCREEN ============ -->
+  <div id="start-screen">
+    <div class="start-inner">
+      <div class="start-kicker">MAKE.FUN · GTA6-01</div>
       <h1>TELUK<br>ARUNIKA</h1>
-      <div class="menu-sub">7 HARI UTANG</div>
-      <p class="menu-story">Raka, sopir taksi. Utang pada Darma Wijaya jatuh tempo dalam
-      <b>7 hari</b>. Lunasi, atau bengkel ayahnya disita. Kota ini tak pernah berhenti
-      hujan — dan polisi tak pernah berhenti mengawasi.</p>
-      <div class="menu-btns">
-        <button id="btn-start">NEW GAME</button>
-        <button id="btn-load">CONTINUE</button>
+      <div class="start-sub">7 HARI UTANG — hujan, neon, dan satu taksi kuning</div>
+      <p class="start-story">Raka, sopir taksi, berutang pada bos kriminal Darma Wijaya.
+      Tujuh hari untuk melunasi $5.000 — atau bengkel ayahnya disita.
+      Curi mobil, kabur dari polisi, dan pilih: bayar, atau khianati.</p>
+      <div class="start-buttons">
+        <button id="btn-continue">▶ LANJUTKAN</button>
+        <button id="btn-new">＋ PERMAINAN BARU</button>
       </div>
-      <div class="menu-keys">Klik untuk mouse look · WASD jalan / nyetir · E masuk mobil, tahan E untuk membajak ·
-      Shift lari · Klik tembak · 1/2/3/4 senjata, Q weapon wheel · R radio · T taksi · Y paket · P / Esc pause &amp; save · M minimap</div>
-      <div class="menu-foot">Teluk Arunika — kota, karakter, dan cerita orisinal. Bukan GTA, bukan Rockstar.</div>
+      <div class="start-controls">WASD jalan · Mouse arah · E masuk / curi mobil (tahan) · Klik tembak ·
+      1–4 senjata · Q roda senjata · R radio · Shift lari · P jeda · M minimap</div>
+      <div class="start-foot">Semua grafis prosedural low-poly · Semua suara disintesis WebAudio · Tanpa internet</div>
     </div>
   </div>
 
-  <!-- pause + saves -->
-  <div id="pause" class="off">
-    <div class="pause-box">
-      <h2>PAUSE — TELUK ARUNIKA</h2>
-      <div id="pause-info"></div>
-      <div class="pause-cap">SAVE SLOT</div>
-      <div class="pause-row">
-        <button data-save="1">SLOT 1 — SIMPAN</button>
-        <button data-save="2">SLOT 2 — SIMPAN</button>
-        <button data-save="3">SLOT 3 — SIMPAN</button>
+  <!-- ============ PAUSE SCREEN ============ -->
+  <div id="pause-screen" class="hidden">
+    <div class="pause-inner">
+      <h2>JEDA</h2>
+      <div class="pause-stats">Uang $<span id="pause-money">250</span> · Hari <span id="pause-day">1</span>/7 ·
+      <span id="pause-clock">08:00</span> · <span id="pause-weather">Hujan</span></div>
+      <div class="pause-slots">
+        <div class="slot" data-slot="1"><b>SLOT 1</b><span class="slot-info">— kosong —</span><button>SIMPAN</button></div>
+        <div class="slot" data-slot="2"><b>SLOT 2</b><span class="slot-info">— kosong —</span><button>SIMPAN</button></div>
+        <div class="slot" data-slot="3"><b>SLOT 3</b><span class="slot-info">— kosong —</span><button>SIMPAN</button></div>
       </div>
-      <div class="pause-row">
-        <button id="btn-loadslot">MUAT SLOT 1</button>
-        <button id="btn-resume">LANJUTKAN</button>
-        <button id="btn-menu">MENU UTAMA</button>
+      <div class="pause-buttons">
+        <button id="btn-resume">▶ LANJUT</button>
+        <button id="btn-restart">↺ MULAI ULANG</button>
       </div>
-      <div class="pause-note">Autosave aktif · P / Esc untuk lanjut</div>
+      <div class="pause-hint">Autosave aktif — progres tersimpan otomatis setiap misi selesai.</div>
     </div>
   </div>
 
-  <div id="testout" class="off"></div>
-  <div id="glerr" class="off">WebGL tidak tersedia di browser ini.</div>
-  <noscript><div id="glerr">Game ini butuh JavaScript.</div></noscript>
+  <div id="test-panel" class="hidden"></div>
 </div>
 <script src="vendor/three.min.js"></script>
 <script src="game.js"></script>
