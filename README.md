@@ -26,7 +26,7 @@ Open `game/index.html` in a desktop browser (Chrome recommended), or serve
 
 - First-person on foot + first-person driving (hood cam, headlights, speedometer);
   rain makes handling slippery
-- 3D city: ~60 textured buildings with lit windows, neon signs, street lamps,
+- 3D city: 60+ textured buildings with lit windows, neon signs, street lamps,
   traffic lights, wet reflective roads with puddles, day/night cycle, harbour
   with containers and cranes, sea
 - Live traffic (cars stop at red lights, honk, avoid) + reactive pedestrians
@@ -58,3 +58,13 @@ Real renders from the game (`?shot=1..4`, 1280x720 JPEG): `screenshots/shot1.jpg
 (FPS on-foot rain, carjacking), `screenshots/shot2.jpg` (night chase, roadblock +
 Air One), `screenshots/shot3.jpg` (port shootout, weapon wheel + Darma dialogue),
 `screenshots/shot4.jpg` (pause/save + taxi job).
+
+## Known limitations
+
+- Traffic and pedestrian AI is simple waypoint/avoidance steering, not a full
+  traffic simulation; enemy AI advances and shoots from cover but does not
+  flank or coordinate.
+- Radio stations are synthesized WebAudio melodies with named tracks, not
+  recorded music.
+- The city is procedural low-poly with canvas textures; there are no
+  licensed or photoreal assets.

@@ -1,6 +1,1 @@
-[
-  { "name": "shot1.jpg", "query": "?shot=1" },
-  { "name": "shot2.jpg", "query": "?shot=2" },
-  { "name": "shot3.jpg", "query": "?shot=3" },
-  { "name": "shot4.jpg", "query": "?shot=4" }
-]
+[{"name":"shot1.jpg","query":"?shot=1"},{"name":"shot2.jpg","query":"?shot=2"},{"name":"shot3.jpg","query":"?shot=3"},{"name":"shot4.jpg","query":"?shot=4"}]
