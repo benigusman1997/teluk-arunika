@@ -1,33 +1,38 @@
+// serve.ts — Teluk Arunika v3.8. Server statis dev (Node 22 stdlib, port 8080).
+// Sajikan game/ di root; buka http://localhost:8080/ untuk main.
 import { createServer } from 'node:http';
 import { existsSync, readFileSync, statSync } from 'node:fs';
-import { dirname, extname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { extname, join } from 'node:path';
 
-// Server statis dev untuk Teluk Arunika: sajikan game/ di http://localhost:8080
-const root = join(dirname(fileURLToPath(import.meta.url)), 'game');
-const TYPES = {
-  '.html': 'text/html; charset=utf-8',
-  '.js': 'text/javascript; charset=utf-8',
-  '.css': 'text/css; charset=utf-8',
-  '.json': 'application/json; charset=utf-8',
+const ROOT = process.cwd();
+const GAME = join(ROOT, 'game');
+const PORT = Number(process.env.PORT || 8080);
+
+const MIME: Record<string, string> = {
+  '.html': 'text/html',
+  '.js': 'text/javascript',
+  '.mjs': 'text/javascript',
+  '.css': 'text/css',
+  '.json': 'application/json',
   '.png': 'image/png',
   '.jpg': 'image/jpeg',
-  '.svg': 'image/svg+xml',
+  '.jpeg': 'image/jpeg',
 };
 
 const server = createServer((req, res) => {
   const url = decodeURIComponent((req.url || '/').split('?')[0]);
-  const rel = url === '/' ? 'index.html' : url.replace(/^\/+/, '');
-  const file = join(root, rel);
-  if (!file.startsWith(root) || !existsSync(file) || !statSync(file).isFile()) {
-    res.writeHead(404, { 'content-type': 'text/plain' });
-    res.end('not found');
-    return;
+  let rel = url.replace(/^\/+/, '');
+  if (rel === '' || rel === 'index.html') rel = 'index.html';
+  let file = join(GAME, rel);
+  if (!existsSync(file) || !statSync(file).isFile()) {
+    const alt = join(ROOT, rel);
+    if (existsSync(alt) && statSync(alt).isFile()) file = alt;
+    else { res.writeHead(404); res.end('not found'); return; }
   }
-  res.writeHead(200, { 'content-type': TYPES[extname(file)] || 'application/octet-stream' });
+  res.writeHead(200, { 'content-type': MIME[extname(file)] || 'application/octet-stream' });
   res.end(readFileSync(file));
 });
 
-server.listen(8080, () => {
-  console.log('Serving game/ at http://localhost:8080');
+server.listen(PORT, '127.0.0.1', () => {
+  console.log('serve.ts: http://127.0.0.1:' + PORT + '/');
 });

@@ -15,10 +15,10 @@ mkdirSync(TMP, { recursive: true });
 mkdirSync(OUT, { recursive: true });
 
 const SHOTS = [
-  { n: 1, file: 'shot1-bank-escape.jpg' },
-  { n: 2, file: 'shot2-bank-shootout.jpg' },
+  { n: 1, file: 'shot1-swat-deployed.jpg' },
+  { n: 2, file: 'shot2-wreck-contract.jpg' },
   { n: 3, file: 'shot3-full-map.jpg' },
-  { n: 4, file: 'shot4-title-screen.jpg' },
+  { n: 4, file: 'shot4-chase-night.jpg' },
 ];
 
 const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css' };

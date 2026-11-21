@@ -1,446 +1,289 @@
-/* missions.js — 10 operasi naratif, 3 bab, kontrak sindikat, perampokan bank 7 tahap */
+/* missions.js — Teluk Arunika v3.8. 10 operasi naratif dalam 3 bab, tiap misi
+   3-4 tahap (Misi 6 & 10: 4 tahap; Misi 7 bank heist: 7 tahap), kontrak sindikat,
+   cabang hari ke-5, Kontrak Hancur (wreck-the-target), Ekspor Mobil, dialog. */
 (function () {
   'use strict';
   var TA = window.TA;
-  TA.missions = TA.missions || {};
 
   var ACTS = [
-    { name: 'BAB I', title: 'Utang', from: 1, to: 3 },
-    { name: 'BAB II', title: 'Sindikat', from: 4, to: 7 },
-    { name: 'BAB III', title: 'Fajar', from: 8, to: 10 }
+    { id: 1, name: 'BAB I — UTANG', num: 'BAB I', missions: [0, 1, 2] },
+    { id: 2, name: 'BAB II — SINDIKAT', num: 'BAB II', missions: [3, 4, 5, 6] },
+    { id: 3, name: 'BAB III — FAJAR', num: 'BAB III', missions: [7, 8, 9] },
   ];
-  var ACT_NAMES = { 'BAB I': 'Utang', 'BAB II': 'Sindikat', 'BAB III': 'Fajar' };
-  TA.missions.ACTS = ACTS;
-  TA.missions.ACT_NAMES = ACT_NAMES;
+  var ACT_NAMES = { 1: 'Utang', 2: 'Sindikat', 3: 'Fajar' };
 
   var SYNDICATES = ['DARMA WIYAYA', 'GENG KERONO', 'KELO ARMS'];
-  TA.missions.SYNDICATES = SYNDICATES;
 
+  /* Misi: judul, bab, sindikat, hadiah, tahap (judul + objektif + next). */
   var MISSIONS = [
-    { n: 1, name: 'Taksi Terakhir', act: 'BAB I', syndicate: 'DARMA WIYAYA', reward: 150,
-      stages: ['Jemput Penumpang', 'Antar ke Pasar Senja', 'Tagih Ongkos'],
-      objective: 'Antar penumpang ke Pasar Senja.',
-      next: 'Jemput penumpang di dermaga',
-      dialogue: [['RAKA', 'Satu penumpang lagi, lalu aku bisa bayar cicilan hari ini.'], ['PAK AMIR', 'Hati-hati, Nak. Darma tidak sabar menunggu.']] },
-    { n: 2, name: 'Cat Emas', act: 'BAB I', syndicate: 'GENG KERONO', reward: 300,
-      stages: ['Ambil Cat di Gudang', 'Cat Ulang Mobil', 'Antar ke Gang Neon'],
-      objective: 'Cat ulang mobil curian jadi emas, antar ke Gang Neon.',
-      next: 'Ambil kaleng cat di gudang Pelabuhan',
-      dialogue: [['KERONO', 'Mobil itu harus emas sebelum senja. Jangan tanya kenapa.'], ['RAKA', 'Emas? Baiklah. Aku cuma sopir.']] },
-    { n: 3, name: 'Utang Darah', act: 'BAB I', syndicate: 'DARMA WIYAYA', reward: 500,
-      stages: ['Temui Darma', 'Tagih Utang Kecil', 'Pilih: Bayar atau Khianat'],
-      objective: 'Hadapi Darma: bayar $500 atau khianati dia.',
-      next: 'Masuk ke kantor Darma di Pelabuhan',
-      dialogue: [['DARMA', 'Tiga hari lagi, Raka. Bengkel ayahmu taruhannya.'], ['RAKA', 'Aku akan bayar. Dengan caraku sendiri.']] },
-    { n: 4, name: 'Paket Senja', act: 'BAB II', syndicate: 'KELO ARMS', reward: 600,
-      stages: ['Ambil Paket', 'Hindari Patroli', 'Antar ke Pantai'],
-      objective: 'Antar paket Kelo Arms ke kafe Pantai Arunika.',
-      next: 'Ambil paket di gudang Kelo Arms',
-      dialogue: [['KELO', 'Paket ini lebih mahal dari mobilmu. Jangan dibuka.'], ['RAKA', 'Aku tidak buka. Aku cuma antar.']] },
-    { n: 5, name: 'Jembatan Bara', act: 'BAB II', syndicate: 'GENG KERONO', reward: 700,
-      stages: ['Seberangi Jembatan Abu', 'Ambil Barang', 'Kembali Sebelum Fajar'],
-      objective: 'Seberangi jembatan ke Pulau Abu dan ambil barangnya.',
-      next: 'Tuju Jembatan Abu di timur',
-      dialogue: [['SARI', 'Jembatan itu panas, Raka. Bara di bawahnya masih menyala.'], ['RAKA', 'Kalau begitu kita ngebut.']] },
-    { n: 6, name: 'Gudang Kerono', act: 'BAB II', syndicate: 'GENG KERONO', reward: 900,
-      stages: ['Masuk Gudang', 'Lumpuhkan Penjaga', 'Bakar Bukti', 'Kabur Lewat Tol'],
-      objective: 'Serbu gudang Kerono, bakar bukti, kabur lewat Tol Layang.',
-      next: 'Masuk lewat pintu samping gudang',
-      dialogue: [['AGUS', 'Aku matikan kameranya 30 detik. Itu saja waktumu.'], ['RAKA', 'Cukup. Ayo masuk.']] },
-    { n: 7, name: 'Perampokan Bank Arunika', act: 'BAB II', syndicate: 'DARMA WIYAYA', reward: 25000,
-      stages: ['Sampai di Bank Arunika', 'Lumpuhkan Alarm', 'Habisi Penjaga Bank', 'Bobol Brankas', 'Ambil Uang', 'Kabur dari Bank', 'Hilangkan Jejak'],
-      objective: 'Rampok Bank Arunika: 9 penjaga, brankas, lalu kabur.',
-      next: 'Tuju plaza Bank Arunika',
-      dialogue: [['DARMA', 'Bank itu menyimpan uangku. Ambil semuanya, Raka. Jangan sampai ada yang hidup bercerita.'], ['SARI', 'Van sudah siap di depan. Sembilan penjaga, Raka. Sembilan.'], ['RAKA', 'Kalau begitu, jangan ada yang meleset.']] },
-    { n: 8, name: 'Abu dan Bara', act: 'BAB III', syndicate: 'KELO ARMS', reward: 800,
-      stages: ['Mendarat di Pulau Abu', 'Cari Senjata di Kawah', 'Hadapi Penjaga Kawah', 'Kabur dari Pulau'],
-      objective: 'Ambil kiriman senjata Kelo Arms di kawah Pulau Abu.',
-      next: 'Seberangi Jembatan Abu ke kawah',
-      dialogue: [['KELO', 'Senjata itu di kawah. Ambil sebelum orang Darma sampai.'], ['BUDI', 'Mesin mobilmu sudah kusiapkan. Jangan sampai meledak di tengah jalan.']] },
-    { n: 9, name: 'Jalan Pulang', act: 'BAB III', syndicate: 'DARMA WIYAYA', reward: 1200,
-      stages: ['Kumpulkan Kru', 'Serbu Markas Kecil', 'Rebut Catatan Utang'],
-      objective: 'Rebut catatan utang Darma dari markas kecilnya.',
-      next: 'Kumpulkan kru di bengkel Pak Amir',
-      dialogue: [['PAK AMIR', 'Catatan itu bukti utangmu, Nak. Ambil kembali.'], ['RAKA', 'Besok, semua selesai.']] },
-    { n: 10, name: 'Operasi Terakhir: Fajar di Pelabuhan', act: 'BAB III', syndicate: 'DARMA WIYAYA', reward: 2000,
-      stages: ['Serbu Gudang Terakhir', 'Gelombang 1: Kontainer', 'Gelombang 2: Dermaga', 'Pilihan Akhir: Tangkap Darma'],
-      objective: 'Serbu gudang terakhir Darma di fajar hari ke-7.',
-      next: 'Tuju gudang terakhir di Pelabuhan',
-      dialogue: [['RAKA', 'Tujuh hari. Ini hari terakhir.'], ['DARMA', 'Kamu datang juga, sopir taksi.'], ['SARI', 'Kami di belakangmu, Raka. Sampai akhir.']] }
+    { title: 'UTANG PERTAMA', act: 1, syndicate: 'DARMA WIYAYA', reward: 500, stages: [
+      { title: 'TEMUI PAK AMIR', objective: 'Pergi ke bengkel Pak Amir di Pelabuhan', next: 'Dengarkan perintah Darma' },
+      { title: 'ANTAR PAKET', objective: 'Antar paket ke Pasar Senja tanpa ketahuan', next: 'Kembali ke bengkel' },
+      { title: 'BAYAR CICILAN', objective: 'Serahkan $500 ke penagih Darma', next: 'Hari 1 selesai' } ] },
+    { title: 'GOLD PAINT', act: 1, syndicate: 'GENG KERONO', reward: 700, stages: [
+      { title: 'CURI PELABUHAN GT', objective: 'Curi PELABUHAN GT emas di Pelabuhan', next: 'Bawa ke bengkel cat' },
+      { title: 'GANTI WARNA', objective: 'Respray di garage — wanted turun', next: 'Antar ke pembeli' },
+      { title: 'SERAHKAN MOBIL', objective: 'Antar mobil ke pembeli di Gang Neon', next: 'Misi selesai' } ] },
+    { title: 'OFF THE FERRY', act: 1, syndicate: 'DARMA WIYAYA', reward: 900, stages: [
+      { title: 'JEMPUT DI DERMAGA', objective: 'Jemput kurir di Dermaga Senja', next: 'Kabur dari patroli' },
+      { title: 'KEJAR-KEJARAN', objective: 'Lolos dari 2 mobil patroli', next: 'Antar kurir ke safehouse' },
+      { title: 'SELESAIKAN ANTARAN', objective: 'Antar kurir ke safehouse Pantai', next: 'Hari 3 selesai' } ] },
+    { title: 'JALAN TIKUS', act: 2, syndicate: 'GENG KERONO', reward: 1100, stages: [
+      { title: 'MASUK GANG NEON', objective: 'Sampai ke Gang Neon tanpa wanted', next: 'Temui informan' },
+      { title: 'TEMUI INFORMAN', objective: 'Dengarkan info rute Kerono', next: 'Ambil paket rahasia' },
+      { title: 'BAWA PAKET', objective: 'Bawa paket ke Pasar Senja', next: 'Misi selesai' } ] },
+    { title: 'PILIHAN DARMA', act: 2, syndicate: 'DARMA WIYAYA', reward: 1500, stages: [
+      { title: 'CABANG HARI KE-5', objective: 'PILIH: bayar Darma $500 ATAU khianati dia', next: 'Hadapi akibat pilihanmu' },
+      { title: 'HADAPI AKIBAT', objective: 'Bayar utang / lawan anak buah Darma', next: 'Kembali ke bengkel' },
+      { title: 'RAMPUNG', objective: 'Laporan ke Pak Amir', next: 'Bab II berlanjut' } ] },
+    { title: 'WRECK THE REGENT', act: 2, syndicate: 'KELO ARMS', reward: 2000, stages: [
+      { title: 'LACAK REGENT', objective: 'Temukan mobil Regent di Tol Layang', next: 'Kejar Regent' },
+      { title: 'KEJAR REGENT', objective: 'Kejar Regent sebelum sampai tujuan', next: 'Hancurkan Regent' },
+      { title: 'HANCURKAN REGENT', objective: 'Tabrak / tembak Regent sampai hancur', next: 'Hilang dari pantauan' },
+      { title: 'VANISH', objective: 'Hilang dari pantauan polisi', next: 'Misi selesai' } ] },
+    { title: 'PERAMPOKAN BANK ARUNIKA', act: 2, syndicate: 'DARMA WIYAYA', reward: 25000, stages: [
+      { title: 'SAMPAI DI BANK ARUNIKA', objective: 'Tuju plaza Bank Arunika', next: 'Lumpuhkan alarm' },
+      { title: 'LUMPUHKAN ALARM', objective: 'Tahan E 5 dtk di panel alarm', next: 'Habisi penjaga bank' },
+      { title: 'HABISI PENJAGA BANK', objective: 'Habisi 9 penjaga bank di plaza', next: 'Bobol brankas' },
+      { title: 'BOBOL BRANKAS', objective: 'Tahan E di brankas — timer 10 dtk', next: 'Ambil uang' },
+      { title: 'AMBIL UANG', objective: 'Ambil tas uang — uang bertambah', next: 'Kabur dari bank' },
+      { title: 'KABUR DARI BANK', objective: 'Keluar pintu depan — wanted langsung 4', next: 'Hilangkan jejak' },
+      { title: 'HILANGKAN JEJAK', objective: 'Lolos dari kejar-kejaran wanted 4-5', next: 'Misi selesai' } ] },
+    { title: 'ABU DAN BARA', act: 3, syndicate: 'KELO ARMS', reward: 800, stages: [
+      { title: 'SEBERANGI JEMBATAN', objective: 'Seberangi jembatan ke Pulau Abu', next: 'Masuk kawah' },
+      { title: 'MASUK KAWAH', objective: 'Ambil kiriman di kawah Pulau Abu', next: 'Kabur dari kawah' },
+      { title: 'KABUR DARI KAWAH', objective: 'Kembali ke Pelabuhan sebelum meletus', next: 'Misi selesai' } ] },
+    { title: 'BADAI TERAKHIR', act: 3, syndicate: 'GENG KERONO', reward: 1800, stages: [
+      { title: 'HADANG KONVOI', objective: 'Hadang konvoi Kerono di Tol Layang', next: 'Rebut muatan' },
+      { title: 'REBUT MUATAN', objective: 'Rebut muatan dari konvoi', next: 'Antar ke safehouse' },
+      { title: 'ANTAR KE SAFEHOUSE', objective: 'Antar muatan ke safehouse', next: 'Misi selesai' } ] },
+    { title: 'OPERASI TERAKHIR: FAJAR DI PELABUHAN', act: 3, syndicate: 'DARMA WIYAYA', reward: 5000, stages: [
+      { title: 'SERBU GUDANG', objective: 'Serbu gudang terakhir Darma di Pelabuhan', next: 'Gelombang 2' },
+      { title: 'GELOMBANG KEDUA', objective: 'Tahan gelombang kedua di balik kontainer', next: 'Gelombang terakhir' },
+      { title: 'GELOMBANG TERAKHIR', objective: 'Bersihkan gudang — ELANG-1 menutup jalan kabur', next: 'Hadapi Darma' },
+      { title: 'HADAPI DARMA', objective: 'PILIH: tangkap Darma hidup-hidup (+200 XP) atau biarkan kabur (+$500)', next: 'Utang lunas' } ] },
   ];
-  TA.missions.MISSIONS = MISSIONS;
 
-  var BANK_HEIST_STAGES = [
-    'Sampai di Bank Arunika', 'Lumpuhkan Alarm', 'Habisi Penjaga Bank',
-    'Bobol Brankas', 'Ambil Uang', 'Kabur dari Bank', 'Hilangkan Jejak'
+  var BANK_HEIST_STAGES = MISSIONS[6].stages.map(function (st) { return st.title; });
+
+  /* ---------- Kontrak Hancur (side job, bukan misi ke-11) ---------- */
+  var WRECK_CONTRACTS = [
+    { key: 'komet', name: 'KOMET MERAH', dest: 'Pelabuhan', route: 'Pantai → Pelabuhan', reward: 1200, xp: 60, start: { x: 1150, y: 2080 }, destPos: { x: 420, y: 480 } },
+    { key: 'harimau', name: 'HARIMAU SEDAN', dest: 'Tol Layang', route: 'Pasar → Tol Layang', reward: 800, xp: 60, start: { x: 1400, y: 700 }, destPos: { x: 1800, y: 1325 } },
+    { key: 'srikandi', name: 'SRIKANDI GT', dest: 'Pulau Abu', route: 'Pelabuhan → Pulau Abu', reward: 1500, xp: 60, start: { x: 700, y: 600 }, destPos: { x: 3300, y: 2150 } },
   ];
-  TA.missions.BANK_HEIST_STAGES = BANK_HEIST_STAGES;
 
-  var enemies = [];
-  var dialogueQueue = [];
-  var dialogueIdx = 0;
-  var stageT = 0;
-  var alarmHold = 0;
-  var vaultHold = 0;
-  var exportJob = null;
+  var dialogueQueue = [], dialogueIdx = 0;
 
-  function reset() {
-    enemies = [];
-    dialogueQueue = [];
-    dialogueIdx = 0;
-    stageT = 0;
-    alarmHold = 0;
-    vaultHold = 0;
-    exportJob = null;
-  }
-
-  function getActForMission(n) {
-    for (var i = 0; i < ACTS.length; i++) {
-      if (n >= ACTS[i].from && n <= ACTS[i].to) return ACTS[i];
-    }
+  function getActForMission(i) {
+    for (var a = 0; a < ACTS.length; a++) if (ACTS[a].missions.indexOf(i) >= 0) return ACTS[a];
     return ACTS[0];
   }
-  TA.missions.getActForMission = getActForMission;
-
-  function mission(n) { return MISSIONS[n - 1]; }
-  TA.missions.mission = mission;
-
-  function getMissionContract(n) {
-    var m = mission(n);
-    return 'KONTRAK: ' + m.syndicate + ' — ' + TA.fmtDollar(m.reward);
-  }
-  TA.missions.getMissionContract = getMissionContract;
-
-  function missionStatus(n) {
-    if (TA.S.missionDone[n - 1]) return 'DONE';
-    if (TA.S.mission === n) return 'NEXT';
-    return 'LOCKED';
-  }
-  TA.missions.missionStatus = missionStatus;
-
-  function startMission(n) {
-    var m = mission(n);
-    TA.S.mission = n;
-    TA.S.stage = 1;
-    TA.S.stageTotal = m.stages.length;
-    TA.S.guardsKilled = 0;
-    TA.S.guardsTotal = n === 7 ? 9 : 0;
-    if (n === 7) startBankHeist();
-    if (n === 10) spawnWave(1);
-    showMissionIntro(n);
-    TA.career.updateDistrictStanding(TA.world.districtAt(TA.S.px, TA.S.py).name, 2);
+  function getMissionContract(i) {
+    var m = MISSIONS[i];
+    return 'KONTRAK: ' + m.syndicate + ' — $' + String(m.reward).replace(/\B(?=(\d{3})+(?!\d))/g, '.');
   }
 
-  function startBankHeist() {
-    TA.S.stage = 1;
-    TA.S.stageTotal = 7;
-    TA.S.guardsKilled = 0;
-    TA.S.guardsTotal = 9;
-    spawnBankGuards();
-    TA.S.px = 2060; TA.S.py = 1560;
-    TA.police.setWanted(0);
-    TA.S.incident = '—';
-    TA.ui.showToast('PERAMPOKAN BANK ARUNIKA — 7 tahap. Van getaway siap di depan bank.');
+  function startMission(i) {
+    var s = TA.state;
+    s.mission = { index: i, stage: 0 };
+    s.bankGuardsDown = 0;
+    showMissionIntro(i);
+    if (TA.crew) TA.crew.showCrewChatter('SARI', 'Misi ' + (i + 1) + ': ' + MISSIONS[i].title + ' — ayo jalan!');
   }
-  TA.missions.startBankHeist = startBankHeist;
-
-  function spawnBankGuards() {
-    enemies = [];
-    var B = TA.world.BANK;
-    var rnd = TA.seededRandom(777);
-    for (var i = 0; i < 9; i++) {
-      enemies.push({
-        x: B.x + 20 + rnd() * (B.w - 40),
-        y: B.plazaY - 30 + rnd() * 160,
-        hp: 50, alive: true, guard: true, shootT: 1 + rnd() * 2
-      });
-    }
+  function startMissionStage(i, stage) {
+    var s = TA.state;
+    s.mission = { index: i, stage: stage };
   }
-
-  function spawnWave(w) {
-    enemies = [];
-    var rnd = TA.seededRandom(1000 + w);
-    var count = 4 + w * 2;
-    for (var i = 0; i < count; i++) {
-      enemies.push({
-        x: 300 + rnd() * 900, y: 900 + rnd() * 800,
-        hp: 50, alive: true, guard: false, shootT: 1 + rnd() * 2
-      });
-    }
-    TA.ui.showToast('GELOMBANG ' + w + ' — ' + count + ' musuh berlindung di balik kontainer!');
-  }
-
-  function getBankGuardsRemaining() {
-    var left = 0;
-    for (var i = 0; i < enemies.length; i++) if (enemies[i].alive && enemies[i].guard) left++;
-    return left;
-  }
-  TA.missions.getBankGuardsRemaining = getBankGuardsRemaining;
-
-  function showMissionIntro(n) {
-    var m = mission(n);
-    var act = getActForMission(n);
-    TA.S.screen = 'intro';
-    TA.ui.showMissionIntro(n, m, act);
-  }
-  TA.missions.showMissionIntro = showMissionIntro;
-
-  function showDialogue(lines) {
-    dialogueQueue = lines;
-    dialogueIdx = 0;
-    TA.S.screen = 'dialogue';
-    TA.ui.showDialogue(lines[0][0], lines[0][1]);
-  }
-  TA.missions.showDialogue = showDialogue;
-
-  function advanceDialogue() {
-    if (TA.S.screen === 'intro') {
-      TA.ui.hideMissionIntro();
-      var m = mission(TA.S.mission);
-      showDialogue(m.dialogue);
-      return;
-    }
-    if (TA.S.screen === 'dialogue') {
-      dialogueIdx++;
-      if (dialogueIdx >= dialogueQueue.length) {
-        TA.ui.hideDialogue();
-        TA.S.screen = 'playing';
-        TA.ui.showHUD();
-      } else {
-        TA.ui.showDialogue(dialogueQueue[dialogueIdx][0], dialogueQueue[dialogueIdx][1]);
-      }
-    }
-  }
-  TA.missions.advanceDialogue = advanceDialogue;
-
-  function startMissionStage(n, stage) {
-    TA.S.mission = n;
-    TA.S.stage = stage;
-    var m = mission(n);
-    TA.S.stageTotal = m.stages.length;
-    TA.ui.renderMissionBanner();
-  }
-  TA.missions.startMissionStage = startMissionStage;
-
   function advanceStage() {
-    var m = mission(TA.S.mission);
-    if (TA.S.stage < m.stages.length) {
-      TA.S.stage++;
-      TA.ui.renderMissionBanner();
-      TA.ui.showToast('TAHAP ' + TA.S.stage + '/' + m.stages.length + ' — ' + m.stages[TA.S.stage - 1]);
-      if (TA.S.mission === 7 && TA.S.stage === 3) spawnBankGuards();
-      if (TA.S.mission === 7 && TA.S.stage === 6) TA.police.setWanted(4, 'PERAMPOKAN BANK');
-      if (TA.S.mission === 10 && TA.S.stage === 2) spawnWave(2);
-      if (TA.S.mission === 10 && TA.S.stage === 3) spawnWave(3);
+    var s = TA.state;
+    if (!s.mission) return;
+    var m = MISSIONS[s.mission.index];
+    if (s.mission.stage < m.stages.length - 1) {
+      s.mission.stage++;
     } else {
-      completeMission(TA.S.mission);
+      completeMission(s.mission.index);
     }
+    if (TA.ui) TA.ui.renderAll(true);
   }
-  TA.missions.advanceStage = advanceStage;
-
-  function completeMission(n) {
-    var m = mission(n);
-    TA.S.missionDone[n - 1] = true;
-    TA.S.money += m.reward * 17000;
-    TA.career.addXP(100, 'Misi ' + n + ' selesai');
-    TA.career.updateDistrictStanding(TA.world.districtAt(TA.S.px, TA.S.py).name, 8);
-    TA.ui.showToast('MISI ' + n + ' SELESAI — ' + m.name + ' · +' + TA.fmtDollar(m.reward) + ' · +100 XP');
-    TA.crew.showChatter('SARI', 'Misi selesai! Kamu luar biasa, Raka.');
-    if (n === 10) {
-      TA.S.screen = 'win';
-      TA.ui.showEndScreen();
+  function getObjectiveDistance() {
+    var s = TA.state;
+    if (!s.mission) return 0;
+    var targets = [[1550, 500], [2400, 500], [420, 700], [1200, 1400], [1550, 1300], [2000, 1325], [1550, 500], [3300, 2150], [2000, 1325], [420, 480]];
+    var t = targets[s.mission.index] || [1500, 1300];
+    var dx = t[0] - s.player.x, dy = t[1] - s.player.y;
+    return Math.round(Math.sqrt(dx * dx + dy * dy) * 0.45);
+  }
+  function completeMission(i) {
+    var s = TA.state;
+    var m = MISSIONS[i];
+    s.missionDone[i] = true;
+    s.money += m.reward;
+    s.mission = null;
+    if (TA.career) TA.career.addXP(100);
+    if (i === 9) {
+      if (TA.core) TA.core.winGame();
       return;
     }
-    if (n === 3) {
-      // cabang hari ke-5: bayar Darma $500 atau khianati
-      TA.ui.showToast('CABANG: Bayar Darma $500, atau khianati dia dan simpan uangnya? (Misi 4 menentukan)');
-    }
-    var next = Math.min(10, n + 1);
-    startMission(next);
+    if (i + 1 < MISSIONS.length) startMission(i + 1);
   }
-  TA.missions.completeMission = completeMission;
-
   function checkObjective() {
-    // objektif selesai bila pemain mencapai target
-    var tgt = currentTarget();
-    if (!tgt) return;
-    if (TA.dist(TA.S.px, TA.S.py, tgt.x, tgt.y) < 70) advanceStage();
+    var s = TA.state;
+    if (!s.mission) return;
+    if (getObjectiveDistance() < 60) advanceStage();
+  }
+  function showDialogue(lines) {
+    dialogueQueue = lines.slice(); dialogueIdx = 0;
+    TA.state.mode = 'cutscene';
+    if (TA.ui) TA.ui.showDialogue(dialogueQueue[0]);
+  }
+  function advanceDialogue() {
+    dialogueIdx++;
+    if (dialogueIdx >= dialogueQueue.length) {
+      TA.state.mode = 'playing';
+      if (TA.ui) TA.ui.hideDialogue();
+    } else if (TA.ui) TA.ui.showDialogue(dialogueQueue[dialogueIdx]);
+  }
+  function showMissionIntro(i) {
+    if (TA.ui) TA.ui.showMissionIntro(i);
   }
 
-  function currentTarget() {
-    var m = mission(TA.S.mission);
-    var B = TA.world.BANK;
-    if (TA.S.mission === 7) {
-      if (TA.S.stage === 1) return { x: B.x + B.w / 2, y: B.plazaY + 60 };
-      if (TA.S.stage === 2) return { x: B.x + 60, y: B.y + 60 };
-      if (TA.S.stage === 3) return { x: B.x + B.w / 2, y: B.plazaY + 80 };
-      if (TA.S.stage === 4) return { x: B.x + 65, y: B.y + B.h - 30 };
-      if (TA.S.stage === 5) return { x: B.x + 65, y: B.y + B.h - 30 };
-      if (TA.S.stage === 6) return { x: B.x + B.w / 2, y: B.plazaY + 200 };
-      if (TA.S.stage === 7) return { x: 900, y: 1500 };
-    }
-    if (TA.S.mission === 8) return { x: 3750, y: 2300 };
-    if (TA.S.mission === 10) return { x: 700, y: 1200 };
-    if (TA.S.race && TA.S.race.active) return TA.S.race.checkpoints[TA.S.race.cp];
-    return { x: 2400, y: 1200 };
-  }
-  TA.missions.currentTarget = currentTarget;
-
-  function getObjectiveDistance() {
-    var tgt = currentTarget();
-    if (!tgt) return 0;
-    return Math.round(TA.dist(TA.S.px, TA.S.py, tgt.x, tgt.y) / 10);
-  }
-  TA.missions.getObjectiveDistance = getObjectiveDistance;
-
+  /* ---------- bank heist ---------- */
+  function startBankHeist() { startMission(6); }
   function updateBankHeist(dt) {
-    if (TA.S.mission !== 7) return;
-    var B = TA.world.BANK;
-    if (TA.S.stage === 1) {
-      if (TA.dist(TA.S.px, TA.S.py, B.x + B.w / 2, B.plazaY + 60) < 70) advanceStage();
-    } else if (TA.S.stage === 2) {
-      if (TA.dist(TA.S.px, TA.S.py, B.x + 60, B.y + 60) < 60) {
-        alarmHold += dt;
-        if (alarmHold > 5) { alarmHold = 0; advanceStage(); TA.ui.showToast('ALARM DILUMPUHKAN — 5 detik. Masuk!'); }
-      } else alarmHold = 0;
-    } else if (TA.S.stage === 3) {
-      if (getBankGuardsRemaining() <= 0) {
-        advanceStage();
-        TA.world.addExplosion(B.x + B.w / 2, B.plazaY + 40);
-      }
-    } else if (TA.S.stage === 4) {
-      if (TA.dist(TA.S.px, TA.S.py, B.x + 65, B.y + B.h - 30) < 60) {
-        vaultHold += dt;
-        if (vaultHold > 10) { vaultHold = 0; advanceStage(); TA.police.setWanted(3, 'PERAMPOKAN BANK'); TA.ui.showToast('BRANKAS TERBUKA — alarm berbunyi!'); }
-      } else vaultHold = 0;
-    } else if (TA.S.stage === 5) {
-      if (TA.dist(TA.S.px, TA.S.py, B.x + 65, B.y + B.h - 30) < 60) {
-        TA.S.bankMoneyTaken = true;
-        advanceStage();
-        TA.ui.showToast('TAS UANG DIAMBIL — $25.000! Kabur!');
-      }
-    } else if (TA.S.stage === 6) {
-      if (TA.dist(TA.S.px, TA.S.py, B.x + B.w / 2, B.plazaY + 200) < 70) {
-        TA.police.setWanted(4, 'PERAMPOKAN BANK');
-        advanceStage();
-      }
-    } else if (TA.S.stage === 7) {
-      if (TA.S.wanted === 0) {
-        completeMission(7);
-      }
+    var s = TA.state;
+    if (!s.mission || s.mission.index !== 6) return;
+    if (s.mission.stage === 2 && s.bankGuardsDown >= 9) advanceStage();
+    if (s.mission.stage === 5) { if (TA.police) TA.police.setWanted(4, 'PERAMPOKAN BANK'); }
+  }
+  function getBankGuardsRemaining() { return Math.max(0, 9 - TA.state.bankGuardsDown); }
+
+  /* ---------- Kontrak Hancur ---------- */
+  function startWreckContract(key) {
+    var s = TA.state;
+    var c = null;
+    for (var i = 0; i < WRECK_CONTRACTS.length; i++) if (WRECK_CONTRACTS[i].key === key) c = WRECK_CONTRACTS[i];
+    if (!c) return;
+    s.wreck = {
+      key: c.key, name: c.name, hp: 100, maxHp: 100, distKm: 0.46,
+      dest: c.dest, route: c.route, reward: c.reward, xp: c.xp,
+      active: true, status: 'NEXT',
+      targetPos: { x: c.start.x, y: c.start.y }, destPos: { x: c.destPos.x, y: c.destPos.y },
+    };
+    if (TA.ui) TA.ui.renderAll(true);
+  }
+  function updateWreckContract(dt) {
+    var s = TA.state;
+    var w = s.wreck;
+    if (!w || !w.active) return;
+    /* target kabur menuju destinasi */
+    var dx = w.destPos.x - w.targetPos.x, dy = w.destPos.y - w.targetPos.y;
+    var d = Math.sqrt(dx * dx + dy * dy);
+    if (d > 8) {
+      var sp = 70;
+      w.targetPos.x += (dx / d) * sp * dt;
+      w.targetPos.y += (dy / d) * sp * dt;
     }
+    w.distKm = Math.max(0, Math.round((d * 0.45 / 1000) * 100) / 100);
+    /* tabrakan pemain merusak target */
+    var pdx = w.targetPos.x - s.player.x, pdy = w.targetPos.y - s.player.y;
+    if (pdx * pdx + pdy * pdy < 2600 && !s.player.onFoot && Math.abs(s.car.speed || 0) > 30) {
+      w.hp = Math.max(0, w.hp - 26 * dt);
+      s.car.speed *= 0.85;
+    }
+    if (w.hp <= 0) {
+      w.active = false; w.status = 'DONE';
+      s.wreckDone[w.key] = true;
+      s.money += w.reward;
+      if (TA.career) TA.career.addXP(w.xp);
+      if (TA.crew) TA.crew.showCrewChatter('BUDI', w.name + ' hancur! Ambil hadiah di bengkel Pak Amir.');
+      if (TA.ui) TA.ui.showBanner('KONTRAK SELESAI', w.name + ' dihancurkan — $' + w.reward + ' + ' + w.xp + ' XP');
+    } else if (w.distKm <= 0.01 && d < 20) {
+      w.active = false; w.status = 'GAGAL';
+      if (TA.crew) TA.crew.showCrewChatter('SARI', w.name + ' sampai di ' + w.dest + ' — kontrak gagal, bisa diulang!');
+      if (TA.ui) TA.ui.showBanner('KONTRAK GAGAL', w.name + ' lolos ke ' + w.dest + ' — coba lagi!');
+    }
+  }
+
+  /* ---------- Ekspor Mobil ---------- */
+  function startCarExport() {
+    var s = TA.state;
+    s.carExport = { target: 'PELABUHAN GT emas', active: true, dest: { x: 420, y: 480 } };
+    if (TA.crew) TA.crew.showCrewChatter('AGUS', 'Ekspor: curi PELABUHAN GT emas, antar ke eksportir Pelabuhan.');
+  }
+  function completeCarExport() {
+    var s = TA.state;
+    if (!s.carExport || !s.carExport.active) return;
+    s.carExport.active = false;
+    s.money += 2500;
+    if (TA.career) TA.career.addXP(80);
   }
 
   function update(dt) {
-    stageT += dt;
-    if (TA.S.mission === 7) updateBankHeist(dt);
-    else checkObjective();
-    // musuh menembak balik
-    for (var i = 0; i < enemies.length; i++) {
-      var e = enemies[i];
-      if (!e.alive) continue;
-      e.shootT -= dt;
-      var d = TA.dist(e.x, e.y, TA.S.px, TA.S.py);
-      if (d < 380 && e.shootT <= 0) {
-        e.shootT = 1.4 + Math.random();
-        if (Math.random() < 0.45) TA.player.takeDamage(6);
+    /* staged screenshot (?shot=N): bekukan logika misi supaya nilai yang
+       di-stage (HP target, jarak, tahap) tidak bergeser saat difoto. */
+    if (TA.state.shot > 0) return;
+    updateBankHeist(dt);
+    updateWreckContract(dt);
+    checkObjective();
+  }
+
+  function render(ox, oy) {
+    var ctx = TA.ctx; if (!ctx) return;
+    var s = TA.state;
+    /* target kontrak hancur: mobil merah + garis rute merah ke destinasi */
+    if (s.wreck && s.wreck.active) {
+      var w = s.wreck, t = w.targetPos;
+      ctx.strokeStyle = 'rgba(255,40,40,0.8)'; ctx.lineWidth = 3; ctx.setLineDash([10, 8]);
+      ctx.beginPath(); ctx.moveTo(t.x - ox, t.y - oy); ctx.lineTo(w.destPos.x - ox, w.destPos.y - oy); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.save();
+      ctx.translate(t.x - ox, t.y - oy);
+      ctx.fillStyle = '#d82020'; ctx.fillRect(-24, -12, 48, 24);
+      ctx.fillStyle = '#ffd23a'; ctx.fillRect(-6, -10, 14, 20);
+      ctx.restore();
+      ctx.fillStyle = '#ff4040'; ctx.font = 'bold 13px sans-serif'; ctx.textAlign = 'center';
+      ctx.fillText(w.name + '  ♥ ' + Math.round(w.hp), t.x - ox, t.y - oy - 24);
+      /* marker destinasi */
+      ctx.fillStyle = '#ff4040'; ctx.beginPath(); ctx.arc(w.destPos.x - ox, w.destPos.y - oy, 12, 0, 6.29); ctx.fill();
+      ctx.fillStyle = '#fff'; ctx.font = 'bold 10px sans-serif';
+      ctx.fillText('★', w.destPos.x - ox, w.destPos.y - oy + 4);
+    }
+    /* penjaga bank bertanda merah (Misi 7 tahap 3) */
+    if (s.mission && s.mission.index === 6 && s.mission.stage === 2) {
+      for (var g = 0; g < getBankGuardsRemaining(); g++) {
+        var gx = 1450 + (g % 3) * 70, gy = 560 + Math.floor(g / 3) * 55;
+        ctx.fillStyle = '#c22a2a'; ctx.beginPath(); ctx.arc(gx - ox, gy - oy, 9, 0, 6.29); ctx.fill();
+        ctx.fillStyle = '#fff'; ctx.font = 'bold 9px sans-serif'; ctx.textAlign = 'center';
+        ctx.fillText('!', gx - ox, gy - oy + 3);
       }
+      /* van hitam getaway */
+      ctx.fillStyle = '#18181c'; ctx.fillRect(1700 - ox, 620 - oy, 64, 26);
+      ctx.fillStyle = '#fff'; ctx.font = 'bold 10px sans-serif'; ctx.textAlign = 'center';
+      ctx.fillText('VAN GETAWAY', 1732 - ox, 612 - oy);
     }
-    // ekspor mobil
-    if (exportJob && exportJob.active) {
-      if (TA.S.inCar && TA.S.car && TA.S.car.name === exportJob.carName) {
-        if (TA.dist(TA.S.px, TA.S.py, exportJob.x, exportJob.y) < 80) completeCarExport();
-      }
-    }
-  }
-
-  function tryHitEnemy(px, py, angle, range, dmg) {
-    var hitAny = false;
-    for (var i = 0; i < enemies.length; i++) {
-      var e = enemies[i];
-      if (!e.alive) continue;
-      var dx = e.x - px, dy = e.y - py;
-      var d = Math.sqrt(dx * dx + dy * dy);
-      if (d > range) continue;
-      var ang = Math.atan2(dy, dx);
-      var diff = Math.abs(ang - angle);
-      if (diff > Math.PI) diff = Math.PI * 2 - diff;
-      if (diff < 0.35 || d < 50) {
-        e.hp -= dmg;
-        hitAny = true;
-        if (e.hp <= 0) {
-          e.alive = false;
-          if (e.guard) {
-            TA.S.guardsKilled++;
-            TA.ui.renderMissionBanner();
-            TA.ui.showToast('PENJAGA ' + TA.S.guardsKilled + '/9 — tumbang!');
-            if (Math.random() < 0.5) TA.world.addExplosion(e.x, e.y);
-          }
-          TA.career.addXP(5, 'Musuh tumbang');
-        }
-        break;
-      }
-    }
-    return hitAny;
-  }
-  TA.missions.tryHitEnemy = tryHitEnemy;
-
-  function drawEnemies(ctx, W, H) {
-    for (var i = 0; i < enemies.length; i++) {
-      var e = enemies[i];
-      if (!e.alive) continue;
-      var p = TA.world.worldToScreen(e.x, e.y, W, H);
-      if (p.x < -30 || p.x > W + 30 || p.y < -30 || p.y > H + 30) continue;
-      ctx.fillStyle = 'rgba(0,0,0,0.35)';
-      ctx.beginPath(); ctx.ellipse(p.x, p.y + 8, 9, 4, 0, 0, Math.PI * 2); ctx.fill();
-      ctx.fillStyle = '#c0392b';
-      ctx.beginPath(); ctx.arc(p.x, p.y, 10, 0, Math.PI * 2); ctx.fill();
-      ctx.fillStyle = '#ff5a5a';
-      ctx.beginPath(); ctx.arc(p.x, p.y - 2, 5, 0, Math.PI * 2); ctx.fill();
-      // tanda merah di atas penjaga
-      ctx.fillStyle = '#ff2d2d';
-      ctx.beginPath();
-      ctx.moveTo(p.x, p.y - 26);
-      ctx.lineTo(p.x - 6, p.y - 16);
-      ctx.lineTo(p.x + 6, p.y - 16);
-      ctx.closePath(); ctx.fill();
-      ctx.fillStyle = '#fff';
-      ctx.font = 'bold 10px Arial';
-      ctx.textAlign = 'center';
-      ctx.fillText(e.guard ? 'PENJAGA' : 'MUSUH', p.x, p.y - 30);
-      ctx.textAlign = 'left';
-      // bar HP
-      ctx.fillStyle = '#222';
-      ctx.fillRect(p.x - 12, p.y + 14, 24, 4);
-      ctx.fillStyle = '#ff5a5a';
-      ctx.fillRect(p.x - 12, p.y + 14, 24 * Math.max(0, e.hp / 50), 4);
+    /* marker objektif misi */
+    if (s.mission) {
+      var targets = [[1550, 500], [2400, 500], [420, 700], [1200, 1400], [1550, 1300], [2000, 1325], [1550, 500], [3300, 2150], [2000, 1325], [420, 480]];
+      var tg = targets[s.mission.index] || [1500, 1300];
+      ctx.fillStyle = '#ffd23a'; ctx.beginPath(); ctx.arc(tg[0] - ox, tg[1] - oy, 10, 0, 6.29); ctx.fill();
+      ctx.fillStyle = '#222'; ctx.font = 'bold 11px sans-serif'; ctx.textAlign = 'center';
+      ctx.fillText('◆', tg[0] - ox, tg[1] - oy + 4);
     }
   }
-  TA.missions.drawEnemies = drawEnemies;
 
-  function startCarExport(carName) {
-    exportJob = { active: true, carName: carName, x: 500, y: 1000, reward: 900 };
-    TA.ui.showToast('EKSPOR MOBIL: curi ' + carName + ' emas, antar ke eksportir Pelabuhan — $900.');
-  }
-  TA.missions.startCarExport = startCarExport;
-
-  function completeCarExport() {
-    if (!exportJob) return;
-    exportJob.active = false;
-    TA.S.money += exportJob.reward * 17000;
-    TA.career.addXP(40, 'Ekspor mobil');
-    TA.ui.showToast('EKSPOR SELESAI — +' + TA.fmtDollar(exportJob.reward) + ' · +40 XP');
-  }
-  TA.missions.completeCarExport = completeCarExport;
-
-  TA.missions.reset = reset;
-  TA.missions.startMission = startMission;
-  TA.missions.startMissionStage = startMissionStage;
-  TA.missions.advanceStage = advanceStage;
-  TA.missions.completeMission = completeMission;
-  TA.missions.checkObjective = checkObjective;
-  TA.missions.update = update;
-  TA.missions.updateBankHeist = updateBankHeist;
-  TA.missions.enemies = function () { return enemies; };
-  TA.missions.exportJob = function () { return exportJob; };
+  TA.missions = {
+    MISSIONS: MISSIONS, ACTS: ACTS, ACT_NAMES: ACT_NAMES, SYNDICATES: SYNDICATES,
+    BANK_HEIST_STAGES: BANK_HEIST_STAGES, WRECK_CONTRACTS: WRECK_CONTRACTS,
+    startMission: startMission, startMissionStage: startMissionStage,
+    advanceStage: advanceStage, completeMission: completeMission,
+    showDialogue: showDialogue, advanceDialogue: advanceDialogue,
+    checkObjective: checkObjective, getObjectiveDistance: getObjectiveDistance,
+    getActForMission: getActForMission, getMissionContract: getMissionContract,
+    showMissionIntro: showMissionIntro,
+    startBankHeist: startBankHeist, updateBankHeist: updateBankHeist, getBankGuardsRemaining: getBankGuardsRemaining,
+    startWreckContract: startWreckContract, updateWreckContract: updateWreckContract,
+    startCarExport: startCarExport, completeCarExport: completeCarExport,
+    update: update, render: render,
+  };
 })();

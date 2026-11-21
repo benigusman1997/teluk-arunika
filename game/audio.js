@@ -1,167 +1,97 @@
-/* audio.js — WebAudio sintetis offline: mesin, tembakan, sirene, hujan, radio 3 stasiun */
+/* audio.js — Teluk Arunika v3.8. WebAudio sintetis offline: mesin, tembakan,
+   sirene, hujan, tabrakan, checkpoint. Radio 3 stasiun (tombol R). */
 (function () {
   'use strict';
   var TA = window.TA;
-  TA.audio = TA.audio || {};
 
   var RADIO_STATIONS = [
     { name: 'ARUNIKA 98.4', genre: 'Dangdut Neon' },
     { name: 'HUJAN 101.2', genre: 'Lo-fi Hujan' },
-    { name: 'KOTA 87.5', genre: 'Berita Kota' }
+    { name: 'KOTA 87.5', genre: 'Berita Kota' },
   ];
-  TA.audio.RADIO_STATIONS = RADIO_STATIONS;
 
-  var ctx = null;
-  var master = null;
-  var engineOsc = null;
-  var engineGain = null;
-  var radioOsc = null;
-  var radioGain = null;
-  var radioTimer = 0;
-  var started = false;
-
-  function reset() {
-    ctx = null; master = null; engineOsc = null; engineGain = null;
-    radioOsc = null; radioGain = null; started = false;
-  }
+  var ctx = null, master = null, engineOsc = null, rainNode = null;
 
   function initAudio() {
-    if (started) return;
     try {
       var AC = window.AudioContext || window.webkitAudioContext;
       if (!AC) return;
       ctx = new AC();
       master = ctx.createGain();
-      master.gain.value = 0.5;
+      master.gain.value = 0.35;
       master.connect(ctx.destination);
-      started = true;
-      startEngine();
-      startRadio();
-      startRain();
-    } catch (err) { /* audio tidak tersedia — game tetap jalan tanpa suara */ }
+    } catch (e) { ctx = null; }
   }
-  TA.audio.initAudio = initAudio;
-
-  function startEngine() {
-    if (!ctx) return;
-    engineOsc = ctx.createOscillator();
-    engineOsc.type = 'sawtooth';
-    engineOsc.frequency.value = 60;
-    engineGain = ctx.createGain();
-    engineGain.gain.value = 0.0;
-    engineOsc.connect(engineGain);
-    engineGain.connect(master);
-    engineOsc.start();
+  function ensure() {
+    if (!ctx) initAudio();
+    if (ctx && ctx.state === 'suspended') ctx.resume();
+    return !!ctx;
   }
-
-  function engineSound() {
-    if (!ctx || !engineOsc) return;
-    var rpm = 50 + Math.abs(TA.S.speed) * 1.2;
-    engineOsc.frequency.setTargetAtTime(rpm, ctx.currentTime, 0.1);
-    engineGain.gain.setTargetAtTime(TA.S.inCar ? 0.05 : 0.0, ctx.currentTime, 0.1);
-  }
-
-  function gunshotSound(weapon) {
-    if (!ctx) return;
+  function beep(freq, dur, type, vol) {
+    if (!ensure()) return;
     try {
-      var dur = weapon === 'Shotgun' ? 0.25 : 0.12;
-      var noise = ctx.createBufferSource();
-      var buf = ctx.createBuffer(1, ctx.sampleRate * dur, ctx.sampleRate);
-      var data = buf.getChannelData(0);
-      for (var i = 0; i < data.length; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / data.length);
-      noise.buffer = buf;
-      var g = ctx.createGain();
-      g.gain.value = 0.35;
-      noise.connect(g); g.connect(master);
-      noise.start();
-    } catch (err) { /* abaikan */ }
-  }
-  TA.audio.gunshotSound = gunshotSound;
-
-  function sirenSound() {
-    if (!ctx) return;
-    try {
-      var o = ctx.createOscillator();
-      o.type = 'sine';
-      o.frequency.setValueAtTime(700, ctx.currentTime);
-      o.frequency.linearRampToValueAtTime(1100, ctx.currentTime + 0.5);
-      o.frequency.linearRampToValueAtTime(700, ctx.currentTime + 1.0);
-      var g = ctx.createGain();
-      g.gain.value = 0.08;
+      var o = ctx.createOscillator(), g = ctx.createGain();
+      o.type = type || 'square'; o.frequency.value = freq;
+      g.gain.setValueAtTime(vol || 0.2, ctx.currentTime);
+      g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + dur);
       o.connect(g); g.connect(master);
-      o.start(); o.stop(ctx.currentTime + 1.05);
-    } catch (err) { /* abaikan */ }
+      o.start(); o.stop(ctx.currentTime + dur);
+    } catch (e) { /* audio opsional */ }
   }
-  TA.audio.sirenSound = sirenSound;
-
-  function startRain() {
-    if (!ctx) return;
+  function noiseBurst(dur, vol, lowpass) {
+    if (!ensure()) return;
     try {
-      var len = ctx.sampleRate * 2;
+      var len = Math.floor(ctx.sampleRate * dur);
       var buf = ctx.createBuffer(1, len, ctx.sampleRate);
       var data = buf.getChannelData(0);
-      for (var i = 0; i < len; i++) data[i] = (Math.random() * 2 - 1) * 0.15;
-      var src = ctx.createBufferSource();
-      src.buffer = buf; src.loop = true;
-      var g = ctx.createGain();
-      g.gain.value = TA.S.rain > 0 ? 0.06 : 0.0;
-      var f = ctx.createBiquadFilter();
-      f.type = 'lowpass'; f.frequency.value = 1200;
+      for (var i = 0; i < len; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / len);
+      var src = ctx.createBufferSource(); src.buffer = buf;
+      var f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = lowpass || 1200;
+      var g = ctx.createGain(); g.gain.value = vol || 0.3;
       src.connect(f); f.connect(g); g.connect(master);
       src.start();
-    } catch (err) { /* abaikan */ }
+    } catch (e) { /* audio opsional */ }
   }
-  TA.audio.rainSound = startRain;
+
+  function engineSound(on, speed) {
+    if (!ensure()) return;
+    try {
+      if (on && !engineOsc) {
+        engineOsc = ctx.createOscillator();
+        engineOsc.type = 'sawtooth';
+        var g = ctx.createGain(); g.gain.value = 0.04;
+        engineOsc.connect(g); g.connect(master);
+        engineOsc.start();
+        engineOsc._gain = g;
+      }
+      if (engineOsc) {
+        engineOsc.frequency.value = 50 + (speed || 0) * 0.9;
+        if (!on) { engineOsc.stop(); engineOsc = null; }
+      }
+    } catch (e) { engineOsc = null; }
+  }
+  function gunshotSound() { noiseBurst(0.12, 0.5, 3000); beep(180, 0.08, 'square', 0.25); }
+  function sirenSound() { beep(660, 0.4, 'sine', 0.18); setTimeout(function () { beep(520, 0.4, 'sine', 0.18); }, 450); }
+  function rainSound() { noiseBurst(1.5, 0.05, 900); }
+  function crashSound() { noiseBurst(0.3, 0.4, 700); }
+  function checkpointSound() { beep(880, 0.15, 'sine', 0.25); setTimeout(function () { beep(1320, 0.2, 'sine', 0.25); }, 160); }
 
   function playRadioStation(i) {
-    TA.S.radio = ((i % RADIO_STATIONS.length) + RADIO_STATIONS.length) % RADIO_STATIONS.length;
-    TA.ui.renderRadioLine();
+    var s = TA.state;
+    s.radio = ((i % RADIO_STATIONS.length) + RADIO_STATIONS.length) % RADIO_STATIONS.length;
+    if (TA.ui) TA.ui.renderAll(true);
   }
-  TA.audio.playRadioStation = playRadioStation;
-
-  function nextStation() {
-    playRadioStation(TA.S.radio + 1);
-    var st = RADIO_STATIONS[TA.S.radio];
-    TA.ui.showToast('RADIO: ' + st.name + ' — ' + st.genre);
-  }
-  TA.audio.nextStation = nextStation;
-
-  function startRadio() {
-    if (!ctx) return;
-    radioOsc = ctx.createOscillator();
-    radioOsc.type = 'triangle';
-    radioGain = ctx.createGain();
-    radioGain.gain.value = 0.0;
-    radioOsc.connect(radioGain);
-    radioGain.connect(master);
-    radioOsc.start();
+  function nextStation() { playRadioStation(TA.state.radio + 1); }
+  function radioLine() {
+    var st = RADIO_STATIONS[TA.state.radio];
+    return st.name + ' — ' + st.genre;
   }
 
-  function radioMelody() {
-    if (!ctx || !radioOsc) return;
-    var scales = [
-      [262, 294, 330, 392, 440],
-      [220, 262, 294, 330, 392],
-      [330, 370, 415, 494, 554]
-    ];
-    var scale = scales[TA.S.radio % scales.length];
-    var note = scale[Math.floor(Math.random() * scale.length)];
-    radioOsc.frequency.setTargetAtTime(note, ctx.currentTime, 0.05);
-    radioGain.gain.setTargetAtTime(0.04, ctx.currentTime, 0.1);
-  }
-
-  function update(dt) {
-    if (!started) return;
-    engineSound();
-    radioTimer += dt;
-    if (radioTimer > 0.5) {
-      radioTimer = 0;
-      radioMelody();
-    }
-  }
-
-  TA.audio.reset = reset;
-  TA.audio.update = update;
-  TA.audio.engineSound = engineSound;
-  TA.audio.rainSound = startRain;
+  TA.audio = {
+    RADIO_STATIONS: RADIO_STATIONS,
+    initAudio: initAudio, playRadioStation: playRadioStation, nextStation: nextStation,
+    radioLine: radioLine, engineSound: engineSound, gunshotSound: gunshotSound,
+    sirenSound: sirenSound, rainSound: rainSound, crashSound: crashSound,
+    checkpointSound: checkpointSound,
+  };
 })();

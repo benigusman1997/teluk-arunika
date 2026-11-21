@@ -1,339 +1,338 @@
-/* police.js — wanted 1-5, dispatch, roadblock, spike strip, PIT, ELANG-1 + sorot */
+/* police.js — Teluk Arunika v3.8. Wanted 1-5 + eskalasi taktik, panel dispatch
+   bernama + peran taktis + jarak, roadblock, spike strip, ELANG-1 + kerucut
+   sorot, SWAT ARUNIKA (wanted ≥4), bar heat, label insiden, ticker radio. */
 (function () {
   'use strict';
   var TA = window.TA;
-  TA.police = TA.police || {};
 
-  var units = [];
-  var roadblocks = [];
-  var spikeStrips = [];
+  /* Peran taktis tetap — sama seperti cover SAN PALMA (nama + peran + meter). */
+  var UNIT_ROLES = ['PENEMBAK JITU', 'PENGAWAS PANTAI', 'RAMMING', 'PENGEPUNGAN', 'PIT', 'ROADBLOCK', 'SPOTLIGHT', 'BOX IN', 'FLANKING', 'KEJAR KAKI'];
+
+  var units = [];           /* unit dispatch aktif */
+  var roadblocks = [];      /* {x,y} */
+  var spikes = [];          /* {x,y} */
   var heli = { active: false, x: 0, y: 0, angle: 0 };
+  var swat = { deployed: false, van: null, officers: [], sniper: null };
   var ticker = [];
-  var cooldownT = 0;
-  var sirenT = 0;
-
-  function reset() {
-    units = [];
-    roadblocks = [];
-    spikeStrips = [];
-    heli = { active: false, x: 0, y: 0, angle: 0 };
-    ticker = [
-      'PATROLI-12: patroli rutin di Pasar Senja',
-      'ELANG-1: standby di helipad Pelabuhan',
-      'BLOKIR-03: siap siaga di Tol Layang'
-    ];
-    cooldownT = 0;
-  }
+  var heatTimer = 0;
 
   function logPoliceRadio(text) {
     ticker.unshift(text);
     if (ticker.length > 3) ticker.length = 3;
-    TA.ui.renderPoliceTicker();
   }
-  TA.police.logPoliceRadio = logPoliceRadio;
-
   function policeTicker() { return ticker.slice(); }
-  TA.police.policeTicker = policeTicker;
-
-  function getIncidentLabel() {
-    var inc = TA.S.incident || '—';
-    if (inc === '—') return 'DISPATCH POLISI';
-    return 'DISPATCH POLISI — ' + inc;
-  }
-  TA.police.getIncidentLabel = getIncidentLabel;
-
-  function getHeatState() {
-    if (TA.S.wanted === 0) return { label: 'AMAN', pct: 0 };
-    if (TA.S.heatVisible) return { label: 'TERLIHAT', pct: Math.round(TA.S.heat) };
-    return { label: 'KEHILANGAN JEJAK', pct: Math.round(TA.S.heat) };
-  }
-  TA.police.getHeatState = getHeatState;
 
   function setWanted(n, incident) {
-    var prev = TA.S.wanted;
-    TA.S.wanted = TA.clamp(n, 0, 5);
-    if (incident) TA.S.incident = incident;
-    if (TA.S.wanted > TA.S.bestWanted) TA.S.bestWanted = TA.S.wanted;
-    if (TA.S.wanted > 0) {
-      TA.S.heat = 100;
-      TA.S.heatVisible = true;
-      cooldownT = 0;
+    var s = TA.state;
+    var prev = s.wanted;
+    s.wanted = Math.max(0, Math.min(5, n));
+    if (incident) s.incident = incident;
+    if (s.wanted > prev) {
+      s.heat = 100; s.heatVisible = true;
+      if (s.wanted >= 4 && !swat.deployed) deploySWAT();
+      if (s.wanted >= 5 && !heli.active) setHeli(true);
+      if (s.wanted >= 3 && roadblocks.length === 0) addRoadblock(s.player.x + 320, s.player.y - 60);
+      logPoliceRadio('DISPATCH: wanted naik ke ' + s.wanted + ' bintang — ' + (s.incident || ''));
+      if (s.wanted > s.bestWanted) s.bestWanted = s.wanted;
     }
-    if (TA.S.wanted >= 4 && !heli.active) {
-      heli.active = true;
-      heli.x = TA.S.px - 300; heli.y = TA.S.py - 300;
-      logPoliceRadio('ELANG-1: target terpantau, sorot menyala');
-      TA.ui.showToast('ELANG-1 DITERJUNKAN — helikopter polisi di atasmu!');
-    }
-    if (TA.S.wanted < 4 && heli.active) heli.active = false;
-    if (TA.S.wanted >= 3 && roadblocks.length === 0) spawnRoadblock();
-    if (TA.S.wanted !== prev) escalatePolice();
-  }
-  TA.police.setWanted = setWanted;
-
-  function escalatePolice() {
-    var w = TA.S.wanted;
+    if (s.wanted === 0) { s.heatVisible = false; }
     rebuildUnits();
-    if (w >= 1) logPoliceRadio('PATROLI KAKI: pengejaran pejalan kaki dimulai');
-    if (w >= 2) logPoliceRadio('PATROLI-12: mobil patroli mengejar target');
-    if (w >= 3) logPoliceRadio('BLOKIR-03: roadblock dipasang di Pelabuhan');
-    if (w >= 4) {
-      logPoliceRadio('PATROLI-07: PIT maneuver disiapkan');
-      deploySpikeStrip();
-    }
-    if (w >= 5) logPoliceRadio('ELANG-1: semua unit, tutup semua jalan keluar');
   }
+
+  function escalatePolice() { setWanted(TA.state.wanted + 1); }
 
   function rebuildUnits() {
+    var s = TA.state, p = s.player;
     units = [];
-    var w = TA.S.wanted;
+    var w = s.wanted;
     if (w <= 0) return;
-    if (w <= 2 || !TA.S.inCar) {
-      units.push({ name: 'PATROLI KAKI ×2', tactic: 'KEJAR KAKI', kind: 'foot', dist: 21 });
-      units.push({ name: 'PATROLI KAKI ×2', tactic: 'KEJAR KAKI', kind: 'foot', dist: 34 });
+    /* unit jalan kaki saat wanted rendah / pemain jalan kaki */
+    if (w <= 2 || p.onFoot) {
+      units.push({ id: 'PATROLI KAKI ×2', role: 'KEJAR KAKI', kind: 'foot', x: p.x - 90, y: p.y + 70 });
+      units.push({ id: 'PATROLI KAKI ×1', role: 'KEJAR KAKI', kind: 'foot', x: p.x + 110, y: p.y - 40 });
     }
-    if (w >= 2) {
-      units.push({ name: 'PATROLI-12', tactic: 'RAMMING', kind: 'car', dist: 86 });
-      units.push({ name: 'PATROLI-07', tactic: w >= 4 ? 'PIT' : 'FLANKING', kind: 'car', dist: 120 });
+    if (w >= 1) units.push({ id: 'PATROLI-07', role: p.onFoot ? 'PENGEPUNGAN' : 'RAMMING', kind: 'car', x: p.x - 260, y: p.y + 180 });
+    if (w >= 2) units.push({ id: 'PATROLI-12', role: 'RAMMING', kind: 'car', x: p.x + 300, y: p.y - 140 });
+    if (w >= 2) units.push({ id: 'PATROLI-21', role: 'FLANKING', kind: 'car', x: p.x + 180, y: p.y + 260 });
+    if (w >= 3) units.push({ id: 'BLOKIR-03', role: 'ROADBLOCK', kind: 'block', x: p.x + 340, y: p.y - 60 });
+    if (w >= 4) units.push({ id: 'PATROLI-09', role: 'PIT', kind: 'car', x: p.x - 140, y: p.y - 280 });
+    if (w >= 4) units.push({ id: 'PATROLI-33', role: 'BOX IN', kind: 'car', x: p.x + 240, y: p.y + 120 });
+    if (heli.active) units.push({ id: 'ELANG-1', role: 'SPOTLIGHT', kind: 'heli', x: heli.x, y: heli.y });
+    if (swat.deployed) {
+      units.push({ id: 'SWAT-01', role: 'PENGEPUNGAN', kind: 'swat', x: swat.officers[0] ? swat.officers[0].x : p.x - 60, y: swat.officers[0] ? swat.officers[0].y : p.y - 60 });
+      units.push({ id: 'SWAT-02', role: 'PENEMBAK JITU', kind: 'swat', x: swat.sniper ? swat.sniper.x : p.x + 200, y: swat.sniper ? swat.sniper.y : p.y - 180 });
+      units.push({ id: 'SWAT VAN', role: 'LAPIS BAJA', kind: 'swatvan', x: swat.van ? swat.van.x : p.x + 120, y: swat.van ? swat.van.y : p.y + 90 });
     }
-    if (w >= 3) units.push({ name: 'BLOKIR-03', tactic: 'ROADBLOCK', kind: 'block', dist: 210 });
-    if (w >= 4) units.push({ name: 'PATROLI-21', tactic: 'BOX IN', kind: 'car', dist: 150 });
-    if (w >= 4) units.push({ name: 'PATROLI-09', tactic: 'FLANKING', kind: 'car', dist: 180 });
-    if (w >= 4 || heli.active) units.push({ name: 'ELANG-1', tactic: 'SPOTLIGHT', kind: 'air', dist: 240 });
-    if (w >= 5) units.push({ name: 'PATROLI-33', tactic: 'RAMMING', kind: 'car', dist: 260 });
   }
 
   function getDispatchUnits() {
-    // jarak hidup: berdenyut pelan mengikuti gerakan pemain
-    var t = Date.now() / 1000;
-    return units.map(function (u, i) {
-      var d = Math.max(8, Math.round(u.dist + Math.sin(t * 0.7 + i * 1.3) * 12 - (TA.S.inCar ? TA.S.speed * 0.05 : 0)));
-      return { name: u.name, tactic: u.tactic, kind: u.kind, dist: d };
+    var s = TA.state, p = s.player;
+    rebuildUnitsIfStale();
+    return units.map(function (u) {
+      var dx = u.x - p.x, dy = u.y - p.y;
+      var d = Math.round(Math.sqrt(dx * dx + dy * dy) * 0.45);
+      return { id: u.id, role: u.role, kind: u.kind, dist: d, x: u.x, y: u.y };
     });
   }
-  TA.police.getDispatchUnits = getDispatchUnits;
-
+  var lastRebuild = 0;
+  function rebuildUnitsIfStale() {
+    if (TA.state.time - lastRebuild > 0.5) { lastRebuild = TA.state.time; rebuildUnits(); }
+  }
   function getFootUnits() {
     return getDispatchUnits().filter(function (u) { return u.kind === 'foot'; });
   }
-  TA.police.getFootUnits = getFootUnits;
-
-  function spawnRoadblock() {
-    var ahead = 420;
-    roadblocks.push({
-      x: TA.S.px + Math.cos(TA.S.angle) * ahead,
-      y: TA.S.py + Math.sin(TA.S.angle) * ahead,
-      angle: TA.S.angle + Math.PI / 2
-    });
-    logPoliceRadio('BLOKIR-03: roadblock dipasang di depan target');
+  function getIncidentLabel() {
+    var map = { 'PERAMPOKAN BANK': 'PERAMPOKAN BANK', 'PENEMBAKAN': 'PENEMBAKAN', 'PENCURIAN MOBIL': 'PENCURIAN MOBIL', 'BALAPAN LIAR': 'BALAPAN LIAR' };
+    return map[TA.state.incident] || 'PENEMBAKAN';
   }
-  TA.police.spawnRoadblock = spawnRoadblock;
-
-  function deploySpikeStrip() {
-    spikeStrips.push({
-      x: TA.S.px + Math.cos(TA.S.angle) * 300,
-      y: TA.S.py + Math.sin(TA.S.angle) * 300
-    });
-    logPoliceRadio('PATROLI-07: spike strip digelar di jalan');
+  function getHeatState() {
+    var s = TA.state;
+    if (!s.heatVisible) return { label: 'AMAN', pct: 0 };
+    return { label: s.heat > 25 ? 'TERLIHAT' : 'KEHILANGAN JEJAK', pct: Math.round(s.heat) };
   }
-  TA.police.deploySpikeStrip = deploySpikeStrip;
 
-  function onShotFired() {
-    if (TA.S.wanted < 2) setWanted(2, 'PENEMBAKAN');
-    else TA.S.incident = 'PENEMBAKAN';
-    TA.S.heat = 100;
-    TA.S.heatVisible = true;
-    logPoliceRadio('PATROLI-12: tembakan di ' + TA.world.districtAt(TA.S.px, TA.S.py).name);
-    for (var i = 0; i < TA.world.pedestrians().length; i++) {
-      var p = TA.world.pedestrians()[i];
-      if (TA.dist(p.x, p.y, TA.S.px, TA.S.py) < 350) p.panic = 3;
+  function spawnRoadblock(x, y) { addRoadblock(x, y); }
+  function addRoadblock(x, y) {
+    roadblocks.push({ x: x, y: y });
+    logPoliceRadio('BLOKIR-03: roadblock dipasang di ' + districtName(x, y));
+  }
+  function deploySpikeStrip(x, y) { addSpikeStrip(x, y); }
+  function addSpikeStrip(x, y) {
+    spikes.push({ x: x, y: y });
+    logPoliceRadio('PATROLI-09: spike strip digelar — hati-hati ban!');
+  }
+  function districtName(x, y) {
+    if (TA.world) { var d = TA.world.districtAt(x, y); return d ? d.name : 'KOTA'; }
+    return 'KOTA';
+  }
+
+  function policeHelicopter(on) { setHeli(on); }
+  function setHeli(on) {
+    var s = TA.state;
+    heli.active = !!on;
+    if (on) {
+      heli.x = s.player.x - 160; heli.y = s.player.y - 220;
+      logPoliceRadio('ELANG-1: target terpantau di ' + districtName(s.player.x, s.player.y));
     }
+    rebuildUnits();
   }
-  TA.police.onShotFired = onShotFired;
-
-  function cooldownWanted(dt) {
-    if (TA.S.wanted <= 0) return;
-    var rate = 4;
-    var bonus = TA.crew.getCrewBonus();
-    rate *= (1 + bonus.wantedCooldown);
-    rate *= (1 + TA.career.wantedCooldownBonus());
-    cooldownT += dt;
-    // heat menyusut saat bersembunyi (tidak menembak / tidak terlihat)
-    if (!TA.S.heatVisible) {
-      TA.S.heat -= rate * dt;
-      if (TA.S.heat <= 0) {
-        TA.S.heat = 0;
-        TA.S.wanted = Math.max(0, TA.S.wanted - 1);
-        TA.S.heat = TA.S.wanted > 0 ? 100 : 0;
-        TA.S.heatVisible = TA.S.wanted > 0;
-        if (TA.S.wanted === 0) {
-          TA.S.incident = '—';
-          logPoliceRadio('DISPATCH: target hilang, unit kembali patroli');
-          TA.ui.showToast('Jejak hilang — polisi kehilanganmu.');
-        } else {
-          rebuildUnits();
-        }
-      }
-    } else {
-      // terlihat: heat penuh, lalu perlahan "kehilangan jejak" bila pemain kabur jauh
-      TA.S.heat = 100;
-      if (cooldownT > 6) {
-        TA.S.heatVisible = false;
-        cooldownT = 0;
-      }
-    }
-  }
-
   function updateHelicopter(dt) {
     if (!heli.active) return;
-    heli.angle += dt * 0.9;
-    var tx = TA.S.px + Math.cos(heli.angle) * 150;
-    var ty = TA.S.py + Math.sin(heli.angle) * 150;
+    var s = TA.state;
+    /* orbit ketat di atas pemain, sorot mengikuti */
+    heli.angle += dt * 0.7;
+    var tx = s.player.x + Math.cos(heli.angle) * 130;
+    var ty = s.player.y - 180 + Math.sin(heli.angle) * 60;
     heli.x += (tx - heli.x) * Math.min(1, dt * 2);
     heli.y += (ty - heli.y) * Math.min(1, dt * 2);
-    sirenT += dt;
-    if (sirenT > 4) { sirenT = 0; TA.audio.sirenSound(); }
+  }
+
+  /* ---------- SWAT ARUNIKA ---------- */
+  function deploySWAT() {
+    var s = TA.state, p = s.player;
+    if (swat.deployed) return;
+    swat.deployed = true;
+    swat.van = { x: p.x + 130, y: p.y + 95, angle: 0.6 };
+    swat.officers = [
+      { x: p.x - 70, y: p.y - 80, side: -1 },
+      { x: p.x + 80, y: p.y - 70, side: 1 },
+      { x: p.x - 90, y: p.y + 85, side: -1 },
+      { x: p.x + 95, y: p.y + 75, side: 1 },
+    ];
+    swat.sniper = { x: p.x + 210, y: p.y - 190, shotTimer: 2 };
+    logPoliceRadio('SWAT-01: SWAT ARUNIKA diterjunkan — pengepungan dimulai');
+    if (TA.ui) TA.ui.showSwatBanner();
+    if (!s.swatBannerShown) {
+      s.banner = { title: 'SWAT ARUNIKA DITERJUNKAN', sub: 'Unit taktis mengepung — cari jalan keluar!', until: 9999 };
+      s.swatBannerShown = true;
+    }
+    rebuildUnits();
+  }
+  function updateSWAT(dt) {
+    if (!swat.deployed) return;
+    var s = TA.state, p = s.player;
+    /* petugas mengepung dari dua sisi, merangsek saat pemain terpojok */
+    for (var i = 0; i < swat.officers.length; i++) {
+      var o = swat.officers[i];
+      var wantX = p.x + o.side * 75, wantY = p.y + (i % 2 === 0 ? -75 : 75);
+      var dx = wantX - o.x, dy = wantY - o.y, d = Math.sqrt(dx * dx + dy * dy);
+      var closing = s.wanted >= 5 || Math.abs(s.car.speed || 0) < 10;
+      var sp = closing ? 95 : 55;
+      if (d > 4) { o.x += (dx / d) * sp * dt; o.y += (dy / d) * sp * dt; }
+    }
+    /* penembak jitu menjaga jarak ~200, menembak berkala */
+    if (swat.sniper) {
+      var sn = swat.sniper;
+      var sdx = sn.x - p.x, sdy = sn.y - p.y, sd = Math.sqrt(sdx * sdx + sdy * sdy) || 1;
+      var target = 210;
+      var move = (sd - target) * 0.4;
+      sn.x += (sdx / sd) * move * dt; sn.y += (sdy / sd) * move * dt;
+      sn.shotTimer -= dt;
+      if (sn.shotTimer <= 0) {
+        sn.shotTimer = 2.4;
+        if (s.mode === 'playing' && s.shot !== 1 && s.shot !== 2 && s.shot !== 3 && s.shot !== 4) {
+          if (TA.player) TA.player.takeDamage(2);
+        }
+      }
+    }
+    /* van lapis baja merapat pelan */
+    if (swat.van) {
+      var vx = p.x + 130 - swat.van.x, vy = p.y + 95 - swat.van.y;
+      var vd = Math.sqrt(vx * vx + vy * vy);
+      if (vd > 30) { swat.van.x += (vx / vd) * 40 * dt; swat.van.y += (vy / vd) * 40 * dt; }
+    }
+  }
+  function getSWATUnits() {
+    return getDispatchUnits().filter(function (u) { return u.kind === 'swat' || u.kind === 'swatvan'; });
+  }
+
+  function cooldownWanted(dt) {
+    var s = TA.state;
+    if (s.wanted <= 0) return;
+    var bonus = (TA.crew && TA.crew.getCrewBonus) ? TA.crew.getCrewBonus() : { wantedCooldown: 0 };
+    var rate = 2.2 * (1 + (bonus.wantedCooldown || 0));
+    if (s.mode === 'playing' && !s.player.onFoot && Math.abs(s.car.speed || 0) > 90) rate *= 0.4;
+    s.heat -= rate * dt;
+    if (s.heat <= 0) {
+      s.heat = 0;
+      s.wanted = Math.max(0, s.wanted - 1);
+      if (s.wanted > 0) s.heat = 60;
+      else { s.heatVisible = false; swat.deployed = false; setHeli(false); roadblocks = []; spikes = []; logPoliceRadio('DISPATCH: jejak hilang — unit kembali.'); }
+      rebuildUnits();
+    }
   }
 
   function update(dt) {
-    cooldownWanted(dt);
+    var s = TA.state;
+    if (s.mode !== 'playing') return;
     updateHelicopter(dt);
-    // roadblock: tabrakan memperlambat mobil
-    if (TA.S.inCar) {
+    updateSWAT(dt);
+    cooldownWanted(dt);
+    heatTimer += dt;
+    if (heatTimer > 4) {
+      heatTimer = 0;
+      var d = districtName(s.player.x, s.player.y);
+      var msgs = [
+        'PATROLI-12: tembakan di ' + d,
+        'ELANG-1: target terpantau di ' + d,
+        'PATROLI-07: kejar mobil di ' + d,
+      ];
+      if (s.wanted >= 2) logPoliceRadio(msgs[Math.floor(Math.random() * msgs.length)]);
+    }
+    /* roadblock / spike: tabrakan memperlambat + merusak mobil */
+    if (!s.player.onFoot) {
       for (var i = 0; i < roadblocks.length; i++) {
-        if (TA.dist(TA.S.px, TA.S.py, roadblocks[i].x, roadblocks[i].y) < 60) {
-          TA.S.speed *= 0.3;
-          if (TA.S.car) TA.S.car.condition = Math.max(10, TA.S.car.condition - 8);
-          TA.ui.showToast('ROADBLOCK! Mobil menghantam barikade.');
-          roadblocks.splice(i, 1);
-          break;
-        }
+        var rb = roadblocks[i];
+        var dx = rb.x - s.car.x, dy = rb.y - s.car.y;
+        if (dx * dx + dy * dy < 1600) { s.car.speed *= 0.3; s.car.condition = Math.max(5, s.car.condition - 2); }
       }
-      for (var j = 0; j < spikeStrips.length; j++) {
-        if (TA.dist(TA.S.px, TA.S.py, spikeStrips[j].x, spikeStrips[j].y) < 50) {
-          TA.S.speed *= 0.25;
-          if (TA.S.car) TA.S.car.condition = Math.max(10, TA.S.car.condition - 15);
-          TA.ui.showToast('SPIKE STRIP! Ban bocor, kecepatan jatuh.');
-          spikeStrips.splice(j, 1);
-          break;
-        }
-      }
-    }
-    // unit mobil polisi mengejar (visual: bergerak ke arah pemain)
-    for (var k = 0; k < units.length; k++) {
-      var u = units[k];
-      if (u.kind === 'car') {
-        u.x = u.x === undefined ? TA.S.px - 200 - k * 60 : u.x;
-        u.y = u.y === undefined ? TA.S.py + 120 + k * 40 : u.y;
-        var dx = TA.S.px - u.x, dy = TA.S.py - u.y;
-        var dd = Math.sqrt(dx * dx + dy * dy) || 1;
-        var sp = 170 * dt;
-        if (dd > 90) { u.x += (dx / dd) * sp; u.y += (dy / dd) * sp; }
+      for (var j = 0; j < spikes.length; j++) {
+        var sp2 = spikes[j];
+        var dx2 = sp2.x - s.car.x, dy2 = sp2.y - s.car.y;
+        if (dx2 * dx2 + dy2 * dy2 < 900) { s.car.speed *= 0.5; s.car.condition = Math.max(5, s.car.condition - 3); }
       }
     }
   }
 
-  function draw(ctx, W, H) {
-    var camX = TA.S.camX - W / 2, camY = TA.S.camY - H / 2;
-    // roadblock
+  /* ---------- render ---------- */
+  function render(ox, oy) {
+    var ctx = TA.ctx; if (!ctx) return;
+    var s = TA.state;
+    /* roadblock */
     for (var i = 0; i < roadblocks.length; i++) {
-      var r = roadblocks[i];
-      ctx.save();
-      ctx.translate(r.x - camX, r.y - camY);
-      ctx.rotate(r.angle);
-      ctx.fillStyle = '#ff5a5a';
-      ctx.fillRect(-70, -10, 140, 20);
-      ctx.fillStyle = '#fff';
-      for (var s = -60; s < 60; s += 20) ctx.fillRect(s, -10, 10, 20);
-      ctx.fillStyle = '#ffd23e';
-      ctx.font = 'bold 11px Arial';
-      ctx.fillText('POLISI', -20, -16);
-      ctx.restore();
+      var rb = roadblocks[i];
+      ctx.fillStyle = '#c2a52e';
+      ctx.fillRect(rb.x - ox - 40, rb.y - oy - 8, 80, 16);
+      ctx.fillStyle = '#222'; ctx.font = 'bold 10px sans-serif'; ctx.textAlign = 'center';
+      ctx.fillText('POLISI', rb.x - ox, rb.y - oy - 12);
+      ctx.fillStyle = '#2e5a9a';
+      ctx.fillRect(rb.x - ox - 52, rb.y - oy - 22, 16, 30);
+      ctx.fillRect(rb.x - ox + 36, rb.y - oy - 22, 16, 30);
     }
-    // spike strip
-    for (var j = 0; j < spikeStrips.length; j++) {
-      var sp = spikeStrips[j];
-      ctx.fillStyle = '#222';
-      ctx.fillRect(sp.x - 40 - camX, sp.y - 6 - camY, 80, 12);
-      ctx.fillStyle = '#c0c8d8';
-      for (var t = -36; t < 36; t += 12) {
-        ctx.beginPath();
-        ctx.moveTo(sp.x + t - camX, sp.y - 6 - camY);
-        ctx.lineTo(sp.x + t + 5 - camX, sp.y + 6 - camY);
-        ctx.lineTo(sp.x + t + 10 - camX, sp.y - 6 - camY);
-        ctx.closePath(); ctx.fill();
+    /* spike strip */
+    for (var j = 0; j < spikes.length; j++) {
+      var sp = spikes[j];
+      ctx.fillStyle = '#888';
+      for (var k = 0; k < 5; k++) { ctx.beginPath(); ctx.moveTo(sp.x - ox - 30 + k * 14, sp.y - oy + 8); ctx.lineTo(sp.x - ox - 23 + k * 14, sp.y - oy - 8); ctx.lineTo(sp.x - ox - 16 + k * 14, sp.y - oy + 8); ctx.fill(); }
+    }
+    /* unit patroli (mobil) */
+    var list = getDispatchUnits();
+    for (var u = 0; u < list.length; u++) {
+      var un = list[u];
+      if (un.kind === 'car') {
+        ctx.save();
+        ctx.translate(un.x - ox, un.y - oy);
+        ctx.fillStyle = '#d8d8e8'; ctx.fillRect(-20, -10, 40, 20);
+        ctx.fillStyle = '#2e5a9a'; ctx.fillRect(-20, -10, 40, 6);
+        ctx.fillStyle = (Math.floor(s.time * 4) % 2 === 0) ? '#ff2a2a' : '#2a5aff';
+        ctx.beginPath(); ctx.arc(-6, 0, 4, 0, 6.29); ctx.fill();
+        ctx.beginPath(); ctx.arc(6, 0, 4, 0, 6.29); ctx.fill();
+        ctx.restore();
+      } else if (un.kind === 'foot') {
+        ctx.fillStyle = '#2e5a9a'; ctx.beginPath(); ctx.arc(un.x - ox, un.y - oy, 7, 0, 6.29); ctx.fill();
+        ctx.fillStyle = '#fff'; ctx.font = '9px sans-serif'; ctx.textAlign = 'center';
+        ctx.fillText('POL', un.x - ox, un.y - oy + 3);
       }
     }
-    // mobil patroli
-    for (var k = 0; k < units.length; k++) {
-      var u = units[k];
-      if (u.kind !== 'car' || u.x === undefined) continue;
-      var px = u.x - camX, py = u.y - camY;
-      if (px < -80 || px > W + 80 || py < -80 || py > H + 80) continue;
-      ctx.fillStyle = '#1c2733';
-      ctx.fillRect(px - 23, py - 11, 46, 22);
-      ctx.fillStyle = '#f2f5ff';
-      ctx.fillRect(px - 23, py - 11, 46, 7);
-      ctx.fillStyle = (Math.floor(Date.now() / 300) % 2 === 0) ? '#ff2d2d' : '#2d6bff';
-      ctx.fillRect(px - 6, py - 14, 12, 5);
+    /* SWAT VAN + petugas taktis + penembak jitu */
+    if (swat.deployed) {
+      if (swat.van) {
+        ctx.save();
+        ctx.translate(swat.van.x - ox, swat.van.y - oy); ctx.rotate(0.6);
+        ctx.fillStyle = '#1c1e24'; ctx.fillRect(-34, -15, 68, 30);
+        ctx.fillStyle = '#3a3e48'; ctx.fillRect(-34, -15, 68, 8);
+        ctx.fillStyle = '#fff'; ctx.font = 'bold 10px sans-serif'; ctx.textAlign = 'center';
+        ctx.fillText('SWAT', 0, 4);
+        ctx.restore();
+      }
+      for (var o = 0; o < swat.officers.length; o++) {
+        var off = swat.officers[o];
+        ctx.fillStyle = '#22242c'; ctx.beginPath(); ctx.arc(off.x - ox, off.y - oy, 9, 0, 6.29); ctx.fill();
+        ctx.strokeStyle = '#ffd23a'; ctx.lineWidth = 2; ctx.stroke();
+        ctx.fillStyle = '#ffd23a'; ctx.font = 'bold 8px sans-serif'; ctx.textAlign = 'center';
+        ctx.fillText('SWAT', off.x - ox, off.y - oy - 12);
+      }
+      if (swat.sniper) {
+        ctx.fillStyle = '#3a2a1a'; ctx.beginPath(); ctx.arc(swat.sniper.x - ox, swat.sniper.y - oy, 8, 0, 6.29); ctx.fill();
+        ctx.strokeStyle = '#ff5a2a'; ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.moveTo(swat.sniper.x - ox, swat.sniper.y - oy); ctx.lineTo(s.player.x - ox, s.player.y - oy); ctx.stroke();
+        ctx.fillStyle = '#ff5a2a'; ctx.font = 'bold 9px sans-serif'; ctx.textAlign = 'center';
+        ctx.fillText('SNIPER', swat.sniper.x - ox, swat.sniper.y - oy - 12);
+      }
     }
-    // unit jalan kaki
-    for (var f = 0; f < units.length; f++) {
-      var fu = units[f];
-      if (fu.kind !== 'foot') continue;
-      var fx = TA.S.px - 60 - f * 40 - camX, fy = TA.S.py + 70 + f * 20 - camY;
-      ctx.fillStyle = '#1c2733';
-      ctx.beginPath(); ctx.arc(fx, fy, 9, 0, Math.PI * 2); ctx.fill();
-      ctx.fillStyle = '#ffd23e';
-      ctx.font = 'bold 10px Arial';
-      ctx.fillText('POL', fx - 10, fy - 14);
-    }
-    // ELANG-1 + kerucut sorot
+    /* ELANG-1 + kerucut sorot */
     if (heli.active) {
-      var hx = heli.x - camX, hy = heli.y - camY;
-      var px2 = TA.S.px - camX, py2 = TA.S.py - camY;
-      // kerucut cahaya dari heli ke pemain
-      var grad = ctx.createLinearGradient(hx, hy, px2, py2);
-      grad.addColorStop(0, 'rgba(255,240,160,0.35)');
-      grad.addColorStop(1, 'rgba(255,240,160,0.10)');
+      var hx = heli.x - ox, hy = heli.y - oy;
+      var px = s.player.x - ox, py = s.player.y - oy;
+      /* kerucut cahaya menyapu tanah mengikuti pemain */
+      var grad = ctx.createRadialGradient(px, py, 10, px, py, 190);
+      grad.addColorStop(0, 'rgba(255,240,170,0.5)');
+      grad.addColorStop(1, 'rgba(255,240,170,0)');
       ctx.fillStyle = grad;
-      ctx.beginPath();
-      ctx.moveTo(hx - 8, hy + 6);
-      ctx.lineTo(px2 - 70, py2 - 10);
-      ctx.lineTo(px2 + 70, py2 + 30);
-      ctx.lineTo(hx + 8, hy + 6);
-      ctx.closePath(); ctx.fill();
-      // lingkaran sorot di tanah mengikuti pemain
-      ctx.fillStyle = 'rgba(255,240,160,0.28)';
-      ctx.beginPath(); ctx.ellipse(px2, py2, 70, 34, 0, 0, Math.PI * 2); ctx.fill();
-      // heli
-      ctx.fillStyle = '#222';
-      ctx.beginPath(); ctx.arc(hx, hy, 14, 0, Math.PI * 2); ctx.fill();
-      ctx.fillStyle = '#3a4a63';
-      ctx.beginPath(); ctx.arc(hx, hy, 10, 0, Math.PI * 2); ctx.fill();
-      ctx.strokeStyle = '#888';
-      ctx.lineWidth = 3;
-      var rot = Date.now() / 60;
-      ctx.beginPath();
-      ctx.moveTo(hx + Math.cos(rot) * 26, hy + Math.sin(rot) * 4);
-      ctx.lineTo(hx - Math.cos(rot) * 26, hy - Math.sin(rot) * 4);
-      ctx.stroke();
-      ctx.fillStyle = '#ffd23e';
-      ctx.font = 'bold 12px Arial';
-      if (hy > 100) ctx.fillText('ELANG-1', hx - 26, hy - 22);
+      ctx.beginPath(); ctx.arc(px, py, 190, 0, 6.29); ctx.fill();
+      ctx.strokeStyle = 'rgba(255,240,170,0.55)'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(hx, hy); ctx.lineTo(px - 40, py - 30); ctx.moveTo(hx, hy); ctx.lineTo(px + 40, py + 30); ctx.stroke();
+      ctx.fillStyle = '#22242c'; ctx.beginPath(); ctx.ellipse(hx, hy, 26, 12, 0, 0, 6.29); ctx.fill();
+      ctx.strokeStyle = '#888'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(hx - 26, hy); ctx.lineTo(hx + 26, hy); ctx.stroke();
+      ctx.fillStyle = '#fff'; ctx.font = 'bold 11px sans-serif'; ctx.textAlign = 'center';
+      ctx.fillText('ELANG-1', hx, hy - 20);
     }
   }
 
-  TA.police.reset = reset;
-  TA.police.setWanted = setWanted;
-  TA.police.escalatePolice = escalatePolice;
-  TA.police.spawnRoadblock = spawnRoadblock;
-  TA.police.deploySpikeStrip = deploySpikeStrip;
-  TA.police.updateHelicopter = updateHelicopter;
-  TA.police.cooldownWanted = cooldownWanted;
-  TA.police.update = update;
-  TA.police.draw = draw;
-  TA.police.getDispatchUnits = getDispatchUnits;
-  TA.police.heliActive = function () { return heli.active; };
-  TA.police.roadblocks = function () { return roadblocks; };
+  TA.police = {
+    UNIT_ROLES: UNIT_ROLES,
+    setWanted: setWanted, escalatePolice: escalatePolice,
+    spawnRoadblock: spawnRoadblock, addRoadblock: addRoadblock,
+    deploySpikeStrip: deploySpikeStrip, addSpikeStrip: addSpikeStrip,
+    policeHelicopter: policeHelicopter, setHeli: setHeli, updateHelicopter: updateHelicopter,
+    cooldownWanted: cooldownWanted,
+    deploySWAT: deploySWAT, updateSWAT: updateSWAT, getSWATUnits: getSWATUnits,
+    getDispatchUnits: getDispatchUnits, getFootUnits: getFootUnits,
+    getIncidentLabel: getIncidentLabel, getHeatState: getHeatState,
+    policeTicker: policeTicker, logPoliceRadio: logPoliceRadio,
+    update: update, render: render,
+    get swat() { return swat; }, get heli() { return heli; },
+    get roadblocks() { return roadblocks; }, get spikes() { return spikes; },
+  };
 })();

@@ -1,4 +1,4 @@
-/* selftest.mjs — cek statis + runtime headless Chromium untuk Teluk Arunika v3.7.
+/* selftest.mjs — cek statis + runtime headless Chromium untuk Teluk Arunika v3.8.
    Jalankan: node tools/selftest.mjs  (dari root repo). Keluar 0 bila 100% lolos. */
 import { createHash } from 'node:crypto';
 import { spawn, spawnSync } from 'node:child_process';
@@ -53,7 +53,7 @@ const readme = readFileSync(join(ROOT, 'README.md'), 'utf8');
 const badges = (readme.match(/make\.fun\/badge\/gta6-01/g) || []).length;
 check('readme: 3 badge live make.fun', badges >= 3, badges + ' badge ditemukan');
 check('readme: tanpa shields.io', !/shields\.io/.test(readme));
-check('readme: judul entry v3.7', readme.includes('bank heist, 10 syndicate contracts in 3 acts'));
+check('readme: judul entry v3.8', readme.includes('SWAT tactical response, wreck-target contracts'));
 
 /* ---------- 5. shots.json + screenshot ---------- */
 function jpegDims(buf) {
@@ -152,10 +152,10 @@ function textOf(dom, id) {
 
 const SHOT_MARKERS = {
   0: ['TELUK', 'LANJUTKAN'],
-  1: ['PERAMPOKAN BANK', 'TERLIHAT'],
-  2: ['PENJAGA 3/9', 'Pemburu', 'TAHAP 3/7'],
-  3: ['PERAMPOKAN BANK ARUNIKA', 'KOIN ARUNIKA'],
-  4: ['LANJUTKAN', 'SLOT 1'],
+  1: ['SWAT ARUNIKA DITERJUNKAN', 'SWAT-01', 'PENGEPUNGAN', 'TERLIHAT', 'HEALTH', 'ARMOUR'],
+  2: ['KONTRAK HANCUR', 'KOMET MERAH', '0.32 km', 'NEXT'],
+  3: ['KONTRAK HANCUR', 'CERITA', 'KOIN ARUNIKA', 'PULAU ABU'],
+  4: ['PEMBURU', 'ARUNIKA 98.4', 'ELANG-1', 'SWAT'],
 };
 for (const shot of [0, 1, 2, 3, 4]) {
   const url = 'http://127.0.0.1:' + port + '/index.html' + (shot ? '?shot=' + shot : '');

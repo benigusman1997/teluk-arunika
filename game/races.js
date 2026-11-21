@@ -1,143 +1,124 @@
-/* races.js — Balapan Liar: 3 rute, checkpoint, timer, rekor terbaik */
+/* races.js — Teluk Arunika v3.6. Side job Balapan Liar: 3 rute, garis start,
+   checkpoint berurutan, timer + rekor BEST, mobil lawan AI, biaya + hadiah. */
 (function () {
   'use strict';
   var TA = window.TA;
-  TA.races = TA.races || {};
 
   var RACES = [
-    { id: 1, name: 'Pelabuhan Sprint', district: 'PELABUHAN', entry: 50000, reward: 300,
-      minRank: 1, best: '1:42.3', start: { x: 500, y: 1000 },
-      checkpoints: [{ x: 500, y: 1500 }, { x: 900, y: 1500 }, { x: 1200, y: 1100 }, { x: 800, y: 800 }, { x: 500, y: 1000 }] },
-    { id: 2, name: 'Pasar Senja Circuit', district: 'PASAR', entry: 150000, reward: 700,
-      minRank: 2, best: '2:05.7', start: { x: 2000, y: 1200 },
-      checkpoints: [{ x: 2400, y: 1200 }, { x: 2400, y: 1600 }, { x: 1800, y: 1600 }, { x: 1800, y: 1000 }, { x: 2000, y: 1200 }] },
-    { id: 3, name: 'Tol Layang Highway', district: 'TOL LAYANG', entry: 300000, reward: 1500,
-      minRank: 3, best: '2:48.1', start: { x: 800, y: 220 },
-      checkpoints: [{ x: 2000, y: 220 }, { x: 3200, y: 220 }, { x: 3600, y: 600 }, { x: 3400, y: 2400 }, { x: 3600, y: 2200 }] }
+    { key: 'sprint', name: 'Pelabuhan Sprint', district: 'PELABUHAN', fee: 100, prize: 600, unlockRank: 1,
+      start: { x: 300, y: 900 }, checkpoints: [{ x: 800, y: 900 }, { x: 800, y: 500 }, { x: 300, y: 500 }] },
+    { key: 'circuit', name: 'Pasar Senja Circuit', district: 'PASAR', fee: 250, prize: 1200, unlockRank: 2,
+      start: { x: 1100, y: 700 }, checkpoints: [{ x: 1700, y: 700 }, { x: 1700, y: 300 }, { x: 1100, y: 300 }] },
+    { key: 'highway', name: 'Tol Layang Highway', district: 'TOL LAYANG', fee: 500, prize: 2500, unlockRank: 3,
+      start: { x: 600, y: 1325 }, checkpoints: [{ x: 1800, y: 1325 }, { x: 2900, y: 1325 }, { x: 3300, y: 1900 }] },
   ];
-  TA.races.RACES = RACES;
-
-  var race = null;
-  var rivals = [];
-
-  function reset() {
-    race = null;
-    rivals = [];
-    TA.S.race = null;
-  }
 
   function fmtTime(sec) {
-    var m = Math.floor(sec / 60);
-    var s = sec - m * 60;
+    if (sec === null || sec === undefined) return '--:--.-';
+    var m = Math.floor(sec / 60), s = sec - m * 60;
     return m + ':' + (s < 10 ? '0' : '') + s.toFixed(1);
   }
-  TA.races.fmtTime = fmtTime;
-
-  function getBestTime(id) {
-    var r = RACES[id - 1];
-    return r ? r.best : '—';
-  }
-  TA.races.getBestTime = getBestTime;
-
-  function canEnter(r) {
-    return TA.career.getRank().level >= r.minRank;
+  function getBestTime(key) {
+    var b = TA.state.raceBest[key];
+    return b === null || b === undefined ? null : b;
   }
 
-  function startRace(id) {
-    var r = RACES[id - 1];
+  function startRace(key) {
+    var s = TA.state;
+    var r = null;
+    for (var i = 0; i < RACES.length; i++) if (RACES[i].key === key) r = RACES[i];
     if (!r) return false;
-    if (!canEnter(r)) {
-      TA.ui.showToast('Balapan ' + r.name + ' butuh karier Tingkat ' + r.minRank + '.');
-      return false;
-    }
-    if (TA.S.money < r.entry) {
-      TA.ui.showToast('Biaya masuk ' + TA.fmtRp(r.entry) + ' — uang tidak cukup.');
-      return false;
-    }
-    TA.S.money -= r.entry;
-    race = { def: r, t: 0, cp: 0, active: true, checkpoints: r.checkpoints };
-    TA.S.race = race;
-    TA.S.px = r.start.x; TA.S.py = r.start.y;
-    if (!TA.S.inCar) {
-      var car = { name: 'PELABUHAN GT', color: '#2980b9', top: 185, tune: 'SPORT', condition: 100, x: r.start.x, y: r.start.y, dir: 0 };
-      TA.player.enterCar(car);
-    }
-    // mobil lawan AI
-    rivals = [];
-    for (var i = 0; i < 3; i++) {
-      rivals.push({ x: r.start.x - 60, y: r.start.y + (i - 1) * 50, cp: 0, speed: 120 + i * 12, color: ['#c0392b', '#8e44ad', '#e67e22'][i] });
-    }
-    TA.ui.showToast('BALAPAN LIAR — ' + r.name + ' dimulai! Checkpoint 0/' + r.checkpoints.length + ' · BEST ' + r.best);
-    TA.ui.showRaceHUD();
+    if (s.rank < r.unlockRank) { if (TA.ui) TA.ui.toast('Butuh karier Tingkat ' + r.unlockRank + ' untuk balapan ini!'); return false; }
+    if (s.money < r.fee) { if (TA.ui) TA.ui.toast('Uang tidak cukup untuk biaya masuk $' + r.fee); return false; }
+    s.money -= r.fee;
+    s.race = { key: r.key, name: r.name, checkpoint: 0, timer: 0, best: getBestTime(r.key), rivals: [
+      { x: r.start.x + 60, y: r.start.y - 40, cp: 0, speed: 120 },
+      { x: r.start.x + 60, y: r.start.y + 40, cp: 0, speed: 110 },
+    ]};
+    s.player.x = r.start.x; s.player.y = r.start.y;
+    s.player.onFoot = false;
+    s.car = { name: 'ARUNIKA SEDAN', condition: 92, speed: 0, x: r.start.x, y: r.start.y, angle: 0, color: '#3f7fbf' };
+    if (TA.crew) TA.crew.showCrewChatter('SARI', 'Balapan ' + r.name + ' — kalahkan waktu terbaik ' + fmtTime(s.race.best) + '!');
+    if (TA.ui) TA.ui.showBanner('BALAPAN LIAR — ' + r.name, 'Biaya $' + r.fee + ' · Hadiah $' + r.prize + ' · BEST ' + fmtTime(s.race.best));
     return true;
   }
-  TA.races.startRace = startRace;
 
   function updateRace(dt) {
-    if (!race || !race.active) return;
-    race.t += dt;
-    var cp = race.checkpoints[race.cp];
-    if (cp && TA.dist(TA.S.px, TA.S.py, cp.x, cp.y) < 90) {
-      race.cp++;
-      TA.ui.showToast('CHECKPOINT ' + race.cp + '/' + race.checkpoints.length + ' — ' + fmtTime(race.t));
-      if (race.cp >= race.checkpoints.length) completeRace();
+    var s = TA.state;
+    if (!s.race) return;
+    var r = null;
+    for (var i = 0; i < RACES.length; i++) if (RACES[i].key === s.race.key) r = RACES[i];
+    if (!r) return;
+    s.race.timer += dt;
+    /* checkpoint berurutan */
+    var cp = r.checkpoints[s.race.checkpoint];
+    if (cp) {
+      var dx = cp.x - s.player.x, dy = cp.y - s.player.y;
+      if (dx * dx + dy * dy < 70 * 70) {
+        s.race.checkpoint++;
+        if (TA.audio) TA.audio.checkpointSound();
+      }
     }
-    // lawan AI bergerak ke checkpoint-nya
-    for (var i = 0; i < rivals.length; i++) {
-      var rv = rivals[i];
-      var target = race.checkpoints[rv.cp];
-      if (!target) continue;
-      var dx = target.x - rv.x, dy = target.y - rv.y;
-      var d = Math.sqrt(dx * dx + dy * dy) || 1;
-      rv.x += (dx / d) * rv.speed * dt;
-      rv.y += (dy / d) * rv.speed * dt;
-      if (d < 90) rv.cp++;
+    /* mobil lawan AI mengejar checkpoint */
+    for (var j = 0; j < s.race.rivals.length; j++) {
+      var rv = s.race.rivals[j];
+      var tcp = r.checkpoints[Math.min(rv.cp, r.checkpoints.length - 1)];
+      var rx = tcp.x - rv.x, ry = tcp.y - rv.y, rd = Math.sqrt(rx * rx + ry * ry) || 1;
+      rv.x += (rx / rd) * rv.speed * dt; rv.y += (ry / rd) * rv.speed * dt;
+      if (rd < 70) rv.cp++;
     }
-    TA.ui.updateRaceHUD();
+    if (s.race.checkpoint >= r.checkpoints.length) completeRace();
   }
 
   function completeRace() {
-    if (!race) return;
-    race.active = false;
-    var won = true;
-    for (var i = 0; i < rivals.length; i++) {
-      if (rivals[i].cp >= race.checkpoints.length) won = false;
-    }
-    var t = fmtTime(race.t);
+    var s = TA.state;
+    var r = null;
+    for (var i = 0; i < RACES.length; i++) if (RACES[i].key === s.race.key) r = RACES[i];
+    var t = s.race.timer;
+    var won = s.race.rivals.every(function (rv) { return rv.cp < r.checkpoints.length; });
     if (won) {
-      TA.S.racesWon++;
-      TA.S.money += race.def.reward * 17000;
-      TA.career.addXP(60, 'Balapan menang');
-      TA.ui.showToast('MENANG! ' + race.def.name + ' — ' + t + ' · +' + TA.fmtDollar(race.def.reward) + ' · +60 XP');
-      TA.crew.showChatter('SARI', 'Itu dia! Tidak ada yang bisa menyalip kita!');
-    } else {
-      TA.ui.showToast('KALAH — ' + race.def.name + ' ' + t + '. Lawan lebih cepat. Coba lagi!');
+      s.money += r.prize; s.racesWon++;
+      if (TA.career) TA.career.addXP(50);
     }
-    TA.S.race = null;
-    race = null;
-    TA.ui.hideRaceHUD();
+    var prevBest = getBestTime(r.key);
+    if (prevBest === null || t < prevBest) s.raceBest[r.key] = Math.round(t * 10) / 10;
+    if (TA.ui) TA.ui.showBanner(won ? 'MENANG BALAPAN!' : 'KALAH BALAPAN', r.name + ' — ' + fmtTime(t) + ' · BEST ' + fmtTime(s.raceBest[r.key]) + (won ? ' · +$' + r.prize : ''));
+    s.race = null;
   }
-  TA.races.completeRace = completeRace;
 
-  function drawRivals(ctx, W, H) {
-    for (var i = 0; i < rivals.length; i++) {
-      var rv = rivals[i];
-      var p = TA.world.worldToScreen(rv.x, rv.y, W, H);
-      if (p.x < -60 || p.x > W + 60 || p.y < -60 || p.y > H + 60) continue;
-      ctx.fillStyle = 'rgba(0,0,0,0.35)';
-      ctx.fillRect(p.x - 22, p.y - 9, 48, 26);
-      ctx.fillStyle = rv.color;
-      ctx.fillRect(p.x - 23, p.y - 11, 46, 22);
-      ctx.fillStyle = '#bfe3ff';
-      ctx.fillRect(p.x - 6, p.y - 9, 12, 18);
-      ctx.fillStyle = '#fff';
-      ctx.font = 'bold 11px Arial';
-      ctx.fillText('LAWAN', p.x - 20, p.y - 18);
+  function update(dt) { updateRace(dt); }
+
+  function render(ox, oy) {
+    var ctx = TA.ctx; if (!ctx) return;
+    var s = TA.state;
+    if (!s.race) return;
+    var r = null;
+    for (var i = 0; i < RACES.length; i++) if (RACES[i].key === s.race.key) r = RACES[i];
+    if (!r) return;
+    /* garis start */
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(r.start.x - ox - 8, r.start.y - oy - 40, 16, 80);
+    ctx.fillStyle = '#222'; ctx.font = 'bold 11px sans-serif'; ctx.textAlign = 'center';
+    ctx.fillText('START', r.start.x - ox, r.start.y - oy - 48);
+    /* checkpoint aktif */
+    var cp = r.checkpoints[s.race.checkpoint];
+    if (cp) {
+      ctx.strokeStyle = '#ffd23a'; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.arc(cp.x - ox, cp.y - oy, 26, 0, 6.29); ctx.stroke();
+      ctx.fillStyle = '#ffd23a'; ctx.font = 'bold 12px sans-serif';
+      ctx.fillText('CP ' + (s.race.checkpoint + 1) + '/' + r.checkpoints.length, cp.x - ox, cp.y - oy - 32);
+    }
+    /* mobil lawan */
+    for (var j = 0; j < s.race.rivals.length; j++) {
+      var rv = s.race.rivals[j];
+      ctx.fillStyle = j === 0 ? '#7a2e7a' : '#2e7a5a';
+      ctx.fillRect(rv.x - ox - 20, rv.y - oy - 10, 40, 20);
     }
   }
-  TA.races.drawRivals = drawRivals;
 
-  TA.races.reset = reset;
-  TA.races.update = updateRace;
-  TA.races.current = function () { return race; };
+  TA.races = {
+    RACES: RACES, startRace: startRace, updateRace: updateRace,
+    completeRace: completeRace, getBestTime: getBestTime, fmtTime: fmtTime,
+    update: update, render: render,
+  };
 })();

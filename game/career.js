@@ -1,140 +1,107 @@
-/* career.js — 5 tingkat karier, XP, perk, suasana distrik, statistik karier */
+/* career.js — Teluk Arunika v3.8. 5 tingkat karier + XP, suasana 6 distrik,
+   Koin Arunika 12 + lompatan 5, simpan/muat save slot localStorage. */
 (function () {
   'use strict';
   var TA = window.TA;
-  TA.career = TA.career || {};
 
   var RANKS = [
-    { level: 1, name: 'Anak Baru', xp: 0, perk: 'Tanpa perk' },
-    { level: 2, name: 'Sopir Andal', xp: 150, perk: 'Buka rekrutmen kru (Sari & Budi)' },
-    { level: 3, name: 'Penguasa Jalanan', xp: 400, perk: 'Diskon 15% semua toko + buka rekrut Agus' },
-    { level: 4, name: 'Raja Teluk', xp: 800, perk: 'Kapasitas armor +50, HP maksimum +25' },
-    { level: 5, name: 'Legenda Arunika', xp: 1500, perk: 'Wanted cooldown 20% lebih cepat + gelar di layar akhir' }
+    { level: 1, name: 'Anak Baru', xp: 0, perk: 'Tanpa perk.' },
+    { level: 2, name: 'Sopir Andal', xp: 150, perk: 'Buka rekrutmen kru (Sari & Budi).' },
+    { level: 3, name: 'Penguasa Jalanan', xp: 400, perk: 'Diskon 15% semua toko + buka rekrut Agus.' },
+    { level: 4, name: 'Raja Teluk', xp: 800, perk: 'Kapasitas armor +50, HP maksimum +25.' },
+    { level: 5, name: 'Legenda Arunika', xp: 1500, perk: 'Wanted cooldown 20% lebih cepat + gelar di layar akhir.' },
   ];
-  TA.career.RANKS = RANKS;
 
-  var DISTRICTS = [
-    { name: 'PELABUHAN', standing: 58 }, { name: 'PASAR', standing: 47 },
-    { name: 'GANG NEON', standing: 52 }, { name: 'PANTAI', standing: 71 },
-    { name: 'TOL LAYANG', standing: 64 }, { name: 'PULAU ABU', standing: 33 }
-  ];
-  TA.career.DISTRICTS = DISTRICTS;
+  var DISTRICTS = ['PELABUHAN', 'PASAR', 'GANG NEON', 'PANTAI', 'TOL LAYANG', 'PULAU ABU'];
+  var STASHES = [];
+  for (var i = 0; i < 12; i++) STASHES.push({ id: i + 1 });
+  var STUNT_RAMPS = [];
+  for (var j = 0; j < 5; j++) STUNT_RAMPS.push({ id: j + 1 });
 
-  function reset() { /* standing dipertahankan dari state awal */ }
-
-  function getRank() {
-    var xp = TA.S.xp;
-    var cur = RANKS[0];
-    var next = null;
-    for (var i = 0; i < RANKS.length; i++) {
-      if (xp >= RANKS[i].xp) cur = RANKS[i];
-      else { next = RANKS[i]; break; }
-    }
-    return { level: cur.level, name: cur.name, xp: cur.xp, next: next, perk: cur.perk };
+  function getRank(xp) {
+    var r = RANKS[0];
+    for (var i = 0; i < RANKS.length; i++) if (xp >= RANKS[i].xp) r = RANKS[i];
+    return r;
   }
-  TA.career.getRank = getRank;
-
-  function addXP(n, reason) {
-    var before = getRank().level;
-    TA.S.xp += n;
-    var after = getRank().level;
-    if (after > before) {
+  function nextRank(xp) {
+    for (var i = 0; i < RANKS.length; i++) if (xp < RANKS[i].xp) return RANKS[i];
+    return null;
+  }
+  function addXP(n) {
+    var s = TA.state;
+    var before = getRank(s.xp);
+    s.xp += n;
+    var after = getRank(s.xp);
+    if (after.level > before.level) {
       checkRankUp(after);
     }
-    TA.ui.renderRankRow();
+    if (TA.ui) TA.ui.renderAll(true);
   }
-  TA.career.addXP = addXP;
-
-  function checkRankUp(level) {
-    var r = RANKS[level - 1];
-    TA.ui.showRankUpBanner('NAIK TINGKAT: ' + r.name + '! — ' + r.perk);
-    applyRankPerks();
+  function checkRankUp(rank) {
+    applyRankPerks(rank);
+    if (TA.ui) TA.ui.showRankUpBanner(rank);
   }
-  TA.career.checkRankUp = checkRankUp;
-
-  function applyRankPerks() {
-    var lvl = getRank().level;
-    if (lvl >= 4) {
-      TA.S.hp = Math.min(maxHP(), TA.S.hp);
-    }
-  }
-  TA.career.applyRankPerks = applyRankPerks;
-
-  function maxArmor() {
-    return getRank().level >= 4 ? 150 : 100;
-  }
-  TA.career.maxArmor = maxArmor;
-
-  function maxHP() {
-    return getRank().level >= 4 ? 125 : 100;
-  }
-  TA.career.maxHP = maxHP;
-
-  function wantedCooldownBonus() {
-    return getRank().level >= 5 ? 0.20 : 0;
-  }
-  TA.career.wantedCooldownBonus = wantedCooldownBonus;
-
-  function shopDiscount() {
-    var d = getRank().level >= 3 ? 0.15 : 0;
-    d += TA.crew.getCrewBonus().discount;
-    return Math.min(0.35, d);
-  }
-  TA.career.shopDiscount = shopDiscount;
-
-  function updateDistrictStanding(name, delta) {
-    for (var i = 0; i < DISTRICTS.length; i++) {
-      if (DISTRICTS[i].name === name) {
-        DISTRICTS[i].standing = TA.clamp(DISTRICTS[i].standing + delta, 0, 100);
-        return DISTRICTS[i].standing;
-      }
-    }
-    return 50;
-  }
-  TA.career.updateDistrictStanding = updateDistrictStanding;
-
-  function districtStanding(name) {
-    for (var i = 0; i < DISTRICTS.length; i++) {
-      if (DISTRICTS[i].name === name) return DISTRICTS[i].standing;
-    }
-    return 50;
-  }
-  TA.career.districtStanding = districtStanding;
-
-  function districtsHeld() {
-    var n = 0;
-    for (var i = 0; i < DISTRICTS.length; i++) if (DISTRICTS[i].standing >= 70) n++;
-    return n;
-  }
-  TA.career.districtsHeld = districtsHeld;
-
-  function careerStats() {
-    var r = getRank();
-    return [
-      { label: 'UANG', value: TA.fmtRp(TA.S.money) },
-      { label: 'RESPECT', value: String(TA.S.respect) },
-      { label: 'TINGKAT', value: 'TINGKAT ' + r.level + ' · ' + r.name + ' — ' + TA.S.xp + '/' + (r.next ? r.next.xp : 'MAX') + ' XP' },
-      { label: 'DISTRIK DIKUASAI', value: districtsHeld() + '/6' },
-      { label: 'KOIN ARUNIKA', value: TA.S.coins + '/12' },
-      { label: 'LOMPATAN', value: TA.S.jumps + '/5' },
-      { label: 'BALAPAN DIMENANGKAN', value: String(TA.S.racesWon) },
-      { label: 'MOBIL DICURI', value: String(TA.S.carsStolen) },
-      { label: 'WANTED TERTINGGI', value: TA.S.bestWanted + ' BINTANG' },
-      { label: 'SAFEHOUSE', value: TA.S.safehouses + '/3' },
-      { label: 'MISI SELESAI', value: TA.S.missionDone.filter(Boolean).length + '/10' },
-      { label: 'HARI', value: 'Hari ' + TA.S.day + ' / 7' }
-    ];
-  }
-  TA.career.careerStats = careerStats;
-
-  function update(dt) {
-    // suasana distrik turun pelan saat wanted tinggi (kekacauan)
-    if (TA.S.wanted >= 4 && Math.random() < dt * 0.05) {
-      var d = TA.world.districtAt(TA.S.px, TA.S.py);
-      updateDistrictStanding(d.name, -1);
-    }
+  function applyRankPerks(rank) {
+    var s = TA.state;
+    if (rank.level >= 4) { s.maxArmor = 150; s.maxHealth = 125; }
+    if (TA.ui) TA.ui.renderAll(true);
   }
 
-  TA.career.reset = reset;
-  TA.career.update = update;
+  function updateDistrictStanding(district, delta) {
+    var s = TA.state;
+    if (s.districts[district] === undefined) return;
+    s.districts[district] = Math.max(0, Math.min(100, s.districts[district] + delta));
+  }
+  function update(dt) { /* suasana berubah lewat aksi; tidak ada tick pasif */ }
+
+  function collectStash(id) {
+    var s = TA.state;
+    s.coins = Math.min(12, s.coins + 1);
+    s.money += 50;
+    addXP(10);
+  }
+  function registerStuntJump() {
+    var s = TA.state;
+    s.jumps = Math.min(5, s.jumps + 1);
+    addXP(15);
+  }
+
+  /* ---------- save / load ---------- */
+  function saveGame(slot) {
+    var s = TA.state;
+    try {
+      var data = {
+        day: s.day, money: s.money, xp: s.xp, rank: s.rank,
+        missionDone: s.missionDone, wreckDone: s.wreckDone,
+        crew: { sari: s.crew.sari.recruited, budi: s.crew.budi.recruited, agus: s.crew.agus.recruited },
+        districts: s.districts, coins: s.coins, jumps: s.jumps,
+        racesWon: s.racesWon, carsStolen: s.carsStolen, bestWanted: s.bestWanted,
+        savedAt: new Date().toISOString(),
+      };
+      localStorage.setItem('teluk-arunika-save-' + slot, JSON.stringify(data));
+      if (TA.ui) TA.ui.toast('Menyimpan... Slot ' + slot + ' tersimpan.');
+      return true;
+    } catch (e) { return false; }
+  }
+  function loadGame(slot) {
+    try {
+      var raw = localStorage.getItem('teluk-arunika-save-' + slot);
+      if (!raw) return null;
+      return JSON.parse(raw);
+    } catch (e) { return null; }
+  }
+  function listSaves() {
+    var out = [];
+    for (var i = 1; i <= 3; i++) out.push(loadGame(i));
+    return out;
+  }
+
+  TA.career = {
+    RANKS: RANKS, DISTRICTS: DISTRICTS, STASHES: STASHES, STUNT_RAMPS: STUNT_RAMPS,
+    addXP: addXP, getRank: getRank, nextRank: nextRank,
+    checkRankUp: checkRankUp, applyRankPerks: applyRankPerks,
+    updateDistrictStanding: updateDistrictStanding, update: update,
+    collectStash: collectStash, registerStuntJump: registerStuntJump,
+    saveGame: saveGame, loadGame: loadGame, listSaves: listSaves,
+  };
 })();
