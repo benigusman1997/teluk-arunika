@@ -1,6 +1,8 @@
 # TELUK ARUNIKA: 7 Hari Utang
 
-[![Live on make.fun](https://img.shields.io/badge/live-make.fun-ff7a2a)](https://make.fun/bounty/gta6-01)
+[![make.fun · gta6-01](https://make.fun/badge/gta6-01.svg)](https://make.fun/bounty/gta6-01?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
+[![rank](https://make.fun/badge/gta6-01/benigusman1997/teluk-arunika/rank.svg)](https://make.fun/bounty/gta6-01/leaderboard?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
+[![reward](https://make.fun/badge/gta6-01/benigusman1997/teluk-arunika/reward.svg)](https://make.fun/bounty/gta6-01?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
 
 **TELUK ARUNIKA: 7 Hari Utang — 10 syndicate contracts in 3 acts, street races & full map, crew abilities & career progression, staged missions, police dispatch, roadblocks + ELANG-1 tactical air unit, car theft, 4-weapon combat**
 
