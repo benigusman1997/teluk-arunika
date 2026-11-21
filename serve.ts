@@ -1,5 +1,7 @@
-// A tiny static server for game/ (Node 22, standard library only), so the entry can be played
-// locally without a build step: `node serve.ts` serves game/ on http://localhost:8080.
+// Server statis dev untuk game/ (Node 22, standard library only):
+// `node serve.ts` menyajikan game/ di http://localhost:8080.
+// Mengirim MIME type yang dibutuhkan game browser, menolak path di luar game/,
+// dan tidak melakukan hal lain — kemudahan dev, bukan web server untuk internet.
 import { createReadStream, statSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { extname, join, normalize, resolve, sep } from 'node:path';
@@ -46,26 +48,25 @@ createServer((request, response) => {
   }
   if (pathname.endsWith('/')) pathname += 'index.html';
   const file = resolve(join(root, normalize(pathname)));
-  if (!file.startsWith(root + sep) && file !== root) {
+  if (file !== root && !file.startsWith(root + sep)) {
     response.writeHead(403).end('forbidden');
     return;
   }
-  let stat;
+  let size: number;
   try {
-    stat = statSync(file);
+    const stats = statSync(file);
+    if (!stats.isFile()) throw new Error('not a file');
+    size = stats.size;
   } catch {
     response.writeHead(404).end('not found');
     return;
   }
-  if (!stat.isFile()) {
-    response.writeHead(404).end('not found');
-    return;
-  }
   response.writeHead(200, {
-    'content-type': MIME[extname(file)] ?? 'application/octet-stream',
-    'content-length': stat.size,
+    'content-type': MIME[extname(file).toLowerCase()] ?? 'application/octet-stream',
+    'content-length': size,
+    'cache-control': 'no-store',
   });
   createReadStream(file).pipe(response);
-}).listen(port, () => {
-  console.log(`TELUK ARUNIKA served at http://localhost:${port}/`);
+}).listen(port, '127.0.0.1', () => {
+  console.log(`game/ is on http://localhost:${port}`);
 });

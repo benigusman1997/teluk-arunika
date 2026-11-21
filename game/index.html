@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="id">
 <head>
 <meta charset="utf-8">
@@ -7,133 +7,148 @@
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<div id="game-root">
-  <canvas id="game-canvas"></canvas>
-  <div id="rain-overlay"></div>
-  <div id="vignette"></div>
+<canvas id="game-canvas" width="1280" height="720"></canvas>
 
-  <!-- HUD -->
-  <div id="hud" class="hidden">
-    <div id="top-left">
-      <div id="wanted-stars" title="Wanted level">☆☆☆☆☆</div>
-      <div id="money-row">$<span id="money">2.400</span> &nbsp;·&nbsp; HARI <span id="day">1</span>/7 &nbsp;·&nbsp; UTANG $<span id="debt">7.000</span></div>
-      <div id="rank-row">TINGKAT 1 · Anak Baru — <span id="xp-text">0 / 150 XP</span></div>
-      <div id="xp-bar"><div id="xp-fill"></div></div>
-      <div id="crew-row">KRU: —</div>
-      <div id="clock-row"><span id="clock">14:32</span> · <span id="weather">HUJAN DERAS</span> · <span id="radio">RADIO: Dangdut Neon</span></div>
-    </div>
+<!-- ============ HUD ============ -->
+<div id="hud" class="hidden">
+  <div id="hud-top-left">
+    <div id="wanted-stars" aria-label="Wanted level">&#9733;&#9733;&#9733;&#9733;&#9733;</div>
+    <div id="money-line">$<span id="money">250</span> &nbsp;·&nbsp; HARI <span id="day">1</span>/7 &nbsp;·&nbsp; UTANG $<span id="debt">7000</span></div>
+    <div id="clock-weather"><span id="clock">09:20</span> &nbsp;·&nbsp; <span id="weather">HUJAN DERAS</span></div>
+    <div id="rank-row"><span id="rank-text">TINGKAT 1 · Anak Baru — 0 / 150 XP</span></div>
+    <div id="xp-bar"><div id="xp-fill"></div></div>
+    <div id="crew-row">KRU: —</div>
+  </div>
 
-    <div id="mission-banner" class="hidden">
-      <div id="mission-title">MISI 1 DARI 10 · TAHAP 1/3</div>
-      <div id="mission-stage">Antar Paket Pertama</div>
-      <div id="mission-objective">Ambil paket di Pasar Senja</div>
-      <div id="mission-dist">JARAK: 120 m</div>
-      <div id="mission-next">NEXT: Antar ke Dermaga Senja</div>
-    </div>
-
-    <div id="dispatch-panel" class="hidden">
-      <div id="dispatch-title">DISPATCH POLISI — 0 UNIT</div>
-      <div id="dispatch-list"></div>
-      <div id="dispatch-heli" class="hidden">⚠ ELANG-1 DITERJUNKAN</div>
-    </div>
-
-    <div id="crew-cards"></div>
-
-    <div id="bottom-left">
-      <div id="health-row">❤ HP <span id="hp">100</span> &nbsp; 🛡 ARMOR <span id="armor">0</span></div>
-      <div id="weapon-row"><span id="weapon-name">PISTOL</span> <span id="ammo">12 / ∞</span></div>
-      <div id="car-row" class="hidden"><span id="car-name">ARUNIKA SEDAN</span> · <span id="car-condition">100% BAIK</span> · <span id="speed">0</span> km/j</div>
-    </div>
-
-    <div id="location-banner">
-      <div id="district-name">PELABUHAN — Dermaga Senja</div>
-      <div id="district-mood">NETRAL · 58</div>
-    </div>
-
+  <div id="hud-top-right">
     <canvas id="minimap" width="180" height="180"></canvas>
-    <div id="compass">N ↑</div>
-    <div id="toast"></div>
-    <div id="chatter" class="hidden"><span id="chatter-name">SARI</span>: <span id="chatter-text"></span></div>
-    <div id="interact-prompt" class="hidden">Tahan E untuk jack mobil</div>
-    <div id="rankup-banner" class="hidden"></div>
-    <div id="saving" class="hidden">Saving…</div>
+    <div id="compass">N &uarr; &nbsp; E &rarr; &nbsp; S &darr; &nbsp; W &larr;</div>
+    <div id="radio-line">&#9834; <span id="radio-name">RADIO MATI — tekan R</span></div>
   </div>
 
-  <!-- Weapon wheel -->
-  <div id="weapon-wheel" class="hidden">
-    <div class="wheel-title">SENJATA — 1 Pistol · 2 SMG · 3 Shotgun · 4 Rifle</div>
-    <div class="wheel-slots">
-      <div class="wheel-slot" data-w="1">1 · PISTOL</div>
-      <div class="wheel-slot" data-w="2">2 · SMG</div>
-      <div class="wheel-slot" data-w="3">3 · SHOTGUN</div>
-      <div class="wheel-slot" data-w="4">4 · RIFLE</div>
+  <div id="mission-banner">
+    <div id="mission-stage">MISI 1 DARI 10 · TAHAP 1/3</div>
+    <div id="mission-title">Taksi Pertama</div>
+    <div id="mission-objective">Antar penumpang ke Pasar Ikan.</div>
+    <div id="mission-meta"><span id="mission-distance">0 m</span> &nbsp;·&nbsp; NEXT: <span id="mission-next">Ambil paket di dermaga</span></div>
+  </div>
+
+  <div id="dispatch-panel">
+    <div id="dispatch-title">DISPATCH POLISI — 0 UNIT</div>
+    <div id="dispatch-list"></div>
+    <div id="heli-label" class="hidden">ELANG-1 DITERJUNKAN</div>
+  </div>
+
+  <div id="crew-cards"></div>
+
+  <div id="hud-bottom-left">
+    <div id="hp-armor">
+      <div class="bar-label">HP <span id="hp-text">100</span></div>
+      <div class="bar"><div id="hp-fill"></div></div>
+      <div class="bar-label">ARMOR <span id="armor-text">0</span></div>
+      <div class="bar"><div id="armor-fill"></div></div>
+    </div>
+    <div id="weapon-line"><span id="weapon-name">PISTOL</span> &nbsp;·&nbsp; <span id="ammo-text">&infin;</span></div>
+    <div id="location-banner">
+      <div id="district-name">PASAR</div>
+      <div id="street-name">Jl. Merdeka</div>
+      <div id="district-standing">NETRAL · 62</div>
     </div>
   </div>
 
-  <!-- Crew panel (V) -->
-  <div id="crew-panel" class="hidden panel">
-    <h2>KRU — BENGKEL PAK AMIR</h2>
-    <div id="crew-list"></div>
-    <p class="panel-hint">Z Gaspol · X Perbaiki Cepat · C Ghost · V tutup panel</p>
-  </div>
-
-  <!-- Dialogue / cutscene -->
-  <div id="dialogue" class="hidden">
-    <div id="dialogue-speaker">DARMA</div>
-    <div id="dialogue-text"></div>
-    <div id="dialogue-hint">Klik / Enter untuk lanjut</div>
-  </div>
-
-  <!-- Start screen -->
-  <div id="start-screen">
-    <div class="start-inner">
-      <div class="start-kicker">KOTA PELABUHAN · HUJAN MONSUN · 7 HARI</div>
-      <h1>TELUK<br>ARUNIKA</h1>
-      <div class="start-sub">7 HARI UTANG</div>
-      <p class="start-story">Raka, sopir taksi, berutang $7.000 pada Darma Wijaya. Tujuh hari untuk melunasi — atau bengkel ayahnya disita. Sepuluh misi. Tiga kru. Satu pelabuhan yang tak pernah tidur.</p>
-      <div class="start-buttons">
-        <button id="btn-continue">▶ LANJUTKAN (Save)</button>
-        <button id="btn-new">＋ GAME BARU</button>
-      </div>
-      <div class="start-controls">WASD jalan · E masuk/curi mobil · Mouse aim + klik tembak · 1-4 senjata · Z/X/C kemampuan kru · V panel kru · R radio · Esc jeda · M minimap</div>
-      <div class="start-foot">10 misi naratif · 3 kru · 5 tingkat karier · 5 distrik · Wanted 1-5 · ELANG-1 · Offline total</div>
+  <div id="hud-bottom-right">
+    <div id="speed-block" class="hidden">
+      <div id="car-name">ARUNIKA SEDAN</div>
+      <div id="car-condition">100% PRIMA</div>
+      <div id="speed">0 km/jam</div>
     </div>
+    <div id="taxi-info" class="hidden"></div>
+    <div id="interact-prompt" class="hidden"></div>
+    <div id="chatter-toast" class="hidden"><b id="chatter-name">SARI</b>: <span id="chatter-text"></span></div>
   </div>
 
-  <!-- Pause screen -->
-  <div id="pause-screen" class="hidden">
-    <div class="pause-inner">
-      <h2>JEDA</h2>
-      <div id="pause-stats"></div>
-      <div id="career-panel">
-        <h3>KARIER</h3>
-        <div id="career-detail"></div>
-      </div>
-      <div id="pause-crew"><h3>KRU</h3><div id="pause-crew-list"></div></div>
-      <h3>SAVE — 3 SLOT + AUTOSAVE</h3>
-      <div class="save-slots">
-        <button class="save-slot" data-slot="1">SLOT 1</button>
-        <button class="save-slot" data-slot="2">SLOT 2</button>
-        <button class="save-slot" data-slot="3">SLOT 3</button>
-        <button id="btn-load-auto">MUAT AUTOSAVE</button>
-      </div>
-      <div class="pause-buttons">
-        <button id="btn-resume">▶ LANJUT</button>
-        <button id="btn-restart">↻ ULANG MISI</button>
-        <button id="btn-quit">■ MENU UTAMA</button>
-      </div>
-      <p class="pause-hint">Esc untuk lanjut · Uang, hari, misi, XP, tingkat &amp; kru tersimpan otomatis</p>
-    </div>
-  </div>
+  <div id="rankup-banner" class="hidden"></div>
+  <div id="save-notice" class="hidden">Saving...</div>
+</div>
 
-  <!-- End screen -->
-  <div id="end-screen" class="hidden">
-    <div class="end-inner">
-      <h1 id="end-title">UTANG LUNAS — BENGKEL SELAMAT</h1>
-      <p id="end-text"></p>
-      <div id="end-stats"></div>
-      <button id="btn-again">↻ MAIN LAGI</button>
+<!-- ============ Weapon wheel ============ -->
+<div id="weapon-wheel" class="hidden">
+  <div class="wheel-title">SENJATA — tekan 1-4</div>
+  <div class="wheel-slot" data-weapon="0">1 · PISTOL</div>
+  <div class="wheel-slot" data-weapon="1">2 · SMG</div>
+  <div class="wheel-slot" data-weapon="2">3 · SHOTGUN</div>
+  <div class="wheel-slot" data-weapon="3">4 · RIFLE</div>
+</div>
+
+<!-- ============ Shop ============ -->
+<div id="shop-panel" class="hidden">
+  <div class="panel-title">TOKO SENJATA — PASAR</div>
+  <div id="shop-list"></div>
+  <div class="panel-hint">Klik untuk membeli · B / Esc untuk menutup</div>
+</div>
+
+<!-- ============ Crew panel ============ -->
+<div id="crew-panel" class="hidden">
+  <div class="panel-title">KRU — tekan V untuk menutup</div>
+  <div id="crew-panel-list"></div>
+  <div class="panel-hint">Rekrut di bengkel Pak Amir · Kemampuan aktif: Sari Z · Budi X · Agus C</div>
+</div>
+
+<!-- ============ Dialogue / cutscene ============ -->
+<div id="dialogue-box" class="hidden">
+  <div id="dialogue-speaker">RAKA</div>
+  <div id="dialogue-text"></div>
+  <div class="panel-hint">Klik / Spasi untuk lanjut</div>
+</div>
+
+<!-- ============ Choice ============ -->
+<div id="choice-box" class="hidden">
+  <div id="choice-title">PILIHAN</div>
+  <div id="choice-text"></div>
+  <div id="choice-buttons"></div>
+</div>
+
+<!-- ============ Start screen ============ -->
+<div id="start-screen">
+  <div class="start-inner">
+    <div class="start-kicker">TELUK ARUNIKA</div>
+    <h1>7 HARI UTANG</h1>
+    <p class="start-sub">Kota pelabuhan hujan tropis. Raka, sopir taksi, berutang pada Darma Wijaya.
+    Tujuh hari untuk melunasi utang — atau bengkel ayahnya disita.</p>
+    <p class="start-features">10 narrative operations · 3 kru dengan kemampuan · 5 tingkat karier ·
+    dispatch polisi &amp; ELANG-1 · car theft · 4 senjata</p>
+    <button id="btn-continue" class="hidden">CONTINUE</button>
+    <button id="btn-newgame">NEW GAME</button>
+    <div class="start-controls">WASD jalan · E masuk/curi mobil · Shift lari · Mouse aim + klik tembak ·
+    1-4 senjata · Q kemampuan kru · R radio · V panel kru · B toko · Esc jeda · M zoom minimap</div>
+  </div>
+</div>
+
+<!-- ============ Pause screen ============ -->
+<div id="pause-screen" class="hidden">
+  <div class="pause-inner">
+    <h2>JEDA</h2>
+    <div id="pause-stats"></div>
+    <div id="pause-career"></div>
+    <div id="pause-crew"></div>
+    <div class="save-slots">
+      <button data-slot="1">SAVE SLOT 1</button>
+      <button data-slot="2">SAVE SLOT 2</button>
+      <button data-slot="3">SAVE SLOT 3</button>
     </div>
+    <div id="pause-loads"></div>
+    <button id="btn-resume">LANJUTKAN (Esc)</button>
+    <button id="btn-quit">KELUAR KE MENU</button>
+  </div>
+</div>
+
+<!-- ============ End screen ============ -->
+<div id="end-screen" class="hidden">
+  <div class="end-inner">
+    <h2 id="end-title">UTANG LUNAS — BENGKEL SELAMAT</h2>
+    <p id="end-text"></p>
+    <div id="end-stats"></div>
+    <button id="btn-restart">MAIN LAGI</button>
   </div>
 </div>
 

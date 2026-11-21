@@ -1,52 +1,47 @@
+[![Make.fun GTA 6](https://make.fun/badge/gta6-01.svg)](https://make.fun/gta6-01)
+[![Rank](https://make.fun/badge/gta6-01/benigusman1997/teluk-arunika/rank.svg)](https://make.fun/gta6-01)
+[![Reward](https://make.fun/badge/gta6-01/benigusman1997/teluk-arunika/reward.svg)](https://make.fun/gta6-01)
+
 # TELUK ARUNIKA: 7 Hari Utang
 
-[![GTA 6 Bounty](https://make.fun/api/competitions/gta6-01/badge)](https://make.fun/competitions/gta6-01)
-[![Entry](https://make.fun/api/competitions/gta6-01/entry/teluk-arunika/badge)](https://make.fun/competitions/gta6-01)
-[![Status](https://make.fun/api/competitions/gta6-01/status/badge)](https://make.fun/competitions/gta6-01)
+**10 narrative operations, crew abilities & career progression, staged missions, police dispatch, roadblocks + ELANG-1 tactical air unit, car theft, 4-weapon combat** — game open-world kriminal 3D yang berjalan offline di browser desktop, tanpa network request.
 
-**10 narrative operations, crew abilities & career progression, staged missions, police dispatch, roadblocks + ELANG-1 tactical air unit, car theft, 4-weapon combat.**
+Kota pelabuhan hujan tropis fiktif **Teluk Arunika** — bukan pantai cerah generik. Protagonis **Raka**, sopir taksi yang berutang ke bos kriminal **Darma Wijaya**. Hitung mundur **7 hari** untuk melunasi utang, kalau tidak, bengkel ayahnya disita. Hujan monsun, neon malam, pelabuhan, pasar, gang sempit, jalan tol layang. Siang hujan deras + malam neon basah (refleksi di aspal) — cuaca mengubah gameplay.
 
-Raka, sopir taksi di kota pelabuhan hujan tropis **Teluk Arunika**, berutang $7.000 pada bos kriminal Darma Wijaya. Tujuh hari untuk melunasi — atau bengkel ayahnya disita. Sepuluh misi naratif, tiga kru yang bisa direkrut, lima tingkat karier, lima distrik dengan suasana yang berubah, dan polisi yang mengejar dengan roadblock, spike strip, manuver PIT, dan helikopter ELANG-1.
+## Yang ada di dalam game
 
-## Main
+- **10 misi cerita bertahap** — tiap misi 3–4 tahap dengan banner `MISI 6 DARI 10 · TAHAP 2/3`, judul tahap, objektif, jarak meter, dan `NEXT`. Misi 5 bercabang (bayar Darma $500 atau khianati), Misi 10 final: tembak-menembak fajar di pelabuhan, 3 gelombang, pilihan akhir tangkap Darma (+200 XP) atau biarkan kabur (+$500), layar akhir + statistik karier.
+- **Sistem kru** — Sari "Si Gesit" (sopir, Gaspol Z), Budi "Montir" (Perbaiki Cepat X), Agus "Si Pendiam" (Ghost C). Kemampuan pasif benar-benar mengubah gameplay; kartu kru di HUD dengan status READY/cooldown; panel kru (V); obrolan radio kru saat peristiwa penting.
+- **Progresi karier** — 5 tingkat (Anak Baru → Sopir Andal → Penguasa Jalanan → Raja Teluk → Legenda Arunika), XP berangka di HUD (`TINGKAT 3 · Penguasa Jalanan — 450 / 800 XP`), banner naik tingkat, detail karier di layar pause.
+- **Panel dispatch polisi** — unit aktif bernama + taktik + jarak: ELANG-1 AIR (spotlight), PATROLI-12 MOBIL (ramming), PATROLI-07 (PIT), BLOKIR-03 (roadblock)… Wanted 1–5: patroli jalan kaki, mobil patroli, roadblock, PIT + spike strip, helikopter ELANG-1 + spotlight.
+- **Banner lokasi + suasana distrik** — 5 distrik (Pelabuhan, Pasar, Gang Neon, Pantai, Tol Layang) dengan skor suasana 0–100 yang memengaruhi bayaran taksi.
+- **Nama mobil + kondisi** — ARUNIKA SEDAN, PELABUHAN GT, TAKSI KUNING, dst. + kondisi % (PRIMA/RUSAK/PARAH/HANCUR) di blok kecepatan.
+- **On foot + by car** — jalan kaki, masuk/keluar mobil (E), carjacking (tahan E, alarm, wanted +1), garage ganti warna = wanted turun.
+- **Traffic hidup** — mobil AI berhenti di lampu merah, klakson, menghindar; pejalan kaki menyeberang, lari saat tembakan.
+- **Combat** — pistol / SMG / shotgun / rifle, weapon wheel (1–4), HP + armor, musuh berlindung di balik kontainer, drive-by, mobil meledak.
+- **HUD + minimap** — minimap hidup (blip polisi merah, misi kuning, taksi hijau, safehouse biru), kompas, wanted stars, uang, HP/armor, jam + cuaca, kecepatan.
+- **Start + save** — layar start sinematik (Continue / New Game), pause (Esc) dengan save slot 1–3 + autosave, indikator "Saving...".
+- **Ekonomi + side job** — uang misi untuk senjata / perbaikan / armor; side job taksi (T) + antar paket (G).
+- **Radio + suara** — 3 stasiun (dangdut-neon / lo-fi hujan / berita kota, tombol R); semua suara WebAudio sintetis offline.
 
-Buka `game/index.html` di desktop Chrome (offline total, tanpa network request) atau jalankan `node serve.ts` lalu buka http://localhost:8080.
+## Cara main
 
-## Kontrol
-
-- **WASD** jalan / mengemudi · **Mouse** aim · **Klik** tembak
-- **E** masuk / keluar / curi mobil (tahan E untuk carjacking)
-- **1–4** senjata (Pistol / SMG / Shotgun / Rifle) · **Tab** weapon wheel
-- **Z** Gaspol (Sari) · **X** Perbaiki Cepat (Budi) · **C** Ghost (Agus)
-- **V** panel kru · **R** ganti stasiun radio · **M** zoom minimap · **Esc** jeda
-
-## Fitur
-
-- **10 misi naratif bertahap** — tiap misi 3 tahap ("MISI 6 DARI 10 · TAHAP 2/3" + objektif + jarak + NEXT), dialog cutscene, misi ke-5 bercabang (bayar Darma $500 atau khianati), Misi 10 "Operasi Terakhir: Fajar di Pelabuhan" + layar akhir.
-- **Kru (3 anggota)** — Sari "Si Gesit" sopir ($300, Z Gaspol), Budi "Montir" ($250, X Perbaiki Cepat armor +25), Agus "Si Pendiam" peretas ($400, C Ghost wanted −1). Kartu kru di HUD + panel kru (V) + obrolan radio kru.
-- **Karier (5 tingkat)** — Anak Baru → Sopir Andal → Penguasa Jalanan → Raja Teluk → Legenda Arunika, dengan XP berangka di HUD ("520 / 800 XP"), banner naik tingkat, detail di layar jeda.
-- **Polisi wanted 1–5** — panel dispatch bernama + taktik + jarak (ELANG-1 AIR — SPOTLIGHT, PATROLI-12 — RAMMING, PATROLI-07 — PIT, BLOKIR-03 — ROADBLOCK), roadblock, spike strip, PIT, helikopter ELANG-1 dengan spotlight.
-- **Kota hidup** — 60+ gedung, tol layang, pelabuhan + kontainer + crane, pasar, gang neon, pantai; traffic AI (berhenti di lampu merah, menghindar), pejalan kaki (menyeberang, lari saat tembakan); siklus siang/malam + hujan dengan refleksi basah.
-- **Distrik (5)** — Pelabuhan, Pasar, Gang Neon, Pantai, Tol Layang; banner lokasi + suasana 0–100 yang berubah dengan aksimu.
-- **Mobil bernama + kondisi** — ARUNIKA SEDAN, PELABUHAN GT, TAKSI KUNING, PASAR VAN, NEON COUPE, masing-masing dengan kondisi % yang turun saat tabrakan.
-- **Ekonomi + side job** — taksi, antar paket, beli senjata/armor; save 3 slot + autosave (localStorage).
-- **Radio 3 stasiun** (Dangdut Neon / Lo-Fi Hujan / Berita Kota) + suara WebAudio sintetis (mesin, tembakan, sirene, hujan) — semua offline.
-
-## Struktur
-
+```sh
+node serve.ts        # lalu buka http://localhost:8080
 ```
-game/index.html        halaman + HUD + tag script berurutan
-game/style.css         semua gaya
-game/core.js           boot, renderer, loop, state machine, save
-game/world.js          kota, traffic, pejalan kaki, cuaca, distrik
-game/player.js         jalan kaki, mengemudi, carjacking, senjata
-game/police.js         wanted 1-5, roadblock, spike strip, ELANG-1, dispatch
-game/missions.js       10 misi × 3 tahap, dialog, cabang, layar akhir
-game/crew.js           3 kru, kemampuan Z/X/C, kartu kru, chatter
-game/career.js         5 tingkat karier, XP, perk
-game/audio.js          WebAudio sintetis + radio 3 stasiun
-game/ui.js             HUD, minimap, menu, panel, banner
-game/vendor/three.min.js  Three.js (vendored)
+
+WASD jalan · E masuk/curi mobil · Shift lari · Mouse aim + klik tembak · 1–4 senjata · Q kemampuan kru · Z/X/C kemampuan Sari/Budi/Agus · R radio · V panel kru · B toko · T taksi · G paket · Esc jeda · M zoom minimap.
+
+## Teknologi
+
+Vanilla HTML/CSS/JS + Three.js (divendor di `game/vendor/three.min.js`). Semua art prosedural, semua suara WebAudio sintetis, tanpa file eksternal, tanpa network request. Save di localStorage (3 slot + autosave). Screenshot staging deterministik via `?scene=1..4` (lihat `shots.json`).
+
+## Build
+
+```sh
+mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts   # menulis out/dossier.json
+node tools/selftest.mjs                               # 128 assertion
+node tools/shoot.mjs                                  # 4 screenshot 1280x720
 ```
 
 ## Lisensi

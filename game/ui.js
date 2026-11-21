@@ -1,282 +1,429 @@
-// ui.js — HUD, minimap, start/pause/end screens, dispatch panel, crew cards, location banner,
-// weapon wheel, dialogue, rank-up banner, toasts, crew chatter, save slots.
+/* TELUK ARUNIKA — ui.js: HUD, minimap, menu, panel kru/dispatch, banner, dialog */
 (function () {
   'use strict';
   var TA = window.TA;
 
   function $(id) { return document.getElementById(id); }
-  var minimapZoom = 1;
-  var toastTimer = null;
-  var chatterTimer = null;
-
-  function renderHUD() {
-    var s = TA.state;
-    // wanted stars
-    var stars = '';
-    for (var i = 0; i < 5; i++) stars += i < s.wanted ? '★' : '☆';
-    $('wanted-stars').innerHTML = '<span class="' + (s.wanted >= 3 ? 'hot' : '') + '">' + stars + '</span>';
-    $('money').textContent = s.money.toLocaleString('en-US');
-    $('day').textContent = s.day;
-    $('debt').textContent = s.debt.toLocaleString('en-US');
-    var rank = TA.career.getRank();
-    var next = TA.career.getNextRank();
-    var nextXp = next ? next.xp : rank.xp;
-    var baseXp = rank.xp;
-    var pct = next ? Math.min(100, (s.xp - baseXp) / (nextXp - baseXp) * 100) : 100;
-    $('rank-row').innerHTML = 'TINGKAT ' + rank.level + ' · ' + rank.name + ' — <span id="xp-text">' + s.xp + ' / ' + nextXp + ' XP</span>';
-    $('xp-fill').style.width = pct + '%';
-    var crewBits = [];
-    if (s.crew.sari) crewBits.push('Sari ✓');
-    if (s.crew.budi) crewBits.push('Budi ✓');
-    if (s.crew.agus) crewBits.push('Agus ✓');
-    $('crew-row').textContent = 'KRU: ' + (crewBits.length ? crewBits.join(' · ') : '—');
-    var hh = Math.floor(s.timeMinutes / 60), mm = Math.floor(s.timeMinutes % 60);
-    $('clock').textContent = String(hh).padStart(2, '0') + ':' + String(mm).padStart(2, '0');
-    $('weather').textContent = s.weather;
-    var st = TA.audio.STATIONS[s.radioStation];
-    $('radio').textContent = 'RADIO: ' + st.name + ' — ' + st.song;
-    $('hp').textContent = Math.max(0, Math.round(s.hp));
-    $('armor').textContent = Math.round(s.armor);
-    var w = TA.player.WEAPONS[s.weapon];
-    $('weapon-name').textContent = w.name;
-    $('ammo').textContent = (s.ammo[s.weapon] || 0) + ' / ∞';
-    var carRow = $('car-row');
-    if (s.inCar && s.carId) {
-      var model = TA.player.CAR_MODELS[s.carId];
-      var cond = TA.player.getCarCondition(s.carId);
-      var condLabel = cond >= 80 ? 'BAIK' : (cond >= 40 ? 'RUSAK' : 'PARAH');
-      $('car-name').textContent = model.name;
-      $('car-condition').textContent = cond + '% ' + condLabel;
-      $('speed').textContent = s.speedKmh;
-      carRow.classList.remove('hidden');
-    } else carRow.classList.add('hidden');
-    renderMissionBanner();
-    renderCrewCards();
-    renderLocationBanner();
-    renderDispatchPanel();
-  }
-
-  function renderMissionBanner() {
-    var s = TA.state;
-    var el = $('mission-banner');
-    if (!s.missionActive) { el.classList.add('hidden'); return; }
-    var m = TA.missions.MISSIONS[s.missionIndex];
-    if (!m) { el.classList.add('hidden'); return; }
-    var st = m.stages[s.missionStage];
-    el.classList.remove('hidden');
-    $('mission-title').textContent = 'MISI ' + (s.missionIndex + 1) + ' DARI 10 · TAHAP ' + (s.missionStage + 1) + '/' + m.stages.length;
-    $('mission-stage').textContent = st.title;
-    $('mission-objective').textContent = st.objective;
-    $('mission-dist').textContent = 'JARAK: ' + TA.missions.getObjectiveDistance() + ' m';
-    $('mission-next').textContent = 'NEXT: ' + st.next;
-  }
-
-  function renderDispatchPanel() {
-    var s = TA.state;
-    var el = $('dispatch-panel');
-    var units = TA.police.getDispatchUnits();
-    if (s.wanted <= 0 || units.length === 0) { el.classList.add('hidden'); return; }
-    el.classList.remove('hidden');
-    $('dispatch-title').textContent = 'DISPATCH POLISI — ' + units.length + ' UNIT';
-    var html = '';
-    units.forEach(function (u) {
-      html += '<div class="dispatch-unit"><span>' + u.id + '</span><span class="tactic">' + u.tactic + '</span><span>' + u.dist + ' m</span></div>';
-    });
-    $('dispatch-list').innerHTML = html;
-    $('dispatch-heli').classList.toggle('hidden', s.wanted < 5);
-  }
-
-  function renderCrewCards() {
-    var s = TA.state;
-    var el = $('crew-cards');
-    var html = '';
-    TA.crew.CREW.forEach(function (c) {
-      if (!s.crew[c.id]) return;
-      var cd = Math.ceil(s.crewCooldown[c.id] || 0);
-      var ready = TA.crew.crewAbilityReady(c.id);
-      var status = ready ? '<span class="cc-status ready">READY</span>' : '<span class="cc-status cd">' + cd + ' dtk</span>';
-      html += '<div class="crew-card"><span class="cc-name">' + c.name + '</span> <span class="cc-nick">"' + c.nick + '"</span>' + status +
-        '<div class="cc-ability">[' + c.key + '] ' + c.ability + '</div></div>';
-    });
-    el.innerHTML = html;
-  }
-
-  function renderLocationBanner() {
-    var s = TA.state;
-    var d = TA.world.DISTRICTS[s.currentDistrict];
-    if (!d) return;
-    $('district-name').textContent = d.name + ' — ' + d.street;
-    var mood = s.districts[s.currentDistrict];
-    var label = mood >= 70 ? 'DIHORMATI' : (mood >= 45 ? 'NETRAL' : 'DITAKUTI');
-    $('district-mood').textContent = label + ' · ' + mood;
-  }
-
-  function renderMinimap() {
-    var cv = $('minimap');
-    if (!cv) return;
-    var c = cv.getContext('2d');
-    var W = cv.width, H = cv.height;
-    c.clearRect(0, 0, W, H);
-    c.fillStyle = '#0a1428'; c.fillRect(0, 0, W, H);
-    // roads grid
-    c.strokeStyle = '#3a4a66'; c.lineWidth = 3;
-    for (var i = 0; i < 7; i++) {
-      c.beginPath(); c.moveTo(15 + i * 25, 0); c.lineTo(15 + i * 25, H); c.stroke();
-      c.beginPath(); c.moveTo(0, 15 + i * 25); c.lineTo(W, 15 + i * 25); c.stroke();
-    }
-    // sea
-    c.fillStyle = '#0a3550'; c.fillRect(0, H - 22, W, 22);
-    // port containers
-    c.fillStyle = '#b03030'; c.fillRect(8, 8, 30, 10);
-    // mission marker (yellow)
-    var s = TA.state;
-    if (s.missionActive) {
-      c.fillStyle = '#ffd23e';
-      c.beginPath(); c.arc(120, 40, 6, 0, Math.PI * 2); c.fill();
-    }
-    // taxi (green), safehouse (blue)
-    c.fillStyle = '#7dff5e'; c.beginPath(); c.arc(50, 120, 5, 0, Math.PI * 2); c.fill();
-    c.fillStyle = '#3fa7ff'; c.beginPath(); c.arc(140, 130, 5, 0, Math.PI * 2); c.fill();
-    // police blips (red)
-    c.fillStyle = '#ff3b30';
-    TA.police.getDispatchUnits().forEach(function (u, i) {
-      c.beginPath(); c.arc(30 + i * 22, 60 + (i % 2) * 18, 4, 0, Math.PI * 2); c.fill();
-    });
-    // player arrow (white)
-    var px = 90 + (TA.playerPos.x / 150) * 80;
-    var pz = 90 + (TA.playerPos.z / 150) * 80;
-    c.fillStyle = '#ffffff';
-    c.beginPath(); c.moveTo(px, pz - 7); c.lineTo(px - 5, pz + 6); c.lineTo(px + 5, pz + 6); c.closePath(); c.fill();
-  }
-
-  function showStartScreen() {
-    $('start-screen').classList.remove('hidden');
-    $('pause-screen').classList.add('hidden');
-    $('end-screen').classList.add('hidden');
-  }
-  function showPauseScreen() {
-    var s = TA.state;
-    var rank = TA.career.getRank();
-    var next = TA.career.getNextRank();
-    $('pause-stats').innerHTML = 'Uang $' + s.money.toLocaleString('en-US') + ' · Hari ' + s.day + '/7 · Utang $' + s.debt.toLocaleString('en-US') +
-      ' · Misi selesai ' + s.missionsDone + '/10 · Mobil dicuri ' + s.carsStolen + ' · Jam ' + $('clock').textContent + ' · ' + s.weather;
-    $('career-detail').innerHTML = 'Tingkat ' + rank.level + ' · ' + rank.name + ' — ' + s.xp + ' / ' + (next ? next.xp : rank.xp) + ' XP<br>' +
-      'Perk terbuka: ' + rank.perk + '<br>Perk berikutnya: ' + (next ? next.name + ' (' + next.xp + ' XP) — ' + next.perk : 'Maksimal — Legenda Arunika');
-    var crewHtml = '';
-    TA.crew.CREW.forEach(function (c) {
-      crewHtml += '<div>' + c.name + ' "' + c.nick + '" — ' + (s.crew[c.id] ? 'DIREKRUT ✓ [' + c.key + '] ' + c.ability : 'Belum direkrut — $' + c.price) + '</div>';
-    });
-    $('pause-crew-list').innerHTML = crewHtml;
-    $('pause-screen').classList.remove('hidden');
-    renderCrewPanel();
-  }
-  function showEndScreen(won) {
-    var s = TA.state;
-    var rank = TA.career.getRank();
-    $('end-title').textContent = won ? 'UTANG LUNAS — BENGKEL SELAMAT' : 'RAKA TERTANGKAP — UTANG TETAP BERJALAN';
-    $('end-text').textContent = won
-      ? 'Fajar naik di pelabuhan. Darma ditangkap hidup-hidup, bukti utang ayahmu kembali, dan bengkel Pak Amir selamat. Teluk Arunika akhirnya tenang — untuk hari ini.'
-      : 'Raka tertangkap. Bengkel ayahnya disita, tapi cerita belum berakhir — coba lagi.';
-    $('end-stats').innerHTML = 'Misi selesai: ' + s.missionsDone + '/10 · XP: ' + s.xp + ' · Peringkat akhir: ' + rank.name + ' · Uang: $' + s.money.toLocaleString('en-US') + ' · Mobil dicuri: ' + s.carsStolen;
-    $('end-screen').classList.remove('hidden');
-    $('hud').classList.add('hidden');
-  }
-  function showRankUpBanner(text) {
-    var el = $('rankup-banner');
-    el.textContent = text;
-    el.classList.remove('hidden');
-    setTimeout(function () { el.classList.add('hidden'); }, 3500);
-  }
-  function toast(text) {
-    var el = $('toast');
-    el.textContent = text;
-    if (toastTimer) clearTimeout(toastTimer);
-    toastTimer = setTimeout(function () { el.textContent = ''; }, 4000);
-  }
-  function showSaving() {
-    var el = $('saving');
-    el.classList.remove('hidden');
-    setTimeout(function () { el.classList.add('hidden'); }, 1200);
-  }
-  function showCrewChatter(name, text) {
-    var el = $('chatter');
-    $('chatter-name').textContent = name.toUpperCase();
-    $('chatter-text').textContent = text;
-    el.classList.remove('hidden');
-    if (chatterTimer) clearTimeout(chatterTimer);
-    // In shot mode (?shot=) keep chatter visible for the screenshot.
-    if (!new URLSearchParams(window.location.search).get('shot')) {
-      chatterTimer = setTimeout(function () { el.classList.add('hidden'); }, 5000);
-    }
-  }
-  function showInteract(text) {
-    var el = $('interact-prompt');
-    el.textContent = text;
-    el.classList.remove('hidden');
-    setTimeout(function () { el.classList.add('hidden'); }, 1500);
-  }
-  function showHeliLabel(on) { $('dispatch-heli').classList.toggle('hidden', !on); }
-
-  function renderCrewPanel() {
-    var s = TA.state;
-    var html = '';
-    TA.crew.CREW.forEach(function (c) {
-      var owned = !!s.crew[c.id];
-      var ready = TA.crew.crewAbilityReady(c.id);
-      html += '<div class="crew-entry"><div class="crew-avatar">' + c.name[0] + '</div>' +
-        '<div><div class="ce-name">' + c.name + ' "' + c.nick + '"</div><div class="ce-role">' + c.role + ' · ' + c.passive + '</div>' +
-        '<div class="ce-ability">[' + c.key + '] ' + c.ability + ' — ' + c.desc + '</div></div>' +
-        '<div class="ce-status">' + (owned ? (ready ? 'READY ✓' : 'COOLDOWN') : '$' + c.price) +
-        (owned ? '' : '<br><button data-recruit="' + c.id + '">REKRUT $' + c.price + '</button>') + '</div></div>';
-    });
-    $('crew-list').innerHTML = html;
-    var btns = document.querySelectorAll('[data-recruit]');
-    btns.forEach(function (b) {
-      b.addEventListener('click', function () { TA.crew.recruitCrewMember(b.getAttribute('data-recruit')); });
-    });
-  }
-  function toggleCrewPanel() {
-    var el = $('crew-panel');
-    el.classList.toggle('hidden');
-    if (!el.classList.contains('hidden')) renderCrewPanel();
-  }
-  function toggleWeaponWheel(show) {
-    var el = $('weapon-wheel');
-    el.classList.toggle('hidden', !show);
-    if (show) {
-      var slots = document.querySelectorAll('.wheel-slot');
-      slots.forEach(function (sl) {
-        sl.classList.toggle('active', Number(sl.getAttribute('data-w')) === TA.state.weapon);
-      });
-    }
-  }
-  function toggleMinimapZoom() {
-    minimapZoom = minimapZoom === 1 ? 1.6 : 1;
-    var cv = $('minimap');
-    cv.style.width = (180 * minimapZoom) + 'px';
-    cv.style.height = (180 * minimapZoom) + 'px';
-  }
-  function showDialogue(speaker, text) {
-    $('dialogue-speaker').textContent = speaker;
-    $('dialogue-text').textContent = text;
-    $('dialogue').classList.remove('hidden');
-  }
-  function hideDialogue() { $('dialogue').classList.add('hidden'); }
-
-  function update(dt) {
-    if (TA.state.mode === 'playing') renderMinimap();
-  }
 
   TA.ui = {
-    renderHUD: renderHUD, renderMinimap: renderMinimap,
-    renderMissionBanner: renderMissionBanner, renderDispatchPanel: renderDispatchPanel,
-    renderCrewCards: renderCrewCards, renderLocationBanner: renderLocationBanner,
-    showStartScreen: showStartScreen, showPauseScreen: showPauseScreen,
-    showEndScreen: showEndScreen, showRankUpBanner: showRankUpBanner,
-    toast: toast, showSaving: showSaving, showCrewChatter: showCrewChatter,
-    showInteract: showInteract, showHeliLabel: showHeliLabel,
-    renderCrewPanel: renderCrewPanel, toggleCrewPanel: toggleCrewPanel,
-    toggleWeaponWheel: toggleWeaponWheel, toggleMinimapZoom: toggleMinimapZoom,
-    showDialogue: showDialogue, hideDialogue: hideDialogue, update: update,
+    weaponFlashUntil: 0,
+    missionFlashUntil: 0,
+    rankUpUntil: 0,
+    hudTimer: 0,
+
+    init: function () {
+      // Tombol senjata di wheel sudah di-bind core.js
+    },
+
+    el: $,
+
+    hideAllScreens: function () {
+      ['start-screen', 'pause-screen', 'end-screen', 'dialogue-box', 'choice-box', 'shop-panel', 'crew-panel', 'weapon-wheel'].forEach(function (id) {
+        var e = $(id); if (e) e.classList.add('hidden');
+      });
+    },
+    showStartScreen: function () {
+      $('start-screen').classList.remove('hidden');
+      $('btn-continue').classList.toggle('hidden', !TA.career.hasSave(0));
+      $('hud').classList.add('hidden');
+    },
+    showPauseScreen: function () {
+      this.refreshPauseScreen();
+      $('pause-screen').classList.remove('hidden');
+      $('hud').classList.add('hidden'); // HUD disembunyikan agar panel pause bersih
+      this.hideDialogue();
+      this.hideChoice();
+    },
+    hidePauseScreen: function () {
+      $('pause-screen').classList.add('hidden');
+      if (TA.state.mode === 'playing') $('hud').classList.remove('hidden');
+    },
+
+    refreshPauseScreen: function () {
+      var s = TA.state;
+      var r = TA.career.getRank();
+      var next = TA.career.nextRank();
+      var hh = Math.floor(s.timeMin / 60), mm = Math.floor(s.timeMin % 60);
+      var clock = (hh < 10 ? '0' : '') + hh + ':' + (mm < 10 ? '0' : '') + mm;
+      $('pause-stats').innerHTML =
+        'Uang: $' + TA.fmtMoney(s.money) + ' &nbsp;·&nbsp; Utang: $' + TA.fmtMoney(s.debt) +
+        ' &nbsp;·&nbsp; Hari ' + s.day + '/7 &nbsp;·&nbsp; Jam ' + clock +
+        ' &nbsp;·&nbsp; Cuaca: ' + s.weather.toUpperCase() +
+        '<br>Misi selesai: ' + s.stats.missionsDone + '/10 &nbsp;·&nbsp; Mobil dicuri: ' + s.stats.carsStolen +
+        ' &nbsp;·&nbsp; Taksi: ' + s.stats.taxisDone + ' &nbsp;·&nbsp; Paket: ' + s.stats.packagesDone;
+      var perks = TA.RANKS.filter(function (rk) { return rk.level <= r.level; }).map(function (rk) { return 'T' + rk.level + ' ' + rk.name + ' — ' + rk.perk; }).join('<br>');
+      $('pause-career').innerHTML =
+        '<b>KARIER — TINGKAT ' + r.level + ' · ' + r.name + '</b><br>' +
+        'XP: ' + s.xp + ' / ' + (next ? next.xp : r.xp) + ' XP' +
+        (next ? '<br>Perk berikutnya (T' + next.level + ' ' + next.name + '): ' + next.perk : '<br>Tingkat maksimum tercapai.') +
+        '<br>Perk terbuka:<br>' + perks;
+      var crewHtml = TA.CREW.map(function (m) {
+        var rec = s.crew[m.id];
+        return m.name + ' "' + m.nick + '" — ' + m.role + ': ' + (rec ? 'DIREKRUT ✓ (' + m.ability + ', ' + m.key + ')' : 'belum ($' + m.price + ', butuh T' + m.minRank + ')');
+      }).join('<br>');
+      $('pause-crew').innerHTML = '<b>KRU</b><br>' + crewHtml;
+      var loads = [1, 2, 3].map(function (slot) {
+        return 'Slot ' + slot + ': ' + (TA.career.hasSave(slot) ? 'tersimpan ✓ (klik SAVE untuk timpa)' : 'kosong');
+      }).join(' &nbsp;·&nbsp; ');
+      $('pause-loads').innerHTML = loads;
+    },
+
+    showEndScreen: function () {
+      var s = TA.state;
+      var r = TA.career.getRank();
+      $('end-title').textContent = s.endTitle || 'UTANG LUNAS — BENGKEL SELAMAT';
+      $('end-text').textContent = s.endText || '';
+      $('end-stats').innerHTML =
+        'Misi selesai: ' + s.stats.missionsDone + '/10<br>' +
+        'XP akhir: ' + s.xp + ' &nbsp;·&nbsp; Peringkat akhir: <b>' + r.name + '</b> (Tingkat ' + r.level + ')<br>' +
+        'Mobil dicuri: ' + s.stats.carsStolen + ' &nbsp;·&nbsp; Taksi: ' + s.stats.taxisDone +
+        ' &nbsp;·&nbsp; Paket: ' + s.stats.packagesDone + ' &nbsp;·&nbsp; Musuh dilumpuhkan: ' + s.stats.enemiesDown +
+        '<br>Kru: ' + (['sari', 'budi', 'agus'].filter(function (id) { return s.crew[id]; }).map(function (id) { return TA.crew.getMember(id).name; }).join(', ') || 'tanpa kru');
+      $('end-screen').classList.remove('hidden');
+      $('hud').classList.add('hidden');
+      this.hideDialogue();
+      this.hideChoice();
+      this.hideWeaponWheel();
+      $('shop-panel').classList.add('hidden');
+      $('crew-panel').classList.add('hidden');
+    },
+
+    /* ---------- HUD ---------- */
+    renderHUD: function () {
+      var s = TA.state;
+      // Bintang wanted
+      var stars = $('wanted-stars');
+      var html = '';
+      for (var i = 1; i <= 5; i++) html += '<span class="' + (i <= s.wanted ? 'lit' : '') + '">&#9733;</span>';
+      stars.innerHTML = html;
+      $('money').textContent = TA.fmtMoney(s.money);
+      $('day').textContent = s.day;
+      $('debt').textContent = TA.fmtMoney(s.debt);
+      var hh = Math.floor(s.timeMin / 60), mm = Math.floor(s.timeMin % 60);
+      $('clock').textContent = (hh < 10 ? '0' : '') + hh + ':' + (mm < 10 ? '0' : '') + mm;
+      $('weather').textContent = s.weather === 'rain' ? 'HUJAN DERAS' : s.weather === 'clear' ? 'CERAH' : 'GERIMIS';
+      // Karier berangka
+      var r = TA.career.getRank();
+      var prog = TA.career.rankProgress();
+      $('rank-text').textContent = 'TINGKAT ' + r.level + ' · ' + r.name + ' — ' + s.xp + ' / ' + prog.need + ' XP';
+      $('xp-fill').style.width = Math.round(prog.pct * 100) + '%';
+      // Baris kru
+      var crewHtml = 'KRU: ';
+      var any = false;
+      TA.CREW.forEach(function (m) {
+        if (s.crew[m.id]) { crewHtml += '<span class="ok">' + m.name + ' ✓</span> '; any = true; }
+        else crewHtml += m.name + ' — ';
+      });
+      $('crew-row').innerHTML = any ? crewHtml : 'KRU: — (rekrut di bengkel, V)';
+      // HP / armor
+      $('hp-fill').style.width = Math.round((s.hp / s.maxHp) * 100) + '%';
+      $('armor-fill').style.width = Math.round((s.armor / s.maxArmor) * 100) + '%';
+      $('hp-text').textContent = Math.round(s.hp) + '/' + s.maxHp;
+      $('armor-text').textContent = Math.round(s.armor) + '/' + s.maxArmor;
+      var w = TA.WEAPONS[s.weapon];
+      if (TA.time.elapsed >= this.weaponFlashUntil) $('weapon-name').textContent = w.name;
+      // Radio
+      $('radio-name').textContent = s.radio >= 0 ? TA.RADIO_STATIONS[s.radio].name + ' — ' + TA.RADIO_STATIONS[s.radio].track : 'RADIO MATI — tekan R';
+      // Lokasi + suasana distrik (dihitung live dari posisi pemain)
+      var d = TA.world.districtAt(TA.player.x, TA.player.z);
+      $('district-name').textContent = d.name;
+      $('street-name').textContent = TA.world.streetAt(TA.player.x, TA.player.z);
+      $('district-standing').textContent = TA.world.districtStandingLabel(d.standing) + ' · ' + d.standing;
+      // Mobil + kondisi: di mobil tampil mobil yang dikendarai; jalan kaki di dekat
+      // mobil parkir tampil mobil itu (yang akan dicuri)
+      var sb = $('speed-block');
+      var shownCar = (s.inCar && s.car) ? s.car : (!s.inCar ? TA.player.nearestParkedCar(6) : null);
+      if (shownCar) {
+        sb.classList.remove('hidden');
+        var cond = TA.player.getCarCondition(shownCar);
+        $('car-name').textContent = cond.name;
+        $('car-condition').textContent = cond.label;
+        $('speed').textContent = (s.inCar ? s.speedKmh : 0) + ' km/jam';
+      } else {
+        sb.classList.add('hidden');
+      }
+      // Taksi
+      var ti = $('taxi-info');
+      if (s.taxiJob) {
+        var j = s.taxiJob;
+        var tx = j.state === 'pickup' ? j.px : j.tx;
+        var tz = j.state === 'pickup' ? j.pz : j.tz;
+        ti.classList.remove('hidden');
+        ti.textContent = 'TAKSI: ' + (j.state === 'pickup' ? 'jemput di ' + j.from : 'antar ke ' + j.to) +
+          ' — ' + Math.round(TA.dist2d(TA.player.x, TA.player.z, tx, tz)) + ' m · $' + j.pay;
+      } else if (s.packageJob) {
+        ti.classList.remove('hidden');
+        ti.textContent = 'PAKET: antar ke ' + s.packageJob.to + ' — ' +
+          Math.round(TA.dist2d(TA.player.x, TA.player.z, s.packageJob.tx, s.packageJob.tz)) + ' m · $' + s.packageJob.pay;
+      } else {
+        ti.classList.add('hidden');
+      }
+      // Saving...
+      $('save-notice').classList.toggle('hidden', TA.time.elapsed > s.saveNoticeUntil);
+      // Banner naik tingkat
+      $('rankup-banner').classList.toggle('hidden', TA.time.elapsed > this.rankUpUntil);
+    },
+
+    flashWeapon: function (msg) {
+      $('weapon-name').textContent = msg;
+      this.weaponFlashUntil = TA.time.elapsed + 2.5;
+    },
+    flashMission: function (msg) {
+      $('mission-title').textContent = msg;
+      this.missionFlashUntil = TA.time.elapsed + 3;
+    },
+    showRankUpBanner: function (msg) {
+      var b = $('rankup-banner');
+      b.textContent = msg;
+      b.classList.remove('hidden');
+      this.rankUpUntil = TA.time.elapsed + 4;
+    },
+    showRankUpCheck: function () { /* banner sudah ditampilkan oleh career.checkRankUp */ },
+
+    updateMissionBanner: function () {
+      var m = TA.missions.current();
+      if (!m || !TA.state.missionActive) {
+        $('mission-stage').textContent = 'TIDAK ADA MISI AKTIF';
+        $('mission-title').textContent = '—';
+        $('mission-objective').textContent = 'Selesaikan side job atau tunggu misi berikutnya.';
+        $('mission-distance').textContent = '—';
+        $('mission-next').textContent = '—';
+        return;
+      }
+      var st = TA.missions.currentStage();
+      $('mission-stage').textContent = 'MISI ' + m.id + ' DARI 10 · TAHAP ' + (TA.state.missionStage + 1) + '/' + m.stages.length;
+      if (TA.time.elapsed < this.missionFlashUntil) { /* judul flash dipertahankan */ }
+      else $('mission-title').textContent = st.title;
+      $('mission-objective').textContent = st.objective;
+      $('mission-distance').textContent = TA.missions.getObjectiveDistance() + ' m';
+      $('mission-next').textContent = st.next;
+    },
+
+    renderDispatchPanel: function () {
+      var units = TA.police.getDispatchUnits();
+      $('dispatch-title').textContent = 'DISPATCH POLISI — ' + units.length + ' UNIT';
+      var html = '';
+      for (var i = 0; i < units.length; i++) {
+        var u = units[i];
+        html += '<div class="dispatch-unit"><span class="u-name">' + u.name + ' ' + u.type + '</span><span class="u-tactic">' + u.tactic + '</span><span class="u-dist">' + u.dist + ' m</span></div>';
+      }
+      if (units.length === 0) html = '<div class="dispatch-unit"><span class="u-name">Tidak ada unit aktif</span><span class="u-dist">—</span></div>';
+      $('dispatch-list').innerHTML = html;
+      $('heli-label').classList.toggle('hidden', !TA.police.heliActive);
+    },
+
+    renderCrewCards: function () {
+      var s = TA.state;
+      var html = '';
+      TA.CREW.forEach(function (m) {
+        var rec = s.crew[m.id];
+        var status, cls;
+        if (!rec) { status = 'BELUM DIREKRUT · $' + m.price; cls = 'cd'; }
+        else if (TA.crew.crewAbilityReady(m.id)) { status = 'READY · [' + m.key + ']'; cls = 'ready'; }
+        else if (m.id === 'agus') { status = 'SUDAH DIPAKAI'; cls = 'cd'; }
+        else { status = 'COOLDOWN ' + Math.ceil(s.crewCooldown[m.id]) + ' dtk'; cls = 'cd'; }
+        html += '<div class="crew-card' + (rec ? '' : ' locked') + '">' +
+          '<div class="cc-name">' + m.name + ' "' + m.nick + '" — ' + m.role + '</div>' +
+          '<div class="cc-ability">' + m.ability + ' [' + m.key + ']</div>' +
+          '<div class="cc-status ' + cls + '">' + status + '</div></div>';
+      });
+      $('crew-cards').innerHTML = html;
+    },
+
+    renderCrewPanel: function () {
+      var s = TA.state;
+      var html = '';
+      TA.CREW.forEach(function (m) {
+        var rec = s.crew[m.id];
+        var can = !rec && s.rank >= m.minRank && s.money >= m.price;
+        html += '<div class="crew-member">' +
+          '<span class="crew-silhouette">' + m.name.charAt(0) + '</span>' +
+          '<div class="cm-info"><div class="cm-name">' + m.name + ' "' + m.nick + '" — ' + m.role +
+          ' · ' + m.ability + ' [' + m.key + ']</div>' +
+          '<div class="cm-desc">' + m.desc + '</div>' +
+          '<div class="cm-desc">Status: ' + (rec ? 'DIREKRUT ✓' : 'Belum direkrut — $' + m.price + ' · butuh Tingkat ' + m.minRank) + '</div></div>' +
+          (rec ? '<button disabled>DIREKRUT</button>'
+            : '<button data-crew="' + m.id + '"' + (can ? '' : ' disabled') + '>REKRUT $' + m.price + '</button>') +
+          '</div>';
+      });
+      $('crew-panel-list').innerHTML = html;
+      var self = this;
+      document.querySelectorAll('#crew-panel-list button[data-crew]').forEach(function (b) {
+        b.addEventListener('click', function () {
+          TA.crew.recruitCrewMember(b.getAttribute('data-crew'));
+          self.renderCrewPanel();
+          self.renderCrewCards();
+        });
+      });
+    },
+
+    toggleCrewPanel: function () {
+      var p = $('crew-panel');
+      if (p.classList.contains('hidden')) { this.renderCrewPanel(); p.classList.remove('hidden'); }
+      else p.classList.add('hidden');
+    },
+
+    toggleShop: function () {
+      var p = $('shop-panel');
+      if (p.classList.contains('hidden')) { this.renderShop(); p.classList.remove('hidden'); }
+      else p.classList.add('hidden');
+    },
+    renderShop: function () {
+      var s = TA.state;
+      var bonus = TA.crew.getCrewBonus();
+      var html = '';
+      TA.SHOP_ITEMS.forEach(function (it) {
+        var price = Math.round(it.price * (1 - bonus.discount));
+        var owned = it.kind === 'weapon' && s.weaponsOwned[it.index];
+        html += '<div class="shop-item"><span>' + it.name + (owned ? ' (DIMILIKI)' : '') +
+          (bonus.discount > 0 ? ' <i>diskon ' + Math.round(bonus.discount * 100) + '%</i>' : '') + '</span>' +
+          '<button data-kind="' + it.kind + '" data-index="' + it.index + '" data-price="' + price + '"' +
+          (owned || s.money < price ? ' disabled' : '') + '>BELI $' + price + '</button></div>';
+      });
+      $('shop-list').innerHTML = html;
+      document.querySelectorAll('#shop-list button').forEach(function (b) {
+        b.addEventListener('click', function () {
+          var kind = b.getAttribute('data-kind');
+          var idx = Number(b.getAttribute('data-index'));
+          var ok = false;
+          if (kind === 'weapon') ok = TA.player.buyWeapon(idx);
+          else if (kind === 'armor') ok = TA.player.buyArmor();
+          else if (kind === 'repair') ok = TA.player.repairCar();
+          if (ok) { TA.ui.renderShop(); TA.ui.renderHUD(); }
+        });
+      });
+    },
+
+    showInteract: function (text) {
+      var e = $('interact-prompt');
+      e.textContent = text;
+      e.classList.remove('hidden');
+    },
+    hideInteract: function () { $('interact-prompt').classList.add('hidden'); },
+
+    showChatter: function (name, text) {
+      var t = $('chatter-toast');
+      $('chatter-name').textContent = name;
+      $('chatter-text').textContent = text;
+      t.classList.remove('hidden');
+      TA.state.chatterUntil = TA.time.elapsed + 4.2;
+    },
+    hideChatter: function () { $('chatter-toast').classList.add('hidden'); },
+
+    showDialogue: function (who, text) {
+      $('dialogue-speaker').textContent = who;
+      $('dialogue-text').textContent = text;
+      $('dialogue-box').classList.remove('hidden');
+    },
+    hideDialogue: function () { $('dialogue-box').classList.add('hidden'); },
+
+    showChoice: function (title, text, buttons) {
+      $('choice-title').textContent = title;
+      $('choice-text').textContent = text;
+      var box = $('choice-buttons');
+      box.innerHTML = '';
+      buttons.forEach(function (b) {
+        var btn = document.createElement('button');
+        btn.textContent = b.label;
+        btn.addEventListener('click', b.fn);
+        box.appendChild(btn);
+      });
+      $('choice-box').classList.remove('hidden');
+    },
+    hideChoice: function () { $('choice-box').classList.add('hidden'); },
+
+    showWeaponWheel: function () {
+      var w = $('weapon-wheel');
+      w.classList.remove('hidden');
+      this.weaponWheelUntil = TA.time.elapsed + 1.5;
+      document.querySelectorAll('#weapon-wheel .wheel-slot').forEach(function (el) {
+        el.classList.toggle('active', Number(el.getAttribute('data-weapon')) === TA.state.weapon);
+      });
+    },
+    hideWeaponWheel: function () { $('weapon-wheel').classList.add('hidden'); },
+
+    renderMinimap: function () {
+      var cv = $('minimap');
+      var ctx = cv.getContext('2d');
+      if (!ctx) return;
+      var W = 180, H = 180;
+      var zoom = TA.state.minimapZoom;
+      var range = 200 / zoom; // dunia yang terlihat
+      var scale = W / (range * 2);
+      var px = TA.player.x, pz = TA.player.z;
+      ctx.clearRect(0, 0, W, H);
+      ctx.fillStyle = '#0c1420';
+      ctx.fillRect(0, 0, W, H);
+      function toX(x) { return W / 2 + (x - px) * scale; }
+      function toY(z) { return H / 2 + (z - pz) * scale; }
+      // Distrik: warna latar samar
+      var dColors = { 'PELABUHAN': '#1a2a3a', 'PANTAI': '#2a2a1a', 'TOL LAYANG': '#241a2a', 'GANG NEON': '#2a1a2a', 'PASAR': '#1a2a22' };
+      ctx.fillStyle = dColors[TA.state.district] || '#101820';
+      ctx.fillRect(0, 0, W, H);
+      // Jalan grid
+      ctx.strokeStyle = 'rgba(255,255,255,0.25)';
+      ctx.lineWidth = 2;
+      [-160, -120, -80, -40, 0, 40, 80, 120, 160].forEach(function (r) {
+        ctx.beginPath(); ctx.moveTo(toX(r), 0); ctx.lineTo(toX(r), H); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(0, toY(r)); ctx.lineTo(W, toY(r)); ctx.stroke();
+      });
+      // Air
+      ctx.fillStyle = '#0d2a44';
+      ctx.fillRect(toX(195), 0, W, H);
+      ctx.fillRect(0, 0, Math.max(0, toX(-195)), H);
+      function blip(x, z, color, r) {
+        ctx.fillStyle = color;
+        ctx.beginPath(); ctx.arc(toX(x), toY(z), r || 4, 0, Math.PI * 2); ctx.fill();
+        ctx.strokeStyle = '#000'; ctx.lineWidth = 1; ctx.stroke();
+      }
+      // Safehouse biru
+      blip(TA.world.safehouse.x, TA.world.safehouse.z, '#4aa8ff', 5);
+      // Misi kuning
+      var st = TA.missions.currentStage();
+      if (st && TA.state.missionActive) blip(st.tx, st.tz, '#ffd23e', 5);
+      // Taksi hijau
+      if (TA.state.taxiJob) {
+        var j = TA.state.taxiJob;
+        blip(j.state === 'pickup' ? j.px : j.tx, j.state === 'pickup' ? j.pz : j.tz, '#37d67a', 4);
+      }
+      // Polisi merah
+      TA.police.units.forEach(function (u) { blip(u.x, u.z, '#ff4a4a', 3); });
+      if (TA.police.heliActive && TA.police.helicopter) blip(TA.police.helicopter.x, TA.police.helicopter.z, '#ff4a4a', 6);
+      // Pemain: segitiga putih
+      ctx.fillStyle = '#fff';
+      ctx.beginPath();
+      ctx.moveTo(W / 2, H / 2 - 7);
+      ctx.lineTo(W / 2 - 5, H / 2 + 5);
+      ctx.lineTo(W / 2 + 5, H / 2 + 5);
+      ctx.closePath(); ctx.fill();
+      // Utara
+      ctx.fillStyle = '#cfe3ff';
+      ctx.font = 'bold 11px sans-serif';
+      ctx.fillText('N', 6, 14);
+    },
+
+    update: function (dt) {
+      this.hudTimer -= dt;
+      if (TA.state.mode === 'playing' || TA.state.mode === 'paused' || TA.state.mode === 'cutscene') {
+        if (this.hudTimer <= 0) {
+          this.hudTimer = 0.12;
+          this.renderHUD();
+          this.updateMissionBanner();
+          this.renderDispatchPanel();
+          this.renderCrewCards();
+          this.renderMinimap();
+        }
+      }
+      // Toast obrolan kru: sembunyikan setelah waktunya
+      if (TA.state.chatterUntil && TA.time.elapsed > TA.state.chatterUntil && TA.crew.chatterQueue.length === 0) {
+        this.hideChatter();
+        TA.state.chatterUntil = 0;
+      }
+      // Weapon wheel menutup otomatis setelah waktunya (kecuali staging scene 3)
+      if (TA.state.mode === 'playing' && TA.state.staged !== 3) {
+        var w = $('weapon-wheel');
+        if (!w.classList.contains('hidden') && TA.time.elapsed > (this.weaponWheelUntil || 0)) w.classList.add('hidden');
+      }
+    }
   };
 })();

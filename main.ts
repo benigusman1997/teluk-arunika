@@ -1,8 +1,9 @@
-// TELUK ARUNIKA: 7 Hari Utang — entry program (Node 22, stdlib only).
-// Copies game/ + screenshots/ from beside this file to /output and writes
-// /output/dossier.json with buildDossier from vendor/makefun-game.ts.
-// Outside the grader, MAKEFUN_OUTPUT_DIR stands in for /output:
+// TELUK ARUNIKA: 7 Hari Utang — entry gta6-01 (Node 22, standard library only).
+// Menyalin game/ (static files, dimainkan offline) dan screenshots/ dari repo ini ke
+// /output, lalu menulis /output/dossier.json dengan library make.fun yang divendor.
+// Di luar container grader, MAKEFUN_OUTPUT_DIR menggantikan /output:
 //   mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts
+// Dua run menghasilkan dossier byte-identik (buildDossier deterministik).
 
 import { cpSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -17,6 +18,9 @@ cpSync(join(here, 'game'), join(out, 'game'), { recursive: true });
 mkdirSync(join(out, 'screenshots'), { recursive: true });
 if (existsSync(join(here, 'screenshots'))) cpSync(join(here, 'screenshots'), join(out, 'screenshots'), { recursive: true });
 
+// Caps scorer (reference/gate.json): hanya text_max_bytes membentuk bytes; sisanya
+// menolak entry yang scorer tolak (lebih dari 4 screenshot atau satu di atas 256 KiB;
+// lebih dari 993 file di game/ atau 48 MiB total, atau path di bawah game/ di atas 1000 byte).
 writeFileSync(
   join(out, 'dossier.json'),
   buildDossier(out, {

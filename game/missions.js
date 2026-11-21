@@ -1,216 +1,371 @@
-// missions.js — 10 narrative operations, each 3 stages, dialogue cutscenes, day-5 branch, Mission 10 + end screen.
+/* TELUK ARUNIKA — missions.js: 10 operasi naratif bertahap, dialog, cabang, Misi 10 */
 (function () {
   'use strict';
   var TA = window.TA;
 
-  var MISSIONS = [
-    { title: 'Antar Paket Pertama', day: 1, reward: 300, xp: 100, district: 'pasar',
-      dialogue: [ ['PAK AMIR', 'Raka, paket ini harus sampai ke Dermaga Senja sebelum hujan makin deras. Jangan tanya isinya.'],
-                  ['RAKA', 'Baik, Pak. Satu paket, satu jalan lurus.'] ],
+  TA.MISSIONS = [
+    {
+      id: 1, title: 'Taksi Pertama', day: 1, reward: 120, xp: 100,
+      intro: [
+        { who: 'PAK AMIR', text: 'Raka, Darma menagih lagi. Tujuh hari, Nak. Tujuh hari sebelum bengkel ini disita.' },
+        { who: 'RAKA', text: 'Aku tahu, Pak. Taksi dulu, kumpulkan receh. Satu penumpang demi satu penumpang.' }
+      ],
       stages: [
-        { title: 'AMBIL PAKET', objective: 'Ambil paket di Pasar Senja', next: 'Antar ke Dermaga Senja', dist: 120 },
-        { title: 'ANTAR KE PELABUHAN', objective: 'Bawa paket ke Dermaga Senja', next: 'Serahkan ke kontak pelabuhan', dist: 85 },
-        { title: 'SERAHKAN PAKET', objective: 'Serahkan paket ke kontak di gudang 7', next: 'Misi selesai — kembali ke bengkel', dist: 30 },
-      ] },
-    { title: 'Taksi Pertama', day: 1, reward: 200, xp: 100, district: 'pasar',
-      dialogue: [ ['PENUMPANG', 'Ke Gang Neon, cepat! Aku telat janji.'], ['RAKA', 'Naik. Argo jalan, cerita belakangan.'] ],
+        { title: 'JEMPUT PENUMPANG', objective: 'Jemput penumpang di Pasar Ikan.', next: 'Antar ke Pelabuhan', tx: 30, tz: 10, radius: 10 },
+        { title: 'ANTAR KE PELABUHAN', objective: 'Antar penumpang ke Dermaga Senja.', next: 'Kembali ke bengkel Pak Amir', tx: 130, tz: 20, radius: 10 },
+        { title: 'KEMBALI KE BENGKEL', objective: 'Kembali ke bengkel Pak Amir dan setor uang.', next: 'Misi selesai', tx: -14, tz: 14, radius: 8 }
+      ]
+    },
+    {
+      id: 2, title: 'Utang Berbunga', day: 2, reward: 180, xp: 100,
+      intro: [
+        { who: 'DARMA', text: 'Bunganya jalan terus, Raka. Hari ini kau tagih utang kecil itu untukku.' },
+        { who: 'RAKA', text: 'Aku sopir taksi, bukan debt collector...' },
+        { who: 'DARMA', text: 'Hari ini kau keduanya.' }
+      ],
       stages: [
-        { title: 'JEMPUT PENUMPANG', objective: 'Jemput penumpang di Pasar Senja', next: 'Antar ke Gang Neon', dist: 95 },
-        { title: 'ANTAR PENUMPANG', objective: 'Antar penumpang ke Lorong Lampion', next: 'Terima bayaran', dist: 110 },
-        { title: 'TERIMA BAYARAN', objective: 'Terima bayaran + tip dari penumpang', next: 'Misi selesai', dist: 10 },
-      ] },
-    { title: 'Utang Pertama', day: 2, reward: 400, xp: 100, district: 'pelabuhan',
-      dialogue: [ ['DARMA', 'Raka. Dua ribu dulu, hari ini. Bengkel ayahmu itu… sayang kalau disita.'],
-                  ['RAKA', 'Aku bayar. Tapi ini yang terakhir kau datang tanpa kabar.'] ],
+        { title: 'TEMUI SI PENAGIH', objective: 'Temui anak buah Darma di Gang Neon.', next: 'Ambil paket dari pasar', tx: 40, tz: 110, radius: 10 },
+        { title: 'AMBIL PAKET', objective: 'Ambil paket titipan di Pasar.', next: 'Antar paket ke Tol Layang', tx: -20, tz: -20, radius: 10 },
+        { title: 'ANTAR KE TOL', objective: 'Antar paket ke Tol Layang tanpa menarik polisi.', next: 'Misi selesai', tx: -60, tz: -130, radius: 10 }
+      ]
+    },
+    {
+      id: 3, title: 'Kontainer Hilang', day: 3, reward: 220, xp: 100,
+      intro: [
+        { who: 'SARI', text: 'Kontainer Darma hilang di pelabuhan. Katanya ada yang membajak kirimannya.' },
+        { who: 'RAKA', text: 'Kalau aku yang menemukan, Darma berutang budi padaku. Itu bagus.' }
+      ],
       stages: [
-        { title: 'KUMPULKAN UANG', objective: 'Kumpulkan $400 dari job taksi', next: 'Bawa uang ke gudang Darma', dist: 140 },
-        { title: 'KE GUDANG DARMA', objective: 'Bawa uang ke gudang pelabuhan', next: 'Serahkan uang ke anak buah Darma', dist: 90 },
-        { title: 'BAYAR DARMA', objective: 'Serahkan uang — utang berkurang', next: 'Misi selesai', dist: 20 },
-      ] },
-    { title: 'Mobil Curian', day: 3, reward: 500, xp: 100, district: 'gang',
-      dialogue: [ ['SARI', 'Ada Neon Coupe parkir di gang. Alarmnya mati — lima menit, Raka.'],
-                  ['RAKA', 'Kalau ketahuan, kau yang nyetir kaburnya.'] ],
+        { title: 'CEK DERMAGA', objective: 'Periksa Dermaga Senja di Pelabuhan.', next: 'Ikuti jejak ke kontainer', tx: 130, tz: -40, radius: 12 },
+        { title: 'JEJAK KONTAINER', objective: 'Ikuti jejak ban ke tumpukan kontainer.', next: 'Amankan kontainer', tx: 165, tz: 60, radius: 12 },
+        { title: 'AMANKAN KONTAINER', objective: 'Amankan kontainer dan kembali ke bengkel.', next: 'Misi selesai', tx: -14, tz: 14, radius: 8 }
+      ]
+    },
+    {
+      id: 4, title: 'Gang Neon', day: 4, reward: 260, xp: 100,
+      intro: [
+        { who: 'AGUS', text: 'Pengiriman malam ini lewat Gang Neon. Polisi pasang roadblock di jalan besar.' },
+        { who: 'RAKA', text: 'Gang sempit, neon, hujan. Tempatku.' }
+      ],
       stages: [
-        { title: 'CURI NEON COUPE', objective: 'Curi Neon Coupe di Gang Neon (tahan E)', next: 'Kabur dari polisi', dist: 70 },
-        { title: 'KABUR DARI POLISI', objective: 'Lepas dari wanted — sembunyi atau ganti mobil', next: 'Bawa mobil ke garage', dist: 150 },
-        { title: 'GANTI WARNA', objective: 'Bawa mobil ke garage, ganti warna, wanted turun', next: 'Misi selesai', dist: 45 },
-      ] },
-    { title: 'Paket Panas', day: 4, reward: 600, xp: 100, district: 'tol',
-      dialogue: [ ['AGUS', 'Paket ini dipantau. Jalur tol layang, jangan berhenti di lampu merah.'],
-                  ['RAKA', 'Kalau ada roadblock, aku yang tanggung jawab.'] ],
+        { title: 'MASUK GANG', objective: 'Masuk Gang Lampion di distrik Gang Neon.', next: 'Ambil barang di ujung gang', tx: 30, tz: 90, radius: 10 },
+        { title: 'AMBIL BARANG', objective: 'Ambil barang dari kios neon.', next: 'Kabur lewat pantai', tx: 60, tz: 150, radius: 10 },
+        { title: 'KABUR LEWAT PANTAI', objective: 'Kabur lewat Pantai Senja, hindari roadblock.', next: 'Misi selesai', tx: -130, tz: 60, radius: 12 }
+      ]
+    },
+    {
+      id: 5, title: 'Pilihan Darma', day: 5, reward: 0, xp: 100, branch: true,
+      intro: [
+        { who: 'DARMA', text: 'Lima hari, Raka. Bayar $500 sekarang, atau... kita bicara dengan cara lain.' },
+        { who: 'RAKA', text: 'Lima ratus... itu hampir semua yang kupunya.' }
+      ],
       stages: [
-        { title: 'AMBIL DI TOL', objective: 'Ambil paket di Jalan Layang Arunika', next: 'Turun ke pantai', dist: 130 },
-        { title: 'LEWATI ROADBLOCK', objective: 'Lewati roadblock di tol (wanted ≥ 3)', next: 'Antar ke Pesisir Arunika', dist: 100 },
-        { title: 'SERAHKAN DI PANTAI', objective: 'Serahkan paket di Pesisir Arunika', next: 'Misi selesai', dist: 25 },
-      ] },
-    { title: 'Pilihan Darma', day: 5, reward: 500, xp: 100, district: 'pelabuhan', branch: true,
-      dialogue: [ ['DARMA', 'Bayar $500 sekarang, atau khianati aku dan ambil jalanku sendiri. Pilih, Raka.'],
-                  ['RAKA', '…Aku perlu waktu. Tapi aku tidak lari.'] ],
+        { title: 'TEMUI DARMA', objective: 'Temui Darma di gudang Pelabuhan.', next: 'Pilih: bayar atau khianati', tx: 150, tz: -20, radius: 12 },
+        { title: 'PILIHAN', objective: 'Bayar Darma $500 ATAU khianati dan curi uangnya.', next: 'Hadapi akibatnya', tx: 150, tz: -20, radius: 12 },
+        { title: 'HADAPI AKIBATNYA', objective: 'Kembali ke bengkel Pak Amir dengan selamat.', next: 'Misi selesai', tx: -14, tz: 14, radius: 8 }
+      ]
+    },
+    {
+      id: 6, title: 'Balas Dendam', day: 6, reward: 320, xp: 100,
+      intro: [
+        { who: 'RAKA', text: 'Regent itu — mobil Darma yang menabrak bengkel ayah dulu. Hari ini aku balas.' },
+        { who: 'SARI', text: 'Aku yang nyetir kalau kau ragu. Tapi kau tidak ragu, kan?' }
+      ],
       stages: [
-        { title: 'KE GUDANG DARMA', objective: 'Temui Darma di gudang pelabuhan', next: 'Pilih: bayar atau khianati', dist: 90 },
-        { title: 'PILIHAN', objective: 'Pilih: bayar Darma $500 ATAU khianati (tekan B bayar / K khianat)', next: 'Hadapi konsekuensinya', dist: 15 },
-        { title: 'KONSEKUENSI', objective: 'Selesaikan urusan dengan anak buah Darma', next: 'Misi selesai', dist: 60 },
-      ] },
-    { title: 'Wreck the Regent', day: 6, reward: 700, xp: 100, district: 'pantai',
-      dialogue: [ ['BUDI', 'Mobil Regent itu milik orang Darma. Rusak total — biar dia tahu kita tidak takut.'],
-                  ['RAKA', 'Satu mobil. Tanpa korban. Itu aturanku.'] ],
+        { title: 'LACAK REGENT', objective: 'Lacak mobil Regent Darma di Pasar.', next: 'Kejar dan hancurkan Regent', tx: -40, tz: 40, radius: 12 },
+        { title: 'WRECK THE REGENT', objective: 'Tabrak dan hancurkan mobil Regent Darma!', next: 'Kabur dari kejaran polisi', tx: -90, tz: -60, radius: 14 },
+        { title: 'KABUR', objective: 'Kabur dari kejaran polisi ke safehouse.', next: 'Misi selesai', tx: -14, tz: 14, radius: 8 }
+      ]
+    },
+    {
+      id: 7, title: 'Mata-mata Pelabuhan', day: 6, reward: 300, xp: 100,
+      intro: [
+        { who: 'AGUS', text: 'Gudang terakhir Darma dijaga ketat. Aku retas CCTV-nya, kau masuk diam-diam.' },
+        { who: 'RAKA', text: 'Diam-diam. Itu bukan keahlianku, tapi coba dulu.' }
+      ],
       stages: [
-        { title: 'TEMUKAN REGENT', objective: 'Temukan mobil Regent di Pesisir Arunika', next: 'Tabrak sampai hancur', dist: 110 },
-        { title: 'WRECK THE REGENT', objective: 'Hancurkan mobil Regent (tabrak / tembak)', next: 'Kabur dari polisi', dist: 40 },
-        { title: 'KABUR', objective: 'Lepas dari wanted 4 — sembunyi di safehouse', next: 'Misi selesai', dist: 80 },
-      ] },
-    { title: 'Pelabuhan Membara', day: 6, reward: 800, xp: 100, district: 'pelabuhan',
-      dialogue: [ ['SARI', 'Gudang 7 terbakar — itu jebakan, Raka. Tapi di dalam ada bukti utang ayahmu.'],
-                  ['RAKA', 'Kalau bukti itu ada, aku masuk.'] ],
+        { title: 'AWASI GUDANG', objective: 'Awasi gudang Darma dari Dermaga Utara.', next: 'Menyelinap ke dalam', tx: 170, tz: -120, radius: 12 },
+        { title: 'MENYELINAP', objective: 'Menyelinap ke dalam gudang.', next: 'Keluar dengan bukti', tx: 150, tz: -80, radius: 10 },
+        { title: 'KELUAR DENGAN BUKTI', objective: 'Keluar dari gudang membawa bukti.', next: 'Misi selesai', tx: -14, tz: 14, radius: 8 }
+      ]
+    },
+    {
+      id: 8, title: 'Jebakan di Tol', day: 7, reward: 350, xp: 100,
+      intro: [
+        { who: 'DARMA', text: 'Kau pikir bisa lari selamanya, Raka? Tol Arunika sudah kukunci.' },
+        { who: 'SARI', text: 'Tol layang, kecepatan penuh. Pegangan!' }
+      ],
       stages: [
-        { title: 'MASUK GUDANG 7', objective: 'Masuk gudang 7 di pelabuhan', next: 'Cari bukti utang', dist: 75 },
-        { title: 'CARI BUKTI', objective: 'Temukan dokumen utang di balik kontainer', next: 'Keluar sebelum runtuh', dist: 35 },
-        { title: 'KELUAR DARI GUDANG', objective: 'Keluar dari gudang sebelum ELANG-1 tiba', next: 'Misi selesai', dist: 50 },
-      ] },
-    { title: 'Jalan Terakhir', day: 7, reward: 900, xp: 100, district: 'gang',
-      dialogue: [ ['PAK AMIR', 'Hari terakhir, Nak. Apa pun yang terjadi malam ini, bengkel ini milik kita.'],
-                  ['RAKA', 'Malam ini selesai. Janji.'] ],
+        { title: 'NAIK KE TOL', objective: 'Naik ke Tol Layang lewat ramp barat.', next: 'Tembus blokade tol', tx: -140, tz: -130, radius: 12 },
+        { title: 'TEMBUS BLOKADE', objective: 'Tembus blokade polisi di tengah tol.', next: 'Turun dan kabur', tx: 0, tz: -140, radius: 12 },
+        { title: 'TURUN & KABUR', objective: 'Turun dari tol dan kabur ke Pantai.', next: 'Misi selesai', tx: -150, tz: -40, radius: 12 }
+      ]
+    },
+    {
+      id: 9, title: 'Serbuan Terakhir', day: 7, reward: 400, xp: 100,
+      intro: [
+        { who: 'PAK AMIR', text: 'Besok fajar, Nak. Kumpulkan krumu, siapkan senjatamu. Ini yang terakhir.' },
+        { who: 'RAKA', text: 'Semua yang kita punya, Pak. Untuk bengkel ini.' }
+      ],
       stages: [
-        { title: 'KUMPULKAN KRU', objective: 'Kumpulkan kru di bengkel Pak Amir', next: 'Menuju pelabuhan', dist: 60 },
-        { title: 'MENUJU PELABUHAN', objective: 'Bawa kru ke pelabuhan — ELANG-1 mengintai', next: 'Siap menyerbu gudang Darma', dist: 120 },
-        { title: 'SIAP SERBU', objective: 'Tiba di pelabuhan, bersiap untuk Operasi Terakhir', next: 'Misi 10 terbuka', dist: 20 },
-      ] },
-    { title: 'Operasi Terakhir: Fajar di Pelabuhan', day: 7, reward: 1500, xp: 200, district: 'pelabuhan', final: true,
-      dialogue: [ ['DARMA', 'Raka… kau datang juga. Tujuh hari, dan kau masih berdiri. Sayang sekali.'],
-                  ['SARI', 'Kita bersama, Raka. Gaspol sampai fajar!'],
-                  ['BUDI', 'Mesin siap. Kalau mobilmu rusak, aku yang betulkan.'],
-                  ['AGUS', 'Aku matikan lampu gudang. Mereka tidak akan melihat kita datang.'],
-                  ['RAKA', 'Darma — ini berakhir hari ini.'] ],
+        { title: 'KUMPULKAN KRU', objective: 'Kumpulkan kru di bengkel Pak Amir.', next: 'Beli amunisi & armor', tx: -14, tz: 14, radius: 8 },
+        { title: 'SIAPKAN SENJATA', objective: 'Beli senjata & armor di toko Pasar.', next: 'Berkumpul di pelabuhan', tx: 14, tz: -14, radius: 8 },
+        { title: 'BERKUMPUL', objective: 'Berkumpul di Dermaga Senja menjelang fajar.', next: 'Misi 10: Operasi Terakhir', tx: 130, tz: 20, radius: 10 }
+      ]
+    },
+    {
+      id: 10, title: 'Operasi Terakhir: Fajar di Pelabuhan', day: 7, reward: 1000, xp: 200, final: true,
+      intro: [
+        { who: 'DARMA', text: 'Raka... kau pikir bisa mengambil pelabuhanku? Anak taksi kemarin sore!' },
+        { who: 'RAKA', text: 'Tujuh hari, Darma. Hari ini utangku lunas — dengan caraku.' }
+      ],
       stages: [
-        { title: 'GELOMBANG 1', objective: 'Hadapi gelombang 1 di balik kontainer', next: 'Gelombang 2', dist: 60 },
-        { title: 'GELOMBANG 2', objective: 'Hadapi gelombang 2 — ELANG-1 + roadblock menghalangi kabur', next: 'Gelombang 3', dist: 45 },
-        { title: 'HADAPI DARMA', objective: 'Hadapi Darma: tangkap hidup-hidup (+200 XP) atau biarkan kabur (+$500)', next: 'Utang lunas', dist: 25 },
-      ] },
+        { title: 'GELOMBANG 1', objective: 'Lumpuhkan penjaga gelombang pertama di kontainer.', next: 'Gelombang 2: penjaga gudang', tx: 150, tz: -10, radius: 16 },
+        { title: 'GELOMBANG 2', objective: 'Tembus penjaga gudang Darma.', next: 'Gelombang 3: Darma muncul', tx: 165, tz: 40, radius: 16 },
+        { title: 'DARMA MUNCUL', objective: 'Hadapi Darma di Dermaga Senja.', next: 'Pilihan akhir', tx: 185, tz: 0, radius: 14 }
+      ]
+    }
   ];
 
-  var dialogueQueue = [];
-  var dialogueIndex = 0;
-  var dialogueActive = false;
-  var stageTimer = 0;
-
-  function startMission(i) {
-    var s = TA.state;
-    if (i < 0 || i >= MISSIONS.length) return;
-    s.missionIndex = i; s.missionStage = 0; s.missionActive = true;
-    s.ghostUsedThisMission = false;
-    startMissionStage(i, 0);
-    var m = MISSIONS[i];
-    if (m.dialogue) showDialogueQueue(m.dialogue);
-    TA.ui.renderHUD();
-    TA.ui.toast('MISI ' + (i + 1) + ' DARI 10: ' + m.title);
-  }
-
-  function startMissionStage(missionIndex, stageIndex) {
-    var s = TA.state;
-    s.missionIndex = missionIndex; s.missionStage = stageIndex; s.missionActive = true;
-    stageTimer = 0;
-    var m = MISSIONS[missionIndex];
-    var st = m.stages[stageIndex];
-    TA.ui.renderMissionBanner();
-    TA.ui.toast('TAHAP ' + (stageIndex + 1) + '/3 — ' + st.title);
-  }
-
-  function advanceStage() {
-    var s = TA.state;
-    var m = MISSIONS[s.missionIndex];
-    if (s.missionStage < m.stages.length - 1) {
-      startMissionStage(s.missionIndex, s.missionStage + 1);
-    } else {
-      completeMission(s.missionIndex);
-    }
-  }
-
-  function getObjectiveDistance() {
-    var m = MISSIONS[TA.state.missionIndex];
-    if (!m) return 0;
-    var st = m.stages[TA.state.missionStage];
-    return st ? st.dist : 0;
-  }
-
-  function checkObjective(kind) {
-    var s = TA.state;
-    if (!s.missionActive) return;
-    stageTimer += 1;
-    // Simple progression: objective advances by time-in-stage + actions
-    if (kind === 'shoot' && stageTimer > 4) advanceStage();
-    else if (kind === 'arrive' && stageTimer > 6) advanceStage();
-    else if (kind === 'drive' && stageTimer > 8) advanceStage();
-  }
-
-  function completeMission(i) {
-    var s = TA.state;
-    var m = MISSIONS[i];
-    s.missionActive = false;
-    s.missionsDone++;
-    s.money += m.reward;
-    TA.career.addXP(m.xp);
-    TA.world.updateDistrictStanding(m.district, 8);
-    TA.ui.toast('MISI SELESAI: ' + m.title + ' — +$' + m.reward + ' · +' + m.xp + ' XP');
-    TA.crew.showCrewChatter('Sari', 'Misi selesai! ' + m.title + ' — kita makin dekat melunasi utang.');
-    if (m.final) {
-      TA.state.darmaChoice = TA.state.darmaChoice || 'tangkap';
-      if (TA.state.darmaChoice === 'tangkap') TA.career.addXP(200);
-      else s.money += 500;
-      TA.core.winGame();
-      return;
-    }
-    if (i === 5) { // day-5 branch resolution
-      if (s.darmaChoice === 'khianat') { s.money += 500; TA.ui.toast('Kau mengkhianati Darma — +$500, tapi wanted naik.'); TA.police.setWanted(3); }
-      else { s.money = Math.max(0, s.money - 500); TA.ui.toast('Kau membayar Darma $500. Utang berkurang.'); s.debt = Math.max(0, s.debt - 500); }
-    }
-    if (i + 1 < MISSIONS.length) {
-      setTimeout(function () { if (TA.state.mode === 'playing') startMission(i + 1); }, 2500);
-    }
-    TA.core.autosave();
-  }
-
-  function showDialogueQueue(lines) {
-    dialogueQueue = lines.slice();
-    dialogueIndex = 0;
-    dialogueActive = true;
-    TA.state.mode = 'cutscene';
-    showCurrentDialogue();
-  }
-  function showDialogue(speaker, text) { showDialogueQueue([[speaker, text]]); }
-  function showCurrentDialogue() {
-    var line = dialogueQueue[dialogueIndex];
-    if (!line) { closeDialogue(); return; }
-    TA.ui.showDialogue(line[0], line[1]);
-  }
-  function advanceDialogue() {
-    if (!dialogueActive) return;
-    dialogueIndex++;
-    if (dialogueIndex >= dialogueQueue.length) closeDialogue();
-    else showCurrentDialogue();
-  }
-  function closeDialogue() {
-    dialogueActive = false;
-    TA.ui.hideDialogue();
-    if (TA.state.mode === 'cutscene') TA.state.mode = 'playing';
-  }
-
-  function update(dt) {
-    if (!TA.state.missionActive) return;
-    stageTimer += dt;
-    // auto-advance stage after enough time in stage (keeps the demo moving)
-    var m = MISSIONS[TA.state.missionIndex];
-    var st = m.stages[TA.state.missionStage];
-    if (stageTimer > 45) advanceStage();
-    // mission marker distance shrinks as player moves (simulated)
-    if (st && st.dist > 5) st.dist = Math.max(5, st.dist - dt * 2);
-  }
-
   TA.missions = {
-    MISSIONS: MISSIONS,
-    startMission: startMission, startMissionStage: startMissionStage,
-    advanceStage: advanceStage, getObjectiveDistance: getObjectiveDistance,
-    completeMission: completeMission, showDialogue: showDialogue,
-    showDialogueQueue: showDialogueQueue, advanceDialogue: advanceDialogue,
-    checkObjective: checkObjective, update: update,
+    dialogueLines: [], dialogueIndex: 0, dialogueDone: null,
+
+    current: function () {
+      return TA.MISSIONS[TA.state.missionIndex] || null;
+    },
+    currentStage: function () {
+      var m = this.current();
+      if (!m) return null;
+      return m.stages[Math.min(TA.state.missionStage, m.stages.length - 1)];
+    },
+    getObjectiveDistance: function () {
+      var st = this.currentStage();
+      if (!st) return 0;
+      return Math.round(TA.dist2d(TA.player.x, TA.player.z, st.tx, st.tz));
+    },
+
+    startMission: function (i) {
+      var s = TA.state;
+      var m = TA.MISSIONS[i];
+      if (!m) return;
+      s.missionIndex = i;
+      s.missionStage = 0;
+      s.missionActive = true;
+      s.ghostUsedThisMission = false;
+      s.day = m.day;
+      this.showDialogue(m.intro.slice(), function () {
+        s.mode = 'playing';
+        // Dialog kru di Misi 10: satu baris per anggota yang direkrut
+        if (m.id === 10) TA.crew.mission10CrewLines();
+      });
+    },
+
+    startMissionStage: function (missionIdx, stageIdx) {
+      TA.state.missionIndex = missionIdx;
+      TA.state.missionStage = stageIdx;
+      TA.state.missionActive = true;
+      return this.currentStage();
+    },
+
+    advanceStage: function () {
+      var s = TA.state;
+      var m = this.current();
+      if (!m) return;
+      s.missionStage++;
+      if (s.missionStage >= m.stages.length) {
+        if (m.id === 10) { this.finishMission10(); return; }
+        this.completeMission();
+      } else {
+        TA.ui.flashMission('TAHAP ' + (s.missionStage + 1) + '/' + m.stages.length + ': ' + m.stages[s.missionStage].title);
+      }
+    },
+
+    checkObjective: function () {
+      var s = TA.state;
+      if (!s.missionActive || s.mode !== 'playing') return;
+      var m = this.current();
+      if (!m) return;
+      if (m.id === 10) { this.checkMission10(); return; }
+      var st = this.currentStage();
+      if (!st) return;
+      if (TA.dist2d(TA.player.x, TA.player.z, st.tx, st.tz) < st.radius) {
+        if (m.branch && s.missionStage === 1 && !s.branchChoice) {
+          this.offerBranchChoice();
+          return;
+        }
+        this.advanceStage();
+      }
+    },
+
+    offerBranchChoice: function () {
+      var s = TA.state;
+      s.mode = 'cutscene';
+      TA.ui.showChoice('PILIHAN DARMA', 'Darma menagih $500. Bayar sekarang (uang -$500, wanted turun, reputasi naik) atau khianati: curi uang Darma dan kabur (uang +$800, wanted +2)?', [
+        {
+          label: 'BAYAR DARMA $500', fn: function () {
+            s.branchChoice = 'pay';
+            s.money = Math.max(0, s.money - 500);
+            TA.police.setWanted(Math.max(0, s.wanted - 1), 'bayar');
+            TA.world.updateDistrictStanding('pelabuhan', 5);
+            TA.career.addXP(50, 'bayar Darma');
+            TA.ui.hideChoice();
+            s.mode = 'playing';
+            TA.missions.advanceStage();
+          }
+        },
+        {
+          label: 'KHIANATI — CURI UANG DARMA', fn: function () {
+            s.branchChoice = 'betray';
+            s.money += 800;
+            TA.police.setWanted(s.wanted + 2, 'khianat');
+            TA.world.updateDistrictStanding('pelabuhan', -10);
+            TA.ui.hideChoice();
+            s.mode = 'playing';
+            TA.missions.advanceStage();
+          }
+        }
+      ]);
+    },
+
+    completeMission: function () {
+      var s = TA.state;
+      var m = this.current();
+      if (!m) return;
+      s.missionActive = false;
+      s.stats.missionsDone++;
+      s.missionDone.push(m.id);
+      s.money += m.reward;
+      TA.career.addXP(m.xp, 'selesaikan misi ' + m.id);
+      var d = TA.world.districtAt(TA.player.x, TA.player.z);
+      TA.world.updateDistrictStanding(d.id, 4);
+      TA.career.saveGame(0); // autosave
+      TA.ui.showRankUpCheck();
+      var next = TA.MISSIONS[s.missionIndex + 1];
+      if (next) {
+        TA.crew.showCrewChatter('PAK AMIR', 'Misi selesai! +$' + m.reward + '. Misi berikutnya: ' + next.title + '.');
+        this.startMission(s.missionIndex + 1);
+      } else {
+        TA.winGame();
+      }
+    },
+
+    /* ---------- Misi 10 ---------- */
+    spawnMission10Wave: function (wave) {
+      var s = TA.state;
+      s.mission10Wave = wave;
+      var spots = wave === 1
+        ? [[150, -20], [160, 0], [140, 10]]
+        : wave === 2
+          ? [[165, 30], [175, 50], [155, 55], [170, 20]]
+          : [[185, -5], [180, 10], [190, 15], [175, -15]];
+      for (var i = 0; i < spots.length; i++) {
+        this.spawnEnemy(spots[i][0], spots[i][1], wave === 3 && i === 0 ? 'DARMA' : 'PENJAGA');
+      }
+      TA.crew.showCrewChatter('AGUS', 'Gelombang ' + wave + ' datang! Berlindung di balik kontainer!');
+    },
+    spawnEnemy: function (x, z, kind) {
+      var mesh = TA.player.makePedMesh(kind === 'DARMA' ? 0x8a1a1a : 0x3a3a3a);
+      var hat = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.2, 0.7), TA.world.mat(0x111111));
+      hat.position.y = 2.05; mesh.add(hat);
+      mesh.position.set(x, 0, z);
+      TA.scene.add(mesh);
+      var e = { x: x, z: z, hp: kind === 'DARMA' ? 150 : 60, kind: kind, mesh: mesh, shootTimer: TA.rand(1, 2.5), dead: false };
+      TA.enemies.push(e);
+      return e;
+    },
+    checkMission10: function () {
+      var s = TA.state;
+      var alive = 0;
+      for (var i = 0; i < TA.enemies.length; i++) if (!TA.enemies[i].dead) alive++;
+      var st = this.currentStage();
+      if (st && TA.dist2d(TA.player.x, TA.player.z, st.tx, st.tz) < st.radius && alive === 0) {
+        if (s.missionStage < 2) {
+          s.missionStage++;
+          this.spawnMission10Wave(s.missionStage + 1);
+          TA.ui.flashMission('TAHAP ' + (s.missionStage + 1) + '/3: ' + st.title);
+        } else {
+          this.finishMission10();
+        }
+      }
+    },
+    finishMission10: function () {
+      var s = TA.state;
+      s.mode = 'cutscene';
+      TA.ui.showChoice('PILIHAN AKHIR — DARMA TAK BERDAYA',
+        'Darma terpojok di ujung dermaga. Tangkap dia hidup-hidup untuk polisi (reputasi +200 XP) atau biarkan dia kabur dengan perahu (uang +$500)?',
+        [
+          {
+            label: 'TANGKAP DARMA HIDUP-HIDUP (+200 XP)', fn: function () {
+              s.mission10Choice = 'capture';
+              TA.career.addXP(200, 'tangkap Darma hidup-hidup');
+              s.missionActive = false;
+              s.stats.missionsDone++;
+              s.missionDone.push(10);
+              s.money += 1000;
+              TA.career.saveGame(0);
+              TA.ui.hideChoice();
+              TA.winGame();
+            }
+          },
+          {
+            label: 'BIARKAN KABUR (+$500)', fn: function () {
+              s.mission10Choice = 'escape';
+              s.money += 500 + 1000;
+              s.missionActive = false;
+              s.stats.missionsDone++;
+              s.missionDone.push(10);
+              TA.career.saveGame(0);
+              TA.ui.hideChoice();
+              TA.winGame();
+            }
+          }
+        ]);
+    },
+
+    /* ---------- dialog ---------- */
+    showDialogue: function (lines, done) {
+      this.dialogueLines = lines.slice();
+      this.dialogueIndex = 0;
+      this.dialogueDone = done || null;
+      TA.state.mode = 'cutscene';
+      this.renderDialogue();
+    },
+    renderDialogue: function () {
+      var line = this.dialogueLines[this.dialogueIndex];
+      if (!line) { this.endDialogue(); return; }
+      TA.ui.showDialogue(line.who, line.text);
+    },
+    advanceDialogue: function () {
+      this.dialogueIndex++;
+      if (this.dialogueIndex >= this.dialogueLines.length) this.endDialogue();
+      else this.renderDialogue();
+    },
+    endDialogue: function () {
+      TA.ui.hideDialogue();
+      var done = this.dialogueDone;
+      this.dialogueDone = null;
+      TA.state.mode = 'playing';
+      if (done) done();
+    },
+
+    update: function (dt) {
+      this.checkObjective();
+      // Musuh Misi 10 menembak
+      for (var i = 0; i < TA.enemies.length; i++) {
+        var e = TA.enemies[i];
+        if (e.dead) continue;
+        e.shootTimer -= dt;
+        var d = TA.dist2d(TA.player.x, TA.player.z, e.x, e.z);
+        if (d < 55) {
+          // Hadap pemain
+          e.mesh.rotation.y = Math.atan2(TA.player.x - e.x, TA.player.z - e.z);
+          if (e.shootTimer <= 0) {
+            e.shootTimer = TA.rand(1.2, 2.6);
+            if (TA.rng() < 0.55) TA.player.takeDamage(e.kind === 'DARMA' ? 9 : 5);
+            TA.audio.enemyShotSound();
+          }
+        }
+      }
+    }
   };
 })();
