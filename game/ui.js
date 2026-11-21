@@ -1,767 +1,722 @@
-// Teluk Arunika v3.6 — ui.js
-// HUD + minimap + full-screen tabbed map, dispatch panel + police ticker,
-// crew cards + chatter, mission/stage/contract banner, weapon wheel with
-// ammo counts, radio line, location banner, start/pause/end screens.
+/* ui.js — HUD + minimap + peta penuh bertab + title screen + wheel + banner */
 (function () {
   'use strict';
   var TA = window.TA;
+  TA.ui = TA.ui || {};
 
-  var el = {};
-  var minimapZoom = 1;
-  var minimapHover = false;
-  var lastHudText = '';
-  var mapCanvasCtx = null;
+  function el(id) { return document.getElementById(id); }
+  function show(id) { var e = el(id); if (e) e.classList.remove('hidden'); }
+  function hide(id) { var e = el(id); if (e) e.classList.add('hidden'); }
 
-  function $(id) { return document.getElementById(id); }
+  var toastT = 0;
+  var rankupT = 0;
 
-  function buildHUD() {
-    ['hud', 'stars', 'money-row', 'day-row', 'time-row', 'rank-row', 'rank-name',
-     'xp-fill', 'xp-text', 'crew-row', 'mission-banner', 'mission-title',
-     'mission-stage', 'mission-objective', 'mission-distance', 'mission-next',
-     'mission-contract', 'race-hud', 'race-timer', 'race-best', 'race-checkpoint',
-     'dispatch-panel', 'dispatch-title', 'dispatch-list', 'police-ticker',
-     'crew-cards', 'location-banner', 'district-name', 'street-name',
-     'district-mood', 'speed-block', 'speed-value', 'car-name', 'car-condition',
-     'radio-line', 'minimap', 'health-bar', 'hp-fill', 'armor-fill',
-     'weapon-name', 'ammo-count', 'chatter-toast', 'toast', 'banner',
-     'banner-title', 'banner-sub', 'rankup-banner', 'damage-flash',
-     'saving-indicator', 'weapon-wheel', 'wheel-slots', 'crew-panel',
-     'crew-panel-list', 'full-map', 'map-tabs', 'map-canvas', 'map-mission',
-     'map-legend', 'map-districts', 'map-waypoint', 'save-btn',
-     'start-screen', 'pause-screen', 'end-screen', 'end-title', 'end-stats',
-     'mission-intro', 'intro-kicker', 'intro-title', 'intro-text',
-     'dialogue-box', 'dialogue-speaker', 'dialogue-text',
-     'pause-career', 'pause-crew', 'pause-saves', 'load-error'
-    ].forEach(function (id) { el[id] = $(id); });
-
-    // start screen buttons
-    $('btn-new-game').addEventListener('click', function () { TA.core.startNewGame(); });
-    $('btn-continue').addEventListener('click', function () { TA.core.continueGame(); });
-    $('btn-resume').addEventListener('click', function () { TA.core.resumeGame(); });
-    $('btn-save-1').addEventListener('click', function () { TA.career.saveGame(1); });
-    $('btn-save-2').addEventListener('click', function () { TA.career.saveGame(2); });
-    $('btn-save-3').addEventListener('click', function () { TA.career.saveGame(3); });
-    $('btn-quit').addEventListener('click', function () { location.reload(); });
-    $('btn-restart').addEventListener('click', function () { location.reload(); });
-    el['dialogue-box'].addEventListener('click', function () { TA.missions.advanceDialogue(); });
-    $('btn-close-map').addEventListener('click', function () { toggleFullMap(); });
-    $('btn-close-crew').addEventListener('click', function () { toggleCrewPanel(); });
-    $('btn-close-intro').addEventListener('click', function () {
-      el['mission-intro'].style.display = 'none';
-      TA.state.screen = 'playing';
+  function init() {
+    var bn = el('btn-new');
+    if (bn) bn.addEventListener('click', function () { TA.startNewGame(); });
+    var bc = el('btn-continue');
+    if (bc) bc.addEventListener('click', function () { TA.continueGame(); });
+    var bct = el('btn-controls');
+    if (bct) bct.addEventListener('click', function () {
+      el('controls-panel').classList.toggle('hidden');
+      el('settings-panel').classList.add('hidden');
     });
-    if (el['save-btn']) el['save-btn'].addEventListener('click', function () { TA.career.saveGame(0); });
-    if (el['map-canvas']) {
-      el['map-canvas'].addEventListener('click', function (e) {
-        var rect = el['map-canvas'].getBoundingClientRect();
-        var mx = (e.clientX - rect.left) / rect.width;
-        var my = (e.clientY - rect.top) / rect.height;
-        var wx = -260 + mx * 580;
-        var wz = -260 + my * 520;
-        setWaypoint(wx, wz, 'Waypoint');
+    var bs = el('btn-settings');
+    if (bs) bs.addEventListener('click', function () {
+      el('settings-panel').classList.toggle('hidden');
+      el('controls-panel').classList.add('hidden');
+    });
+    var tabs = document.querySelectorAll('.map-tab');
+    for (var i = 0; i < tabs.length; i++) {
+      tabs[i].addEventListener('click', function () {
+        TA.S.mapTab = this.getAttribute('data-tab');
+        renderMapTabs();
       });
     }
-    // map tabs
-    var tabs = document.querySelectorAll('#map-tabs .map-tab');
-    tabs.forEach(function (tab) {
-      tab.addEventListener('click', function () { setMapTab(tab.dataset.tab); });
+    var slots = document.querySelectorAll('.save-slot');
+    for (var j = 0; j < slots.length; j++) {
+      slots[j].addEventListener('click', function () {
+        var s = parseInt(this.getAttribute('data-slot'), 10);
+        if (TA.S.screen === 'paused' || TA.S.screen === 'map') TA.saveGame(s);
+        else if (TA.S.screen === 'title') TA.continueGame();
+      });
+    }
+    var bsg = el('btn-save-game');
+    if (bsg) bsg.addEventListener('click', function () { TA.saveGame(1); });
+    var mc = el('map-canvas');
+    if (mc) mc.addEventListener('click', function (e) {
+      var r = mc.getBoundingClientRect();
+      var wx = (e.clientX - r.left) / r.width * 4200;
+      var wy = (e.clientY - r.top) / r.height * 3200;
+      TA.S.waypoint = { x: Math.round(wx), y: Math.round(wy) };
+      var wl = el('waypoint-line');
+      if (wl) wl.textContent = 'Waypoint: ' + Math.round(TA.dist(TA.S.px, TA.S.py, wx, wy) / 10) + ' m — garis rute digambar di peta';
+      renderFullMapCanvas();
     });
-    // crew recruit buttons (delegated)
-    el['crew-panel-list'].addEventListener('click', function (e) {
-      var btn = e.target.closest('[data-recruit]');
-      if (btn) TA.crew.recruitCrewMember(btn.dataset.recruit);
-    });
-    // minimap hover tracking
-    el['minimap'].addEventListener('mouseenter', function () { minimapHover = true; });
-    el['minimap'].addEventListener('mouseleave', function () { minimapHover = false; });
+    renderSaveSlots();
+  }
+  TA.ui.init = init;
 
+  function renderSaveSlots() {
+    var slots = document.querySelectorAll('#save-slots .save-slot, #pause-saves .save-slot');
+    for (var i = 0; i < slots.length; i++) {
+      var s = TA.S.saveSlots[i];
+      var span = slots[i].querySelector('span');
+      if (span && s) span.textContent = 'Hari ' + s.day + ' · ' + TA.fmtRp(s.money) + ' · Misi ' + s.mission + '/10';
+    }
+  }
+  TA.ui.renderSaveSlots = renderSaveSlots;
+
+  /* ---------- screens ---------- */
+  function showTitleScreen() {
+    TA.S.screen = 'title';
+    show('title-screen');
+    hide('hud'); hide('full-map'); hide('pause-screen'); hide('mission-intro');
+    hide('dialogue-box'); hide('crew-panel'); hide('end-screen');
+    renderSaveSlots();
+  }
+  TA.ui.showTitleScreen = showTitleScreen;
+
+  function showHUD() {
+    hide('title-screen'); hide('full-map'); hide('pause-screen');
+    hide('mission-intro'); hide('dialogue-box'); hide('end-screen');
+    show('hud');
+    renderMissionBanner();
+    renderRankRow();
+    renderCrewRow();
     renderCrewCards();
-    renderCrewPanel();
+    renderWeaponWheel();
     renderDispatchPanel();
-    renderPoliceTicker();
-    renderLocationBanner();
-    updateMissionBanner();
-    updateRankRow();
     renderRadioLine();
   }
-
-  // ---------- HUD ----------
-  function formatClock(h) {
-    var hh = Math.floor(h) % 24;
-    var mm = Math.floor((h % 1) * 60);
-    return (hh < 10 ? '0' : '') + hh + ':' + (mm < 10 ? '0' : '') + mm;
-  }
-
-  function weatherLabel(w) {
-    return w === 'rain' ? 'HUJAN' : w === 'storm' ? 'BADAI' : 'CERAH';
-  }
-
-  function renderHUD() {
-    var s = TA.state;
-    var stars = '';
-    for (var i = 0; i < 5; i++) stars += i < s.wanted ? '★' : '☆';
-    el['stars'].textContent = stars;
-    el['stars'].className = s.wanted >= 4 ? 'stars hot' : 'stars';
-    el['money-row'].textContent = '$' + s.money.toLocaleString('en-US');
-    el['day-row'].textContent = 'HARI ' + s.day + ' / 7 · UTANG $' + s.debt.toLocaleString('en-US');
-    el['time-row'].textContent = formatClock(s.time) + ' · ' + weatherLabel(s.weather);
-    el['hp-fill'].style.width = Math.max(0, s.hp / s.maxHp * 100) + '%';
-    el['armor-fill'].style.width = Math.max(0, s.armor / s.maxArmor * 100) + '%';
-    var w = TA.player.WEAPONS[s.weapon];
-    el['weapon-name'].textContent = w.name;
-    el['ammo-count'].textContent = TA.player.getAmmoDisplay(w.key);
-    // crew row
-    var crewBits = [];
-    TA.crew.CREW.forEach(function (c) {
-      crewBits.push(c.name + (TA.crew.isRecruited(c.id) ? ' ✓' : ' ○'));
-    });
-    el['crew-row'].textContent = 'KRU: ' + crewBits.join(' · ');
-    renderLocationBanner(); // keep the district banner in sync every frame
-    // speed block
-    if (s.inCar) {
-      el['speed-block'].style.display = 'block';
-      el['speed-value'].textContent = Math.round(s.carSpeed) + ' km/h';
-      el['car-name'].textContent = TA.player.getCurrentCarName() || '';
-      var cond = TA.player.getCarCondition();
-      el['car-condition'].textContent = cond != null ? Math.round(cond) + '% KONDISI' : '';
-      el['car-condition'].className = cond != null && cond < 35 ? 'car-cond bad' : 'car-cond';
-    } else {
-      el['speed-block'].style.display = 'none';
-    }
-    renderMinimap();
-  }
-
-  function updateRankRow() {
-    var r = TA.career.getRank();
-    el['rank-name'].textContent = 'TINGKAT ' + r.level + ' · ' + r.name;
-    var nextXp = r.next ? r.next.xp : r.xp;
-    var baseXp = TA.career.RANKS[r.level - 1].xp;
-    var pct = r.next ? ((r.xp - baseXp) / (nextXp - baseXp)) * 100 : 100;
-    el['xp-fill'].style.width = Math.min(100, Math.max(0, pct)) + '%';
-    el['xp-text'].textContent = r.xp + ' / ' + (r.next ? nextXp : r.xp) + ' XP' + (r.next ? ' → ' + r.next.name : ' · MAKSIMAL');
-  }
-
-  function updateMissionBanner() {
-    var s = TA.state;
-    var m = TA.missions.currentMission();
-    if (!m || !s.missionActive) {
-      if (s.raceActive) {
-        var r = TA.races.RACES[s.race.index];
-        el['mission-banner'].style.display = 'block';
-        el['mission-title'].textContent = 'BALAPAN LIAR — ' + r.name;
-        el['mission-stage'].textContent = 'Checkpoint ' + (s.race.checkpoint + 1) + '/' + r.checkpoints.length;
-        el['mission-objective'].textContent = 'Ikuti checkpoint — kalahkan BEST ' + TA.races.formatTime(TA.races.getBestTime(s.race.index));
-        el['mission-distance'].textContent = '';
-        el['mission-next'].textContent = 'NEXT: ' + (r.checkpoints[s.race.checkpoint + 1] ? r.checkpoints[s.race.checkpoint + 1].label : 'FINISH');
-        el['mission-contract'].textContent = 'HADIAH $' + r.prize + ' · BIAYA MASUK $' + r.entry;
-      } else {
-        el['mission-banner'].style.display = 'none';
-      }
-      return;
-    }
-    var stage = TA.missions.currentStage();
-    var act = TA.missions.getActForMission(s.missionIndex);
-    var contract = TA.missions.getMissionContract(s.missionIndex);
-    el['mission-banner'].style.display = 'block';
-    el['mission-title'].textContent = 'MISI ' + (s.missionIndex + 1) + ' DARI 10 · ' + act.name + ' · TAHAP ' + (s.missionStage + 1) + '/' + m.stages.length;
-    el['mission-stage'].textContent = stage ? stage.title : '';
-    el['mission-objective'].textContent = stage ? stage.objective : '';
-    el['mission-distance'].textContent = TA.missions.getObjectiveDistance() + ' m';
-    var nextStage = m.stages[s.missionStage + 1];
-    el['mission-next'].textContent = nextStage ? 'NEXT: ' + nextStage.title : 'NEXT: SELESAIKAN MISI';
-    el['mission-contract'].textContent = 'KONTRAK: ' + contract.syndicate + ' — $' + contract.reward;
-  }
-
-  function updateRaceHUD() {
-    var s = TA.state;
-    if (!s.raceActive || !s.race) { el['race-hud'].style.display = 'none'; return; }
-    el['race-hud'].style.display = 'block';
-    el['race-timer'].textContent = TA.races.formatTime(s.race.time);
-    el['race-best'].textContent = 'BEST ' + TA.races.formatTime(TA.races.getBestTime(s.race.index));
-    var r = TA.races.RACES[s.race.index];
-    el['race-checkpoint'].textContent = 'CHECKPOINT ' + (s.race.checkpoint + 1) + '/' + r.checkpoints.length;
-    updateMissionBanner();
-  }
-
-  // ---------- minimap ----------
-  function renderMinimap() {
-    var cv = el['minimap'];
-    if (!cv) return;
-    var g = cv.getContext('2d');
-    var W = cv.width, H = cv.height;
-    g.clearRect(0, 0, W, H);
-    g.fillStyle = 'rgba(10,16,24,0.92)';
-    g.fillRect(0, 0, W, H);
-    var px = TA.playerObj ? TA.playerObj.position.x : 0;
-    var pz = TA.playerObj ? TA.playerObj.position.z : 0;
-    var scale = (W / 520) * minimapZoom;
-    function toX(x) { return W / 2 + (x - px) * scale; }
-    function toY(z) { return H / 2 + (z - pz) * scale; }
-    // roads
-    g.strokeStyle = 'rgba(120,130,145,0.7)';
-    g.lineWidth = 2;
-    [-120, -80, -40, 0, 40, 80, 120].forEach(function (v) {
-      g.beginPath(); g.moveTo(toX(v), 0); g.lineTo(toX(v), H); g.stroke();
-      g.beginPath(); g.moveTo(0, toY(v)); g.lineTo(W, toY(v)); g.stroke();
-    });
-    // districts tint
-    g.fillStyle = 'rgba(255,90,0,0.18)';
-    g.fillRect(toX(170), toY(-30), 140 * scale, 140 * scale); // Pulau Abu
-    g.fillStyle = 'rgba(40,120,255,0.15)';
-    g.fillRect(toX(-170), toY(130), 120 * scale, 90 * scale); // port
-    // race route
-    if (TA.state.raceActive && TA.state.race) {
-      var r = TA.races.RACES[TA.state.race.index];
-      g.strokeStyle = '#00ff88';
-      g.lineWidth = 2.5;
-      g.beginPath();
-      r.checkpoints.forEach(function (cp, i) {
-        if (i === 0) g.moveTo(toX(cp.x), toY(cp.z)); else g.lineTo(toX(cp.x), toY(cp.z));
-      });
-      g.stroke();
-      r.checkpoints.forEach(function (cp, i) {
-        g.fillStyle = i === TA.state.race.checkpoint ? '#00ff88' : '#ffc400';
-        g.beginPath(); g.arc(toX(cp.x), toY(cp.z), 4, 0, Math.PI * 2); g.fill();
-      });
-    }
-    // objective blip (yellow)
-    if (TA.state.missionActive) {
-      var ob = TA.missions.getObjectiveBlip();
-      g.fillStyle = '#ffe600';
-      g.beginPath(); g.arc(toX(ob.x), toY(ob.z), 5, 0, Math.PI * 2); g.fill();
-      g.strokeStyle = '#ffe600'; g.lineWidth = 1;
-      g.beginPath(); g.arc(toX(ob.x), toY(ob.z), 8, 0, Math.PI * 2); g.stroke();
-    }
-    // safehouse (blue), taxi (green), export (purple)
-    g.fillStyle = '#4aa8ff';
-    g.fillRect(toX(24) - 3, toY(-24) - 3, 6, 6);
-    g.fillStyle = '#3ad86a';
-    g.fillRect(toX(60) - 3, toY(60) - 3, 6, 6);
-    if (TA.state.carExport) {
-      g.fillStyle = '#c07aff';
-      g.beginPath(); g.arc(toX(-120), toY(170), 5, 0, Math.PI * 2); g.fill();
-    }
-    // police blips (red)
-    g.fillStyle = '#ff3344';
-    TA.police.getDispatchUnits().forEach(function (u, i) {
-      var a = (i / 6) * Math.PI * 2 + TA.state.elapsed;
-      g.beginPath(); g.arc(toX(px + Math.cos(a) * u.dist), toY(pz + Math.sin(a) * u.dist), 3.5, 0, Math.PI * 2); g.fill();
-    });
-    // waypoint
-    if (TA.state.waypoint) {
-      g.fillStyle = '#ffffff';
-      g.beginPath(); g.arc(toX(TA.state.waypoint.x), toY(TA.state.waypoint.z), 4, 0, Math.PI * 2); g.fill();
-    }
-    // player arrow (centre)
-    g.fillStyle = '#ffffff';
-    g.save();
-    g.translate(W / 2, H / 2);
-    g.rotate(TA.playerYaw || 0);
-    g.beginPath(); g.moveTo(0, -7); g.lineTo(5, 6); g.lineTo(-5, 6); g.closePath(); g.fill();
-    g.restore();
-    // compass
-    g.fillStyle = 'rgba(255,255,255,0.85)';
-    g.font = 'bold 11px sans-serif';
-    g.fillText('N', W - 14, 14);
-  }
-
-  function minimapHovered(x, y) { return minimapHover; }
-  function zoomMinimap(dir) {
-    minimapZoom = Math.max(0.6, Math.min(3, minimapZoom + dir * 0.3));
-  }
-
-  // ---------- dispatch + ticker ----------
-  var lastDispatchSig = '';
-  function renderDispatchPanel() {
-    var units = TA.police.getDispatchUnits();
-    var foot = TA.police.getFootUnits();
-    var all = foot.concat(units);
-    // cache: distances rounded to 5 m so the DOM is not rebuilt every frame
-    var sig = TA.state.wanted + '|' + TA.state.heliActive + '|' +
-      all.map(function (u) { return u.name + u.tactic + Math.round(u.dist / 5); }).join(',');
-    if (sig === lastDispatchSig) {
-      el['dispatch-panel'].style.display = TA.state.wanted > 0 ? 'block' : 'none';
-      return;
-    }
-    lastDispatchSig = sig;
-    var title = 'DISPATCH POLISI — ' + all.length + ' UNIT';
-    if (TA.state.heliActive) title += ' · ELANG-1 DITERJUNKAN';
-    el['dispatch-title'].textContent = title;
-    if (all.length === 0) {
-      el['dispatch-list'].innerHTML = '<div class="dispatch-empty">Tidak ada unit aktif — jalanan tenang.</div>';
-    } else {
-      el['dispatch-list'].innerHTML = all.map(function (u) {
-        return '<div class="dispatch-row"><span class="du-name">' + u.name + '</span>' +
-          '<span class="du-kind">' + u.kind + '</span>' +
-          '<span class="du-tactic">' + u.tactic + '</span>' +
-          '<span class="du-dist">' + u.dist + ' m</span></div>';
-      }).join('');
-    }
-    el['dispatch-panel'].style.display = TA.state.wanted > 0 ? 'block' : 'none';
-  }
-
-  function renderPoliceTicker() {
-    var lines = TA.police.getTicker();
-    el['police-ticker'].innerHTML = lines.map(function (t) {
-      return '<div class="ticker-line">📻 ' + t + '</div>';
-    }).join('');
-  }
-
-  // ---------- crew cards + chatter ----------
-  function renderCrewCards() {
-    var html = '';
-    TA.crew.CREW.forEach(function (c) {
-      var rec = TA.crew.isRecruited(c.id);
-      var ready = TA.crew.crewAbilityReady(c.id);
-      var cd = Math.ceil(TA.crew.getCooldowns()[c.id] || 0);
-      var status = !rec ? 'BELUM DIREKRUT' : (ready ? 'READY' : (c.id === 'agus' && TA.state.ghostUsedThisMission ? 'SEKALI/MISI' : 'COOLDOWN ' + cd + ' dtk'));
-      var cls = !rec ? 'locked' : (ready ? 'ready' : 'cooling');
-      html += '<div class="crew-card ' + cls + '">' +
-        '<div class="cc-name">' + c.name + ' <span class="cc-nick">“' + c.nickname + '”</span></div>' +
-        '<div class="cc-role">' + c.role + ' · ' + c.ability + ' [' + c.key + ']</div>' +
-        '<div class="cc-status">' + status + '</div></div>';
-    });
-    el['crew-cards'].innerHTML = html;
-  }
-
-  function renderCrewPanel() {
-    var html = '';
-    TA.crew.CREW.forEach(function (c) {
-      var rec = TA.crew.isRecruited(c.id);
-      html += '<div class="crew-panel-row">' +
-        '<div class="cp-face">' + c.name.charAt(0) + '</div>' +
-        '<div class="cp-info"><b>' + c.name + ' “' + c.nickname + '”</b> — ' + c.role +
-        '<br><span class="cp-desc">' + c.desc + '</span>' +
-        '<br><span class="cp-passive">Pasif: ' + c.passive + '</span></div>' +
-        '<div class="cp-action">' + (rec
-          ? '<span class="recruited">✓ DIREKRUT</span>'
-          : '<button data-recruit="' + c.id + '">REKRUT $' + c.price + '</button>') + '</div></div>';
-    });
-    el['crew-panel-list'].innerHTML = html;
-  }
-
-  function toggleCrewPanel() {
-    TA.state.crewPanelOpen = !TA.state.crewPanelOpen;
-    el['crew-panel'].style.display = TA.state.crewPanelOpen ? 'block' : 'none';
-    if (TA.state.crewPanelOpen) renderCrewPanel();
-  }
-
-  function renderCrewChatter() {
-    var c = TA.state.chatter;
-    if (!c) { el['chatter-toast'].style.display = 'none'; return; }
-    el['chatter-toast'].style.display = 'block';
-    el['chatter-toast'].innerHTML = '<b>' + c.name + ':</b> ' + c.text;
-  }
-
-  // ---------- location banner ----------
-  function renderLocationBanner() {
-    var d = TA.career.getDistrict(TA.state.district);
-    el['district-name'].textContent = d.name.toUpperCase();
-    el['street-name'].textContent = TA.state.street;
-    el['district-mood'].textContent = 'SUASANA · ' + d.standing;
-    el['district-mood'].className = d.standing >= 60 ? 'mood good' : d.standing >= 40 ? 'mood mid' : 'mood bad';
-  }
-
-  function showLocationBanner() {
-    renderLocationBanner();
-    el['location-banner'].classList.add('pop');
-    setTimeout(function () { el['location-banner'].classList.remove('pop'); }, 1200);
-  }
-
-  // ---------- radio line ----------
-  function renderRadioLine() {
-    var st = TA.audio.currentStation();
-    el['radio-line'].textContent = '♪ ' + st.name + ' — ' + st.genre;
-  }
-
-  // ---------- weapon wheel ----------
-  function openWeaponWheel() {
-    TA.state.wheelOpen = true;
-    el['weapon-wheel'].style.display = 'flex';
-    refreshWeaponWheel();
-  }
-
-  function closeWeaponWheel() {
-    TA.state.wheelOpen = false;
-    el['weapon-wheel'].style.display = 'none';
-  }
-
-  function toggleWeaponWheel() {
-    if (TA.state.wheelOpen) closeWeaponWheel(); else openWeaponWheel();
-  }
-
-  function refreshWeaponWheel() {
-    if (!TA.state.wheelOpen) return;
-    var html = '';
-    TA.player.WEAPONS.forEach(function (w, i) {
-      var owned = i === 0 || TA.player.getOwnedWeapons()[w.key];
-      var sel = TA.state.weapon === i ? 'selected' : '';
-      var ammo = TA.player.getAmmoDisplay(w.key);
-      html += '<div class="wheel-slot ' + sel + ' ' + (owned ? '' : 'locked') + '" data-weapon="' + i + '">' +
-        '<div class="ws-key">' + (i + 1) + '</div>' +
-        '<div class="ws-name">' + w.name + '</div>' +
-        '<div class="ws-ammo">' + ammo + '</div>' +
-        (owned ? '' : '<div class="ws-locked">BELUM DIBELI</div>') +
-        '</div>';
-    });
-    el['wheel-slots'].innerHTML = html;
-    var slots = el['wheel-slots'].querySelectorAll('.wheel-slot');
-    slots.forEach(function (slot) {
-      slot.addEventListener('click', function () {
-        TA.player.switchWeapon(parseInt(slot.dataset.weapon, 10));
-        closeWeaponWheel();
-      });
-    });
-  }
-
-  // ---------- banners / toasts ----------
-  function showBanner(title, sub) {
-    el['banner-title'].textContent = title;
-    el['banner-sub'].textContent = sub || '';
-    el['banner'].style.display = 'block';
-    el['banner'].classList.remove('fade');
-    clearTimeout(showBanner._t);
-    showBanner._t = setTimeout(function () { el['banner'].classList.add('fade'); }, 2500);
-  }
-
-  function hideBanner() {
-    el['banner'].style.display = 'none';
-    el['banner'].classList.remove('fade');
-  }
-
-  function showToast(text) {
-    el['toast'].textContent = text;
-    el['toast'].style.display = 'block';
-    clearTimeout(showToast._t);
-    showToast._t = setTimeout(function () { el['toast'].style.display = 'none'; }, 3200);
-  }
-
-  function showRankUpBanner(rank) {
-    el['rankup-banner'].innerHTML = '★ NAIK TINGKAT: ' + rank.name.toUpperCase() + ' ★<br><span>' + rank.perk + '</span>';
-    el['rankup-banner'].style.display = 'block';
-    clearTimeout(showRankUpBanner._t);
-    showRankUpBanner._t = setTimeout(function () { el['rankup-banner'].style.display = 'none'; }, 4500);
-  }
-
-  function flashDamage() {
-    el['damage-flash'].style.opacity = '0.45';
-    setTimeout(function () { el['damage-flash'].style.opacity = '0'; }, 120);
-  }
-
-  function showSavingIndicator() {
-    el['saving-indicator'].style.display = TA.state.saving ? 'block' : 'none';
-  }
-
-  // ---------- screens ----------
-  function showStartScreen() {
-    el['start-screen'].style.display = 'flex';
-    el['hud'].style.display = 'none';
-  }
-
-  function hideStartScreen() {
-    el['start-screen'].style.display = 'none';
-    el['hud'].style.display = 'block';
-  }
+  TA.ui.showHUD = showHUD;
 
   function showPauseScreen() {
-    el['pause-screen'].style.display = 'flex';
+    show('pause-screen');
     var r = TA.career.getRank();
-    el['pause-career'].innerHTML = '<b>KARIER — ' + r.name + ' (Tingkat ' + r.level + ')</b><br>' +
-      'XP: ' + r.xp + ' / ' + (r.next ? r.next.xp : r.xp) + ' · Perk terbuka: ' + r.perk +
-      (r.next ? '<br>Berikutnya: ' + r.next.name + ' (' + r.next.xp + ' XP) — ' + r.next.perk : '<br>Tingkat maksimal tercapai.');
-    var crewHtml = '<b>KRU</b><br>';
-    TA.crew.CREW.forEach(function (c) {
-      crewHtml += c.name + ' “' + c.nickname + '” — ' + (TA.crew.isRecruited(c.id) ? '✓ direkrut (' + c.ability + ' [' + c.key + '])' : 'belum direkrut ($' + c.price + ')') + '<br>';
-    });
-    el['pause-crew'].innerHTML = crewHtml;
-    el['pause-saves'].innerHTML = '<b>SAVE</b> — Uang $' + TA.state.money + ' · Hari ' + TA.state.day + '/7 · Misi ' + (TA.state.missionIndex + 1) + '/10 · ' + formatClock(TA.state.time) + ' ' + weatherLabel(TA.state.weather);
-  }
-
-  function hidePauseScreen() {
-    el['pause-screen'].style.display = 'none';
-  }
-
-  function showEndScreen(won, title) {
-    var r = TA.career.getRank();
-    el['end-screen'].style.display = 'flex';
-    el['end-title'].textContent = title;
-    el['end-title'].className = won ? 'end-title win' : 'end-title lose';
-    el['end-stats'].innerHTML =
-      (won ? 'UTANG LUNAS — Bengkel Selamat' : 'Perjalanan Raka berakhir di sini.') +
-      '<br>Misi selesai: ' + TA.state.missionIndex + '/10 · XP: ' + TA.state.xp +
-      ' · Peringkat akhir: ' + r.name +
-      '<br>Mobil dicuri: ' + TA.state.carsStolen + ' · Balapan dimenangkan: ' + TA.state.racesWon +
-      ' · Uang: $' + TA.state.money;
-  }
-
-  function showMissionIntroCard(index, act, m) {
-    el['intro-kicker'].textContent = 'MISI ' + (index + 1) + ' · ' + act.name;
-    el['intro-title'].textContent = m.title;
-    el['intro-text'].textContent = m.intro + ' — Kontrak: ' + TA.missions.getMissionContract(index).syndicate + ' — $' + m.reward;
-    el['mission-intro'].style.display = 'flex';
-    setTimeout(function () {
-      el['mission-intro'].style.display = 'none';
-      if (TA.state.screen === 'cutscene' && !isDialogueOpen()) TA.state.screen = 'playing';
-    }, 2600);
-  }
-
-  function showDialogueBox(text, onDone) {
-    var parts = text.split(':');
-    el['dialogue-speaker'].textContent = parts[0] || '';
-    el['dialogue-text'].textContent = parts.slice(1).join(':').replace(/^ “|”$/g, '').trim() || text;
-    el['dialogue-box'].style.display = 'block';
-    el['dialogue-box'].dataset.continue = 'SPACE / CLICK to continue';
-  }
-
-  function isDialogueOpen() {
-    return el['dialogue-box'] && el['dialogue-box'].style.display === 'block';
-  }
-
-  function hideDialogueBox() {
-    el['dialogue-box'].style.display = 'none';
-  }
-
-  // ---------- full map ----------
-  function showFullMap() {
-    TA.state.prevScreen = TA.state.screen;
-    TA.state.screen = 'map';
-    TA.state.mapOpen = true;
-    el['full-map'].style.display = 'flex';
-    setMapTab(TA.state.mapTab || 'PETA');
-    renderFullMap();
-  }
-
-  function hideFullMap() {
-    TA.state.mapOpen = false;
-    el['full-map'].style.display = 'none';
-    TA.state.screen = 'playing';
-  }
-
-  function toggleFullMap() {
-    if (TA.state.mapOpen) hideFullMap(); else showFullMap();
-  }
-
-  function setMapTab(tab) {
-    TA.state.mapTab = tab;
-    var tabs = document.querySelectorAll('#map-tabs .map-tab');
-    tabs.forEach(function (t) { t.classList.toggle('active', t.dataset.tab === tab); });
-    renderMapTabContent(tab);
-  }
-
-  function renderMapTabs() { renderMapTabContent(TA.state.mapTab); }
-
-  function renderMapTabContent(tab) {
-    var mission = el['map-mission'];
-    var legend = el['map-legend'];
-    var districts = el['map-districts'];
-    if (tab === 'PETA') {
-      var m = TA.missions.currentMission();
-      var stage = TA.missions.currentStage();
-      mission.innerHTML = '<b>CURRENT MISSION</b><br>' +
-        (m ? 'Misi ' + (TA.state.missionIndex + 1) + ' — ' + m.title + '<br>' + (stage ? stage.title + ': ' + stage.objective : '') : 'Tidak ada misi aktif') +
-        '<br><span class="map-sub">Kontrak: ' + (m ? TA.missions.getMissionContract(TA.state.missionIndex).syndicate + ' — $' + m.reward : '-') + '</span>';
-      legend.innerHTML = '<b>LEGEND</b><br>' +
-        '<span class="lg yellow">◆</span> Misi &nbsp; <span class="lg orange">◆</span> Respray &nbsp; <span class="lg blue">◆</span> Safehouse<br>' +
-        '<span class="lg green">◆</span> Side job &nbsp; <span class="lg red">◆</span> Polisi &nbsp; <span class="lg purple">◆</span> Ekspor Mobil &nbsp; <span class="lg white">◆</span> Waypoint';
-      renderDistrictStandingPanel();
-    } else if (tab === 'CERITA') {
-      var m2 = TA.missions.currentMission();
-      mission.innerHTML = '<b>CERITA — 7 HARI UTANG</b><br>Raka, sopir taksi Teluk Arunika, berutang $5.000 ke Darma Wijaya. ' +
-        'Tujuh hari untuk melunasi — kalau tidak, bengkel ayahnya disita.<br><span class="map-sub">Hari ' + TA.state.day + '/7 · Misi ' + (TA.state.missionIndex + 1) + '/10 · ' + (m2 ? m2.title : '') + '</span>';
-      legend.innerHTML = '';
-      districts.innerHTML = '';
-    } else if (tab === 'STATISTIK') {
-      mission.innerHTML = '<b>STATISTIK</b><br>Uang: $' + TA.state.money + ' · XP: ' + TA.state.xp + ' · Peringkat: ' + TA.career.getRank().name +
-        '<br>Mobil dicuri: ' + TA.state.carsStolen + ' · Balapan dimenangkan: ' + TA.state.racesWon + ' · Ekspor selesai: ' + TA.state.exportsDone +
-        '<br>Tembakan: ' + TA.state.shotsFired + ' · Musuh dilumpuhkan: ' + TA.state.kills;
-      legend.innerHTML = '';
-      districts.innerHTML = '';
-    } else if (tab === 'KRU') {
-      var ch = '<b>KRU</b><br>';
-      TA.crew.CREW.forEach(function (c) {
-        ch += c.name + ' “' + c.nickname + '” — ' + c.role + ' · ' + (TA.crew.isRecruited(c.id) ? '✓ ' + c.ability + ' [' + c.key + ']' : 'belum direkrut $' + c.price) + '<br>';
-      });
-      mission.innerHTML = ch;
-      legend.innerHTML = '';
-      districts.innerHTML = '';
-    } else if (tab === 'KONTROL') {
-      mission.innerHTML = '<b>KONTROL</b><br>WASD jalan/mengemudi · E masuk/curi mobil · Shift lari · Mouse + klik tembak<br>1-5 senjata · Tab weapon wheel · R radio · M peta · V panel kru · Z/X/C kemampuan kru · Esc jeda';
-      legend.innerHTML = '';
-      districts.innerHTML = '';
-    } else if (tab === 'PENGATURAN') {
-      mission.innerHTML = '<b>PENGATURAN</b><br>Musik: ON · SFX: ON · Kualitas: Tinggi<br><span class="map-sub">Semua audio sintetis WebAudio — tanpa file eksternal.</span>';
-      legend.innerHTML = '';
-      districts.innerHTML = '';
-    } else if (tab === 'SIMPAN') {
-      mission.innerHTML = '<b>SIMPAN</b><br>Autosave aktif. Klik SAVE GAME untuk menyimpan sekarang.<br><span class="map-sub">Uang $' + TA.state.money + ' · Hari ' + TA.state.day + '/7 · Misi ' + (TA.state.missionIndex + 1) + '/10</span>';
-      legend.innerHTML = '';
-      districts.innerHTML = '';
+    var pc = el('pause-career');
+    if (pc) pc.innerHTML = 'KARIER — TINGKAT ' + r.level + ' · ' + r.name + ' — ' + TA.S.xp + ' / ' + (r.next ? r.next.xp : 'MAX') + ' XP<br>Perk terbuka: ' + r.perk + '<br>Uang: ' + TA.fmtRp(TA.S.money) + ' · Hari ' + TA.S.day + '/7 · ' + TA.fmtClock() + ' · ' + TA.S.weather;
+    var pr = el('pause-crew');
+    if (pr) {
+      var names = TA.crew.recruited().map(function (id) {
+        for (var i = 0; i < TA.crew.CREW.length; i++) if (TA.crew.CREW[i].id === id) return TA.crew.CREW[i].name;
+        return id;
+      }).join(', ');
+      pr.textContent = 'KRU: ' + (names || 'belum ada') + ' · Misi ' + TA.S.mission + '/10 · Koin ' + TA.S.coins + '/12 · Lompatan ' + TA.S.jumps + '/5';
     }
-    renderFullMap();
+    renderSaveSlots();
+  }
+  TA.ui.showPauseScreen = showPauseScreen;
+
+  function hidePauseScreen() { hide('pause-screen'); }
+  TA.ui.hidePauseScreen = hidePauseScreen;
+
+  function showFullMap() {
+    TA.S.screen = 'map';
+    hide('title-screen'); hide('hud'); hide('pause-screen');
+    show('full-map');
+    renderMapTabs();
+    renderFullMapCanvas();
+  }
+  TA.ui.showFullMap = showFullMap;
+
+  function closeFullMap() {
+    hide('full-map');
+    TA.S.screen = 'playing';
+    show('hud');
+  }
+  TA.ui.closeFullMap = closeFullMap;
+
+  function renderMapTabs() {
+    var tabs = document.querySelectorAll('.map-tab');
+    for (var i = 0; i < tabs.length; i++) {
+      tabs[i].classList.toggle('active', tabs[i].getAttribute('data-tab') === TA.S.mapTab);
+    }
+    // panel yang tampil mengikuti tab aktif (agar CERITA + STATISTIK muat
+    // dalam satu layar tanpa scroll, dan PETA menampilkan legenda + standing)
+    var showPanels = {
+      peta: ['current-mission-panel', 'legend-panel', 'standing-panel'],
+      cerita: ['current-mission-panel', 'story-panel', 'stats-panel'],
+      statistik: ['stats-panel', 'standing-panel'],
+      kru: ['current-mission-panel', 'story-panel', 'stats-panel'],
+      pengaturan: ['current-mission-panel', 'legend-panel', 'standing-panel'],
+      kontrol: ['current-mission-panel', 'legend-panel', 'standing-panel'],
+      simpan: ['current-mission-panel', 'stats-panel']
+    };
+    var visible = showPanels[TA.S.mapTab] || showPanels.peta;
+    var all = ['current-mission-panel', 'story-panel', 'stats-panel', 'legend-panel', 'standing-panel'];
+    for (var j = 0; j < all.length; j++) {
+      var p = el(all[j]);
+      if (p) p.classList.toggle('hidden', visible.indexOf(all[j]) < 0);
+    }
+    renderStoryList();
+    renderCareerStats();
+    renderLegend();
+    renderDistrictStandingPanel();
+    renderCurrentMission();
+    renderFullMapCanvas();
+  }
+  TA.ui.renderMapTabs = renderMapTabs;
+
+  function renderCurrentMission() {
+    var m = TA.missions.mission(TA.S.mission);
+    var act = TA.missions.getActForMission(TA.S.mission);
+    var t = el('cm-title');
+    if (t) t.textContent = 'MISI ' + m.n + ' DARI 10 · ' + act.name + ' — ' + act.title + ' — ' + m.name;
+    var d = el('cm-desc');
+    if (d) d.textContent = m.objective + ' Tahap ' + TA.S.stage + '/' + m.stages.length + ': ' + m.stages[TA.S.stage - 1] + '.';
+    var c = el('cm-contract');
+    if (c) c.textContent = TA.missions.getMissionContract(m.n);
+  }
+
+  function renderStoryList() {
+    var list = el('story-list');
+    if (!list) return;
+    var html = '';
+    for (var n = 1; n <= 10; n++) {
+      var m = TA.missions.mission(n);
+      var act = TA.missions.getActForMission(n);
+      var st = TA.missions.missionStatus(n);
+      var cls = st === 'DONE' ? 'done' : (st === 'NEXT' ? 'next' : 'locked');
+      html += '<div class="story-row ' + cls + '"><span class="st-name">' + m.name.toUpperCase() + '</span>' +
+        '<span class="st-meta">' + act.name + ' · ' + act.title.toUpperCase() + ' · ' + TA.fmtDollar(m.reward) + '</span>' +
+        '<span class="st-status">' + st + '</span></div>';
+    }
+    list.innerHTML = html;
+  }
+  TA.ui.renderStoryList = renderStoryList;
+
+  function renderCareerStats() {
+    var box = el('career-stats');
+    if (!box) return;
+    var stats = TA.career.careerStats();
+    var html = '';
+    for (var i = 0; i < stats.length; i++) {
+      html += '<span class="cs-label">' + stats[i].label + '</span><span class="cs-value">' + stats[i].value + '</span>';
+    }
+    box.innerHTML = html;
+  }
+  TA.ui.renderCareerStats = renderCareerStats;
+
+  function renderLegend() {
+    var box = el('legend-list');
+    if (!box) return;
+    box.innerHTML = '<span>◆ Misi</span><span>◉ Respray</span><span>⌂ Safehouse</span><span>★ Side job</span><span>● Polisi</span><span>▣ Ekspor Mobil</span><span>⚑ Waypoint</span><span>◍ Koin Arunika</span>';
   }
 
   function renderDistrictStandingPanel() {
-    var html = '<b>DISTRICT STANDING</b><br>';
-    TA.career.DISTRICTS.forEach(function (d) {
-      html += '<div class="ds-row"><span class="ds-name">' + d.name + '</span>' +
-        '<span class="ds-bar"><span class="ds-fill" style="width:' + d.standing + '%"></span></span>' +
-        '<span class="ds-val">' + d.standing + '</span></div>';
-    });
-    el['map-districts'].innerHTML = html;
+    var box = el('district-standing-list');
+    if (!box) return;
+    var html = '';
+    var ds = TA.career.DISTRICTS;
+    for (var i = 0; i < ds.length; i++) {
+      html += '<div class="stand-row"><span class="sd-name">' + ds[i].name + '</span>' +
+        '<span class="sd-bar"><span class="sd-fill" style="display:block;width:' + ds[i].standing + '%"></span></span>' +
+        '<span class="sd-val">' + ds[i].standing + '%</span></div>';
+    }
+    box.innerHTML = html;
   }
+  TA.ui.renderDistrictStandingPanel = renderDistrictStandingPanel;
 
-  function setWaypoint(x, z, label) {
-    var dx = x - TA.playerPos.x, dz = z - TA.playerPos.z;
-    var distKm = (Math.sqrt(dx * dx + dz * dz) / 1000).toFixed(2);
-    TA.state.waypoint = { x: x, z: z, label: label || 'Waypoint', distKm: parseFloat(distKm) };
-    el['map-waypoint'].textContent = 'Line up at the ' + (label || 'waypoint') + ' start · ' + distKm + ' km';
-    renderFullMap();
-  }
-
-  function renderFullMap() {
-    var cv = el['map-canvas'];
-    if (!cv) return;
-    var g = cv.getContext('2d');
+  function renderFullMapCanvas() {
+    var cv = el('map-canvas');
+    if (!cv || el('full-map').classList.contains('hidden')) return;
+    var ctx = cv.getContext('2d');
     var W = cv.width, H = cv.height;
-    g.clearRect(0, 0, W, H);
-    // sea + land
-    g.fillStyle = '#0d2a3d';
-    g.fillRect(0, 0, W, H);
-    g.fillStyle = '#1d2733';
-    g.fillRect(0, 0, W * 0.82, H);
-    function toX(x) { return ((x + 260) / 580) * W; }
-    function toY(z) { return ((z + 260) / 520) * H; }
-    // districts
-    var zones = [
-      { x: -180, z: 120, w: 150, h: 140, c: 'rgba(40,120,255,0.20)', label: 'PELABUHAN' },
-      { x: 30, z: 40, w: 120, h: 110, c: 'rgba(255,200,60,0.16)', label: 'PASAR' },
-      { x: -180, z: -80, w: 90, h: 120, c: 'rgba(255,45,120,0.18)', label: 'GANG NEON' },
-      { x: -260, z: 210, w: 520, h: 50, c: 'rgba(255,230,150,0.14)', label: 'PANTAI' },
-      { x: -60, z: -260, w: 40, h: 200, c: 'rgba(120,120,140,0.20)', label: 'TOL LAYANG' },
-      { x: 170, z: -30, w: 150, h: 140, c: 'rgba(255,90,0,0.28)', label: 'PULAU ABU' },
-    ];
-    zones.forEach(function (zn) {
-      g.fillStyle = zn.c;
-      g.fillRect(toX(zn.x), toY(zn.z), (zn.w / 580) * W, (zn.h / 520) * H);
-      g.fillStyle = 'rgba(255,255,255,0.75)';
-      g.font = 'bold 11px sans-serif';
-      g.fillText(zn.label, toX(zn.x) + 6, toY(zn.z) + 16);
-    });
-    // roads
-    g.strokeStyle = 'rgba(160,170,185,0.55)';
-    g.lineWidth = 2;
-    [-120, -80, -40, 0, 40, 80, 120].forEach(function (v) {
-      g.beginPath(); g.moveTo(toX(v), 0); g.lineTo(toX(v), H); g.stroke();
-      g.beginPath(); g.moveTo(0, toY(v)); g.lineTo(W, toY(v)); g.stroke();
-    });
-    // bridge to Pulau Abu
-    g.strokeStyle = '#ffaa33';
-    g.lineWidth = 3;
-    g.beginPath(); g.moveTo(toX(80), toY(40)); g.lineTo(toX(240), toY(40)); g.stroke();
-    // waypoint route
-    if (TA.state.waypoint) {
-      var wp = TA.state.waypoint;
-      g.strokeStyle = '#ffffff';
-      g.lineWidth = 2;
-      g.setLineDash([6, 4]);
-      g.beginPath();
-      g.moveTo(toX(TA.playerPos.x), toY(TA.playerPos.z));
-      g.lineTo(toX(wp.x), toY(wp.z));
-      g.stroke();
-      g.setLineDash([]);
-      g.fillStyle = '#ffffff';
-      g.beginPath(); g.arc(toX(wp.x), toY(wp.z), 6, 0, Math.PI * 2); g.fill();
-      g.fillStyle = '#fff';
-      g.font = 'bold 11px sans-serif';
-      g.fillText('Line up at the ' + wp.label + ' start · ' + wp.distKm + ' km', toX(wp.x) + 10, toY(wp.z) - 8);
+    var sx = W / 4200, sy = H / 3200;
+    ctx.fillStyle = '#0c1226';
+    ctx.fillRect(0, 0, W, H);
+    var ds = TA.world.DISTRICTS;
+    for (var i = 0; i < ds.length; i++) {
+      ctx.fillStyle = ds[i].ground;
+      ctx.fillRect(ds[i].x * sx, ds[i].y * sy, ds[i].w * sx, ds[i].h * sy);
     }
-    // markers
-    function marker(x, z, color, label) {
-      g.fillStyle = color;
-      g.beginPath(); g.arc(toX(x), toY(z), 6, 0, Math.PI * 2); g.fill();
-      g.strokeStyle = '#000';
-      g.stroke();
-      if (label) { g.fillStyle = '#fff'; g.font = '10px sans-serif'; g.fillText(label, toX(x) + 9, toY(z) + 3); }
+    ctx.strokeStyle = '#232838';
+    ctx.lineWidth = 6;
+    for (var gx = 0; gx <= 10; gx++) { ctx.beginPath(); ctx.moveTo(gx * 400 * sx, 0); ctx.lineTo(gx * 400 * sx, H); ctx.stroke(); }
+    for (var gy = 0; gy <= 8; gy++) { ctx.beginPath(); ctx.moveTo(0, gy * 400 * sy); ctx.lineTo(W, gy * 400 * sy); ctx.stroke(); }
+    // label distrik digambar SETELAH jalan agar tidak tertutup garis jalan
+    for (var li = 0; li < ds.length; li++) {
+      ctx.fillStyle = 'rgba(255,255,255,0.65)';
+      ctx.font = 'bold 12px Arial';
+      ctx.fillText(ds[li].name + ' ' + TA.career.districtStanding(ds[li].name) + '%', ds[li].x * sx + 8, ds[li].y * sy + 18);
     }
-    var ob = TA.missions.getObjectiveBlip();
-    marker(ob.x, ob.z, '#ffe600', 'Misi');
-    marker(24, -24, '#ff7a00', 'Respray');
-    marker(24, -24, '#4aa8ff', 'Safehouse');
-    marker(60, 60, '#3ad86a', 'Side job');
-    marker(-120, 170, '#c07aff', 'Ekspor Mobil');
-    TA.police.getDispatchUnits().forEach(function (u, i) {
-      marker(TA.playerPos.x + Math.cos(i) * 30, TA.playerPos.z + Math.sin(i) * 30, '#ff3344', '');
-    });
-    // player
-    g.fillStyle = '#ffffff';
-    g.beginPath(); g.arc(toX(TA.playerPos.x), toY(TA.playerPos.z), 6, 0, Math.PI * 2); g.fill();
-    g.strokeStyle = '#000'; g.stroke();
-    // map title
-    g.fillStyle = 'rgba(255,255,255,0.9)';
-    g.font = 'bold 20px sans-serif';
-    g.fillText('TELUK ARUNIKA', 14, 26);
+    // bank
+    var B = TA.world.BANK;
+    ctx.fillStyle = '#c8b98a';
+    ctx.fillRect(B.x * sx, B.y * sy, B.w * sx, B.h * sy);
+    ctx.fillStyle = '#ffd23e';
+    ctx.font = 'bold 11px Arial';
+    ctx.fillText('BANK ARUNIKA', B.x * sx + 2, B.y * sy + B.h * sy + 14);
+    // koin
+    ctx.fillStyle = '#ffd23e';
+    var st = TA.world.stashes();
+    for (var s = 0; s < st.length; s++) {
+      if (st[s].taken) continue;
+      ctx.beginPath(); ctx.arc(st[s].x * sx, st[s].y * sy, 4, 0, Math.PI * 2); ctx.fill();
+    }
+    // safehouse
+    ctx.fillStyle = '#6db3ff';
+    ctx.fillRect(900 * sx - 5, 1500 * sy - 5, 10, 10);
+    // waypoint + garis rute
+    if (TA.S.waypoint) {
+      ctx.strokeStyle = '#ffd23e';
+      ctx.lineWidth = 2;
+      ctx.setLineDash([6, 4]);
+      ctx.beginPath();
+      ctx.moveTo(TA.S.px * sx, TA.S.py * sy);
+      ctx.lineTo(TA.S.waypoint.x * sx, TA.S.waypoint.y * sy);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = '#ffd23e';
+      ctx.beginPath(); ctx.arc(TA.S.waypoint.x * sx, TA.S.waypoint.y * sy, 6, 0, Math.PI * 2); ctx.fill();
+    }
+    // pemain
+    ctx.fillStyle = '#37d67a';
+    ctx.beginPath(); ctx.arc(TA.S.px * sx, TA.S.py * sy, 7, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 11px Arial';
+    ctx.fillText('RAKA', TA.S.px * sx + 10, TA.S.py * sy + 4);
   }
+  TA.ui.renderFullMapCanvas = renderFullMapCanvas;
 
-  // ---------- per-frame ----------
-  function update(dt) {
-    if (TA.state.screen === 'playing' || TA.state.screen === 'map' || TA.state.screen === 'cutscene') {
-      renderHUD();
-      renderDispatchPanel();
-      updateMissionBanner();
-      updateRaceHUD();
-      if (TA.state.mapOpen) renderFullMap();
-      // mission banner distance refresh
-      if (TA.state.missionActive) {
-        el['mission-distance'].textContent = TA.missions.getObjectiveDistance() + ' m';
+  /* ---------- intro / dialogue / end ---------- */
+  function showMissionIntro(n, m, act) {
+    show('mission-intro');
+    hide('hud');
+    var k = el('intro-kicker');
+    if (k) k.textContent = 'MISI ' + n + ' · ' + act.name + ' — ' + act.title.toUpperCase();
+    var t = el('intro-title');
+    if (t) t.textContent = m.name.toUpperCase();
+    var r = el('intro-reward');
+    if (r) r.textContent = TA.missions.getMissionContract(n);
+    var d = el('intro-dialogue');
+    if (d) d.textContent = m.dialogue[0][0] + ': "' + m.dialogue[0][1] + '"';
+  }
+  TA.ui.showMissionIntro = showMissionIntro;
+
+  function hideMissionIntro() { hide('mission-intro'); }
+  TA.ui.hideMissionIntro = hideMissionIntro;
+
+  function showDialogue(name, text) {
+    show('dialogue-box');
+    var n = el('dialogue-name'); if (n) n.textContent = name;
+    var t = el('dialogue-text'); if (t) t.textContent = text;
+  }
+  TA.ui.showDialogue = showDialogue;
+
+  function hideDialogue() { hide('dialogue-box'); }
+  TA.ui.hideDialogue = hideDialogue;
+
+  function showEndScreen() {
+    show('end-screen');
+    hide('hud');
+    var r = TA.career.getRank();
+    var box = el('end-stats');
+    if (box) box.innerHTML = 'Misi selesai: 10/10 · XP: ' + TA.S.xp + ' · Peringkat akhir: ' + r.name +
+      '<br>Uang: ' + TA.fmtRp(TA.S.money) + ' · Mobil dicuri: ' + TA.S.carsStolen +
+      ' · Koin: ' + TA.S.coins + '/12 · Lompatan: ' + TA.S.jumps + '/5 · Balapan: ' + TA.S.racesWon + ' menang';
+  }
+  TA.ui.showEndScreen = showEndScreen;
+
+  /* ---------- HUD pieces ---------- */
+  function renderMissionBanner() {
+    var m = TA.missions.mission(TA.S.mission);
+    var act = TA.missions.getActForMission(TA.S.mission);
+    var t = el('mission-title');
+    if (t) t.textContent = 'MISI ' + m.n + ' DARI 10 · ' + act.name + ' — ' + act.title.toUpperCase() + ' · TAHAP ' + TA.S.stage + '/' + m.stages.length;
+    var s = el('mission-stage');
+    if (s) s.textContent = m.stages[TA.S.stage - 1] + (TA.S.mission === 7 && TA.S.stage === 3 ? '  ·  PENJAGA ' + TA.S.guardsKilled + '/9' : '');
+    var o = el('mission-objective');
+    if (o) o.textContent = m.objective;
+    var d = el('mission-dist');
+    if (d) d.textContent = TA.missions.getObjectiveDistance() + ' m';
+    var nx = el('mission-next');
+    if (nx) nx.textContent = 'NEXT: ' + m.next;
+    var c = el('mission-contract');
+    if (c) c.textContent = TA.missions.getMissionContract(m.n);
+  }
+  TA.ui.renderMissionBanner = renderMissionBanner;
+
+  function renderRankRow() {
+    var r = TA.career.getRank();
+    var rn = el('rank-name');
+    if (rn) rn.textContent = 'TINGKAT ' + r.level + ' · ' + r.name;
+    var xt = el('xp-text');
+    if (xt) xt.textContent = TA.S.xp + ' / ' + (r.next ? r.next.xp : 'MAX') + ' XP';
+    var xf = el('xp-fill');
+    if (xf) {
+      var pct = r.next ? Math.round((TA.S.xp - r.xp) / (r.next.xp - r.xp) * 100) : 100;
+      xf.style.width = TA.clamp(pct, 0, 100) + '%';
+    }
+  }
+  TA.ui.renderRankRow = renderRankRow;
+
+  function renderCrewRow() {
+    var row = el('crew-row');
+    if (!row) return;
+    var rec = TA.crew.recruited();
+    var parts = [];
+    for (var i = 0; i < TA.crew.CREW.length; i++) {
+      var c = TA.crew.CREW[i];
+      parts.push(c.name + (rec.indexOf(c.id) >= 0 ? ' ✓' : ' —'));
+    }
+    row.textContent = 'KRU: ' + parts.join('  ');
+  }
+  TA.ui.renderCrewRow = renderCrewRow;
+
+  function renderCrewCards() {
+    var box = el('crew-cards');
+    if (!box) return;
+    var html = '';
+    for (var i = 0; i < TA.crew.CREW.length; i++) {
+      var c = TA.crew.CREW[i];
+      var rec = TA.crew.isRecruited(c.id);
+      var st = TA.crew.crewAbilityReady(c.id);
+      html += '<div class="crew-card' + (rec ? '' : ' locked') + '">' +
+        '<span class="cc-key">' + c.key + '</span>' +
+        '<span class="cc-name">' + c.name + ' "' + c.nick + '" — ' + c.role + '</span> ' +
+        '<span class="cc-status' + (st.ready ? '' : ' cool') + '">' + (rec ? st.label : 'BELUM · ' + TA.fmtDollar(c.cost)) + '</span><br>' +
+        '<span class="cc-ability">' + c.ability + ': ' + c.desc + '</span></div>';
+    }
+    box.innerHTML = html;
+  }
+  TA.ui.renderCrewCards = renderCrewCards;
+
+  function renderCrewPanel() {
+    var box = el('crew-panel-list');
+    if (!box) return;
+    var html = '';
+    for (var i = 0; i < TA.crew.CREW.length; i++) {
+      var c = TA.crew.CREW[i];
+      var rec = TA.crew.isRecruited(c.id);
+      html += '<div class="crew-full"><b>' + c.name + ' "' + c.nick + '"</b> — ' + c.role +
+        ' · <span class="cf-status">' + (rec ? 'DIREKRUT ✓' : 'Harga ' + TA.fmtDollar(c.cost) + ' (butuh Tingkat ' + c.minRank + ')') + '</span><br>' +
+        '<span class="cf-desc">' + c.desc + ' Pasif: ' + c.passive + '</span></div>';
+    }
+    box.innerHTML = html;
+  }
+  TA.ui.renderCrewPanel = renderCrewPanel;
+
+  function toggleCrewPanel() {
+    var p = el('crew-panel');
+    if (!p) return;
+    if (p.classList.contains('hidden')) { renderCrewPanel(); p.classList.remove('hidden'); }
+    else p.classList.add('hidden');
+  }
+  TA.ui.toggleCrewPanel = toggleCrewPanel;
+
+  function showCrewChatter(name, text) {
+    show('crew-chatter');
+    var n = el('chatter-name'); if (n) n.textContent = name.toUpperCase() + ':';
+    var t = el('chatter-text'); if (t) t.textContent = text;
+  }
+  TA.ui.showCrewChatter = showCrewChatter;
+
+  function hideCrewChatter() { hide('crew-chatter'); }
+  TA.ui.hideCrewChatter = hideCrewChatter;
+
+  function renderWeaponWheel() {
+    var w = el('weapon-wheel');
+    if (!w) return;
+    if (!TA.S.wheelOpen) { w.classList.add('hidden'); return; }
+    w.classList.remove('hidden');
+    var html = '<div class="ww-title">WEAPON WHEEL — 1-6 UNTUK GANTI SENJATA</div>';
+    for (var i = 0; i < TA.player.WEAPONS.length; i++) {
+      var wp = TA.player.WEAPONS[i];
+      html += '<div class="ww-slot' + (TA.S.weapon === i ? ' active' : '') + '">' +
+        '<span><span class="ww-key">' + wp.key + '</span>' + wp.name + '</span>' +
+        '<span class="ww-ammo">' + TA.player.ammoText(i) + '</span></div>';
+    }
+    w.innerHTML = html;
+  }
+  TA.ui.renderWeaponWheel = renderWeaponWheel;
+
+  function renderDispatchPanel() {
+    var units = TA.police.getDispatchUnits();
+    var title = el('dispatch-title');
+    if (title) title.textContent = TA.police.getIncidentLabel() + ' — ' + units.length + ' UNIT';
+    var inc = el('dispatch-incident');
+    if (inc) inc.textContent = 'INSIDEN: ' + (TA.S.incident === '—' ? '—' : TA.S.incident);
+    var heat = TA.police.getHeatState();
+    var hl = el('heat-label');
+    if (hl) {
+      hl.textContent = heat.label;
+      hl.classList.toggle('cold', heat.label === 'KEHILANGAN JEJAK');
+    }
+    var hf = el('heat-fill');
+    if (hf) {
+      hf.style.width = heat.pct + '%';
+      hf.style.background = heat.label === 'TERLIHAT' ? 'linear-gradient(90deg,#ff5a5a,#ff2d2d)' : 'linear-gradient(90deg,#37d67a,#2ecc71)';
+    }
+    var box = el('dispatch-units');
+    if (box) {
+      if (units.length === 0) box.innerHTML = 'Tidak ada unit aktif — kota tenang.';
+      else {
+        var html = '';
+        for (var i = 0; i < units.length; i++) {
+          var u = units[i];
+          html += '<div class="' + (u.kind === 'air' ? 'unit-air' : '') + '">' + u.name + ' — ' + u.tactic + ' · ' + u.dist + ' m</div>';
+        }
+        box.innerHTML = html;
       }
     }
+    renderPoliceTicker();
+  }
+  TA.ui.renderDispatchPanel = renderDispatchPanel;
+
+  function renderPoliceTicker() {
+    var box = el('police-ticker');
+    if (!box) return;
+    var lines = TA.police.policeTicker();
+    box.innerHTML = lines.map(function (l) { return '<div>▸ ' + l + '</div>'; }).join('');
+  }
+  TA.ui.renderPoliceTicker = renderPoliceTicker;
+
+  function renderRadioLine() {
+    var st = TA.audio.RADIO_STATIONS[TA.S.radio];
+    var r = el('radio-line');
+    if (r) r.textContent = st.name + ' — ' + st.genre;
+  }
+  TA.ui.renderRadioLine = renderRadioLine;
+
+  function showToast(text) {
+    var t = el('toast');
+    if (!t) return;
+    t.textContent = text;
+    t.classList.remove('hidden');
+    toastT = 4;
+  }
+  TA.ui.showToast = showToast;
+
+  function showRankUpBanner(text) {
+    var b = el('rankup-banner');
+    if (!b) return;
+    b.textContent = text;
+    b.classList.remove('hidden');
+    rankupT = 4;
+  }
+  TA.ui.showRankUpBanner = showRankUpBanner;
+
+  function showRaceHUD() {
+    show('race-hud');
+    updateRaceHUD();
+  }
+  TA.ui.showRaceHUD = showRaceHUD;
+
+  function hideRaceHUD() { hide('race-hud'); }
+  TA.ui.hideRaceHUD = hideRaceHUD;
+
+  function updateRaceHUD() {
+    var r = TA.S.race;
+    if (!r) return;
+    var t = el('race-title');
+    if (t) t.textContent = 'BALAPAN LIAR — ' + r.def.name;
+    var tm = el('race-timer');
+    if (tm) tm.textContent = TA.races.fmtTime(r.t);
+    var b = el('race-best');
+    if (b) b.textContent = 'BEST ' + r.def.best + ' · MASUK ' + TA.fmtRp(r.def.entry);
+    var c = el('race-check');
+    if (c) c.textContent = 'CHECKPOINT ' + r.cp + '/' + r.checkpoints.length;
+  }
+  TA.ui.updateRaceHUD = updateRaceHUD;
+
+  /* ---------- minimap ---------- */
+  function renderMinimap() {
+    var cv = el('minimap');
+    if (!cv || el('hud').classList.contains('hidden')) return;
+    var ctx = cv.getContext('2d');
+    var W = cv.width, H = cv.height;
+    var sx = W / 4200, sy = H / 3200;
+    ctx.fillStyle = '#10182e';
+    ctx.fillRect(0, 0, W, H);
+    var ds = TA.world.DISTRICTS;
+    for (var i = 0; i < ds.length; i++) {
+      ctx.fillStyle = ds[i].ground;
+      ctx.fillRect(ds[i].x * sx, ds[i].y * sy, ds[i].w * sx, ds[i].h * sy);
+    }
+    ctx.strokeStyle = '#2c3550';
+    ctx.lineWidth = 2;
+    for (var gx = 0; gx <= 10; gx++) { ctx.beginPath(); ctx.moveTo(gx * 400 * sx, 0); ctx.lineTo(gx * 400 * sx, H); ctx.stroke(); }
+    for (var gy = 0; gy <= 8; gy++) { ctx.beginPath(); ctx.moveTo(0, gy * 400 * sy); ctx.lineTo(W, gy * 400 * sy); ctx.stroke(); }
+    // bank
+    var B = TA.world.BANK;
+    ctx.fillStyle = '#c8b98a';
+    ctx.fillRect(B.x * sx - 2, B.y * sy - 2, 8, 6);
+    // koin
+    ctx.fillStyle = '#ffd23e';
+    var st = TA.world.stashes();
+    for (var s = 0; s < st.length; s++) {
+      if (!st[s].taken) { ctx.beginPath(); ctx.arc(st[s].x * sx, st[s].y * sy, 2, 0, Math.PI * 2); ctx.fill(); }
+    }
+    // safehouse
+    ctx.fillStyle = '#6db3ff';
+    ctx.fillRect(900 * sx - 3, 1500 * sy - 3, 6, 6);
+    // rute balapan
+    if (TA.S.race && TA.S.race.active) {
+      ctx.strokeStyle = '#37d67a';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(TA.S.px * sx, TA.S.py * sy);
+      for (var c = TA.S.race.cp; c < TA.S.race.checkpoints.length; c++) {
+        ctx.lineTo(TA.S.race.checkpoints[c].x * sx, TA.S.race.checkpoints[c].y * sy);
+      }
+      ctx.stroke();
+    }
+    // target misi
+    var tgt = TA.missions.currentTarget();
+    if (tgt) {
+      ctx.fillStyle = '#ffd23e';
+      ctx.beginPath(); ctx.arc(tgt.x * sx, tgt.y * sy, 5, 0, Math.PI * 2); ctx.fill();
+    }
+    // blip polisi merah
+    var units = TA.police.getDispatchUnits();
+    ctx.fillStyle = '#ff2d2d';
+    for (var u = 0; u < units.length; u++) {
+      var bx = TA.S.px + (u * 37 - 60) * 3;
+      var by = TA.S.py + (u % 3 - 1) * 120;
+      ctx.beginPath(); ctx.arc(TA.clamp(bx, 10, 4190) * sx, TA.clamp(by, 10, 3190) * sy, 3, 0, Math.PI * 2); ctx.fill();
+    }
+    // pemain
+    ctx.fillStyle = '#37d67a';
+    ctx.beginPath(); ctx.arc(TA.S.px * sx, TA.S.py * sy, 4, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.arc(TA.S.px * sx, TA.S.py * sy, 6, 0, Math.PI * 2); ctx.stroke();
   }
 
-  TA.ui = {
-    buildHUD: buildHUD,
-    renderHUD: renderHUD,
-    renderMinimap: renderMinimap,
-    minimapHovered: minimapHovered,
-    zoomMinimap: zoomMinimap,
-    renderDispatchPanel: renderDispatchPanel,
-    renderPoliceTicker: renderPoliceTicker,
-    renderCrewCards: renderCrewCards,
-    renderCrewPanel: renderCrewPanel,
-    toggleCrewPanel: toggleCrewPanel,
-    renderCrewChatter: renderCrewChatter,
-    renderLocationBanner: renderLocationBanner,
-    showLocationBanner: showLocationBanner,
-    renderRadioLine: renderRadioLine,
-    openWeaponWheel: openWeaponWheel,
-    closeWeaponWheel: closeWeaponWheel,
-    toggleWeaponWheel: toggleWeaponWheel,
-    refreshWeaponWheel: refreshWeaponWheel,
-    showBanner: showBanner,
-    hideBanner: hideBanner,
-    showToast: showToast,
-    showRankUpBanner: showRankUpBanner,
-    flashDamage: flashDamage,
-    showSavingIndicator: showSavingIndicator,
-    showStartScreen: showStartScreen,
-    hideStartScreen: hideStartScreen,
-    showPauseScreen: showPauseScreen,
-    hidePauseScreen: hidePauseScreen,
-    showEndScreen: showEndScreen,
-    showMissionIntroCard: showMissionIntroCard,
-    showDialogueBox: showDialogueBox,
-    hideDialogueBox: hideDialogueBox,
-    isDialogueOpen: isDialogueOpen,
-    showFullMap: showFullMap,
-    hideFullMap: hideFullMap,
-    toggleFullMap: toggleFullMap,
-    setMapTab: setMapTab,
-    renderMapTabs: renderMapTabs,
-    setWaypoint: setWaypoint,
-    renderDistrictStandingPanel: renderDistrictStandingPanel,
-    renderFullMap: renderFullMap,
-    updateRankRow: updateRankRow,
-    updateMissionBanner: updateMissionBanner,
-    updateRaceHUD: updateRaceHUD,
-    update: update,
-  };
+  /* ---------- per-frame ---------- */
+  var hudT = 0;
+  function update(dt) {
+    if (toastT > 0) {
+      toastT -= dt;
+      if (toastT <= 0) hide('toast');
+    }
+    if (rankupT > 0) {
+      rankupT -= dt;
+      if (rankupT <= 0) hide('rankup-banner');
+    }
+    hudT += dt;
+    if (hudT < 0.12) {
+      if (TA.S.screen === 'map') renderFullMapCanvas();
+      return;
+    }
+    hudT = 0;
+    if (TA.S.screen === 'playing' || TA.S.screen === 'paused') {
+      var stars = el('wanted-stars');
+      if (stars) {
+        var html = '';
+        for (var i = 1; i <= 5; i++) html += '<span class="' + (i <= TA.S.wanted ? '' : 'star-off') + '">★</span>';
+        stars.innerHTML = html;
+      }
+      var wl = el('wanted-label');
+      if (wl) wl.textContent = TA.S.wanted > 0 ? 'WANTED ' + TA.S.wanted : '';
+      var money = el('money');
+      if (money) money.textContent = TA.fmtRp(TA.S.money);
+      var dtEl = el('day-time');
+      if (dtEl) dtEl.textContent = 'HARI ' + TA.S.day + ' · ' + TA.fmtClock();
+      var wEl = el('weather');
+      if (wEl) wEl.textContent = TA.S.weather + (TA.S.night ? ' · MALAM' : ' · SIANG');
+      renderMissionBanner();
+      renderDispatchPanel();
+      renderCrewCards();
+      renderRankRow();
+      var d = TA.world.districtAt(TA.S.px, TA.S.py);
+      var dn = el('district-name');
+      if (dn) dn.textContent = d.name + ' — ' + d.street;
+      var dsEl = el('district-standing');
+      if (dsEl) dsEl.textContent = (TA.career.districtStanding(d.name) >= 70 ? 'DIKUASAI' : TA.career.districtStanding(d.name) >= 45 ? 'NETRAL' : 'TEGANG') + ' · ' + TA.career.districtStanding(d.name);
+      var cn = el('car-name');
+      if (cn) {
+        if (TA.S.inCar && TA.S.car) cn.textContent = TA.S.car.name + ' · ' + TA.player.getCarCondition() + '% · TUNE ' + TA.S.car.tune;
+        else cn.textContent = 'JALAN KAKI — RAKA';
+      }
+      var sp = el('speed');
+      if (sp) sp.innerHTML = Math.round(Math.abs(TA.S.speed)) + ' <span>KM/JAM</span>';
+      var hp = el('hp-text');
+      if (hp) hp.textContent = 'HP ' + Math.round(TA.S.hp);
+      var ar = el('armor-text');
+      if (ar) ar.textContent = 'ARMOR ' + Math.round(TA.S.armor);
+      renderMinimap();
+    }
+    if (TA.S.screen === 'map') renderFullMapCanvas();
+  }
+  TA.ui.update = update;
+
+  /* ---------- staged screenshots ---------- */
+  function stageShot(n) {
+    if (n === 1) {
+      // kabur dari bank, tahap 7, siang — wanted 4, dispatch PERAMPOKAN BANK, heat TERLIHAT
+      TA.S.screen = 'playing';
+      TA.S.night = false; TA.S.weather = 'Siang Cerah'; TA.S.rain = 0.4;
+      TA.S.day = 4; TA.S.hour = 14; TA.S.minute = 32;
+      TA.S.money = 4250000; TA.S.mission = 7; TA.S.stage = 7; TA.S.stageTotal = 7;
+      TA.S.missionDone = [true, true, true, true, true, true, false, false, false, false];
+      TA.S.guardsKilled = 9; TA.S.guardsTotal = 9; TA.S.bankMoneyTaken = true;
+      TA.S.px = 2300; TA.S.py = 1560; TA.S.angle = 0.15;
+      var car = { name: 'PELABUHAN GT', color: '#2980b9', top: 185, tune: 'SPORT', condition: 62, x: 2300, y: 1560, dir: 0 };
+      TA.S.car = car; TA.S.inCar = true; TA.S.onFoot = false; TA.S.speed = 87;
+      TA.S.weapon = 2;
+      TA.S.xp = 450;
+      TA.police.setWanted(4, 'PERAMPOKAN BANK');
+      TA.S.heat = 92; TA.S.heatVisible = true;
+      TA.police.logPoliceRadio('ELANG-1: target terpantau di Tol Layang');
+      TA.police.logPoliceRadio('PATROLI-12: tembakan di Pasar Senja');
+      TA.police.logPoliceRadio('BLOKIR-03: roadblock dipasang di Pelabuhan');
+      showHUD();
+      renderMissionBanner();
+      renderDispatchPanel();
+    } else if (n === 2) {
+      // tembak-menembak tahap 3 di plaza Bank Arunika
+      TA.S.screen = 'playing';
+      TA.S.night = false; TA.S.weather = 'Siang Cerah'; TA.S.rain = 0.2;
+      TA.S.day = 4; TA.S.hour = 13; TA.S.minute = 5;
+      TA.S.money = 4250000; TA.S.mission = 7; TA.S.stage = 3; TA.S.stageTotal = 7;
+      TA.S.missionDone = [true, true, true, true, true, true, false, false, false, false];
+      TA.S.guardsKilled = 3; TA.S.guardsTotal = 9;
+      TA.S.px = 2060; TA.S.py = 1520; TA.S.angle = -Math.PI / 2;
+      TA.S.inCar = false; TA.S.onFoot = true; TA.S.car = null; TA.S.speed = 0;
+      TA.S.weapon = 2; TA.S.wheelOpen = true;
+      TA.S.xp = 450;
+      TA.missions.startBankHeist();
+      TA.S.stage = 3; TA.S.stageTotal = 7;
+      TA.S.px = 2060; TA.S.py = 1520; TA.S.angle = -Math.PI / 2;
+      // 3 penjaga sudah tumbang
+      var en = TA.missions.enemies();
+      for (var i = 0; i < 3 && i < en.length; i++) en[i].alive = false;
+      TA.S.guardsKilled = 3;
+      TA.police.setWanted(4, 'PENEMBAKAN');
+      TA.S.heat = 88; TA.S.heatVisible = true;
+      TA.police.logPoliceRadio('PATROLI-12: tembakan di Pasar Senja');
+      TA.police.logPoliceRadio('ELANG-1: target terpantau di Bank Arunika');
+      TA.world.addExplosion(1850, 1420);
+      showHUD();
+      renderMissionBanner();
+      renderDispatchPanel();
+      renderWeaponWheel();
+      TA.crew.showChatter('SARI', 'Sembilan penjaga, Raka. Van sudah siap di depan!');
+    } else if (n === 3) {
+      // peta penuh malam — tab CERITA + STATISTIK
+      TA.S.screen = 'map';
+      TA.S.night = true; TA.S.weather = 'Hujan'; TA.S.rain = 1;
+      TA.S.day = 4; TA.S.hour = 21; TA.S.minute = 40;
+      TA.S.money = 4250000; TA.S.mission = 7; TA.S.stage = 1; TA.S.stageTotal = 7;
+      TA.S.missionDone = [true, true, true, true, true, true, false, false, false, false];
+      TA.S.px = 2060; TA.S.py = 1520;
+      TA.S.waypoint = { x: 1200, y: 1000 };
+      TA.S.mapTab = 'cerita';
+      TA.S.xp = 450; TA.S.coins = 4; TA.S.jumps = 2; TA.S.racesWon = 1; TA.S.carsStolen = 37;
+      showFullMap();
+      var wl = el('waypoint-line');
+      if (wl) wl.textContent = 'Line up at the Pelabuhan Sprint start · 0.46 km';
+    } else if (n === 4) {
+      // title screen — kota hujan hidup di belakang
+      TA.S.screen = 'title';
+      TA.S.night = true; TA.S.weather = 'Hujan Deras'; TA.S.rain = 1;
+      TA.S.day = 4; TA.S.hour = 21; TA.S.minute = 15;
+      TA.S.px = 2000; TA.S.py = 1400;
+      showTitleScreen();
+    }
+  }
+  TA.ui.stageShot = stageShot;
 })();

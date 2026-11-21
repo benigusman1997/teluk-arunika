@@ -1,73 +1,56 @@
 # TELUK ARUNIKA: 7 Hari Utang
 
-[![make.fun · gta6-01](https://make.fun/badge/gta6-01.svg)](https://make.fun/bounty/gta6-01?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
-[![rank](https://make.fun/badge/gta6-01/benigusman1997/teluk-arunika/rank.svg)](https://make.fun/bounty/gta6-01/leaderboard?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
-[![reward](https://make.fun/badge/gta6-01/benigusman1997/teluk-arunika/reward.svg)](https://make.fun/bounty/gta6-01?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
+[![make.fun](https://make.fun/badge/gta6-01.svg)](https://make.fun/c/gta6-01)
+[![rank](https://make.fun/badge/gta6-01/benigusman1997/teluk-arunika/rank.svg)](https://make.fun/c/gta6-01)
+[![reward](https://make.fun/badge/gta6-01/benigusman1997/teluk-arunika/reward.svg)](https://make.fun/c/gta6-01)
 
-**TELUK ARUNIKA: 7 Hari Utang — 10 syndicate contracts in 3 acts, street races & full map, crew abilities & career progression, staged missions, police dispatch, roadblocks + ELANG-1 tactical air unit, car theft, 4-weapon combat**
+TELUK ARUNIKA: 7 Hari Utang — bank heist, 10 syndicate contracts in 3 acts, street races, full map, crew & career, police dispatch, ELANG-1 air unit, car theft, 5-weapon combat
 
-A rain-soaked open-world crime game in the spirit of GTA 6. Raka, a taxi
-driver in the fictional tropical port city of Teluk Arunika, owes $5,000 to
-crime boss Darma Wijaya. Seven days to pay it back — or his father's garage
-gets seized.
+Kota pelabuhan hujan tropis fiktif **Teluk Arunika**. **Raka**, sopir taksi yang berutang ke bos kriminal **Darma Wijaya**, punya **7 hari** untuk melunasi utang — kalau tidak, bengkel ayahnya disita.
 
-## What's in v3.6
+## Yang baru di v3.7
 
-- **10 narrative operations in 3 acts** — Bab I Utang (Misi 1-3), Bab II
-  Sindikat (Misi 4-7), Bab III Fajar (Misi 8-10). Every mission is a
-  **syndicate contract** (Darma Wijaya, Geng Kerono, Kelo Arms) with a cash
-  reward shown in the mission banner. Missions 6, 8 and 10 have 4 stages;
-  the banner shows mission / act / stage / objective / distance / NEXT.
-- **Street races** — 3 routes (Pelabuhan Sprint, Pasar Senja Circuit,
-  Tol Layang Highway) with entry fee, prize, rival AI cars, sequential
-  checkpoints, running timer and best time. Races 2-3 unlock by career rank.
-- **Full-screen tabbed map** (M) — PETA / CERITA / STATISTIK / KRU /
-  PENGATURAN / KONTROL / SIMPAN, legend, district standing, current
-  mission panel, click-to-place waypoint with route + distance, SAVE GAME.
-- **Pulau Abu** — a 6th, volcanic district across the bridge from the
-  port: ash ground, ember glow, lava rocks, crater smoke, orange dusk sky.
-  Mission 8 plays there; one race finishes on its bridge.
-- **Car export side job** — steal a named target car and deliver it to the
-  port exporter for big money. Respray at the garage drops your wanted.
-- **Weapon wheel with ammo counts** (Tab / 1-5) — .38 12/48, SMG 30/60,
-  Shotgun 6/18, Rifle 10/30, Fists ∞. Ammo is bought at the gun shop.
-- **Police radio ticker** under the named dispatch panel, **foot patrol
-  units** at low wanted, and a **visible ELANG-1 searchlight cone**
-  sweeping the ground at wanted 5.
-- **Crew abilities** — Sari "Si Gesit" (Gaspol boost, Z), Budi "Montir"
-  (quick-repair +25 armor, X), Agus "Si Pendiam" (Ghost, wanted -1, C).
-  Crew cards with keybinds + cooldowns on the HUD, radio chatter toasts.
-- **Career progression** — 5 ranks (Anak Baru → Legenda Arunika) with XP,
-  perks, and the exact XP numbers on the HUD.
-- **The city** — 60+ buildings, port cranes + containers, market stalls,
-  neon alley, beach, elevated toll road, traffic that stops at red lights
-  and honks, pedestrians who flee gunfire, day/night + rain/storm with wet
-  reflective asphalt.
-- **Systems** — wanted 1-5 with escalating tactics (foot patrol, patrol
-  cars, roadblock, PIT + spike strip, ELANG-1 helicopter), carjacking
-  (hold E, alarm, driver flees), drive-by shooting, 3 radio stations
-  (R), 3 save slots + autosave, synthetic WebAudio sound (engine,
-  gunshots, sirens, rain) — fully offline, no network requests.
+- **Perampokan Bank Arunika (Misi 7, final Bab II)** — kontrak DARMA WIYAYA **$25.000**, 7 tahap: sampai di bank, lumpuhkan alarm, habisi 9 penjaga (counter PENJAGA x/9), bobol brankas, ambil uang, kabur, hilangkan jejak. Bangunan bank berkolom + tulisan BANK ARUNIKA, plaza, ruang brankas, van hitam getaway.
+- **Title screen dengan save** — logo besar, BARU / LANJUTKAN (Hari X · Rp... · Misi x/10) / KONTROL / PENGATURAN, 3 slot save, latar kota hujan hidup, footer "Semua dibuat dengan kode: kota, mobil, orang, musik."
+- **Tab CERITA + STATISTIK di peta penuh** — daftar 10 kontrak (bab + hadiah + DONE/NEXT/LOCKED) dan CAREER (uang, respect, distrik x/6, KOIN ARUNIKA x/12, LOMPATAN x/5, balapan, mobil dicuri, wanted tertinggi, safehouse).
+- **12 Koin Arunika + 5 ramp lompatan** tersebar di 6 distrik.
+- **Label insiden + bar heat di dispatch** — "DISPATCH POLISI — PERAMPOKAN BANK / PENEMBAKAN / PENCURIAN MOBIL" + TERLIHAT / KEHILANGAN JEJAK.
+- **Weapon wheel 6 slot** — 1 Tinju ∞, 2 Pistol 12/48, 3 SMG 30/60, 4 Shotgun 6/18, 5 Rifle 10/30, 6 Pemburu (sniper) 5/15; tombol 1-6.
+- **Nama bab + hadiah di banner misi & kartu intro** — "MISI 7 DARI 10 · BAB II — SINDIKAT · TAHAP 3/7" + "KONTRAK: DARMA WIYAYA — $25.000".
 
-## Play
+## Fitur (v3 — v3.6 tetap ada)
 
-Serve it and open `game/index.html` in desktop Chrome:
+- **10 misi cerita dalam 3 bab** (Bab I Utang, Bab II Sindikat, Bab III Fajar), tiap misi 3-4 tahap dengan banner tahap + jarak objektif + NEXT; Misi 10 final di fajar hari ke-7 dengan pilihan akhir (tangkap Darma hidup-hidup atau biarkan kabur) + layar akhir "UTANG LUNAS".
+- **Balapan jalanan** — 3 rute (Pelabuhan Sprint, Pasar Senja Circuit, Tol Layang Highway), checkpoint, timer + rekor BEST, mobil lawan AI.
+- **Peta penuh bertab** (M) — PETA / CERITA / STATISTIK / KRU / PENGATURAN / KONTROL / SIMPAN, zoom + drag + klik pasang waypoint, legenda, standing 6 distrik termasuk **Pulau Abu** vulkanik (bara + asap kawah).
+- **Kru** — Sari "Si Gesit" (Gaspol, Z), Budi "Montir" (Perbaiki Cepat, X), Agus "Si Pendiam" (Ghost, C); kartu kru di HUD + obrolan radio kru.
+- **Karier** — 5 tingkat (Anak Baru → Legenda Arunika) dengan XP + perk, angka XP persis di HUD.
+- **Polisi** — wanted 1-5: patroli jalan kaki, mobil patroli, roadblock, PIT + spike strip, ELANG-1 + kerucut sorot; panel dispatch (nama + taktik + jarak) + ticker radio polisi.
+- **Carjacking** (tahan E), **ekspor mobil**, respray, side job taksi + antar paket, ekonomi + toko senjata/armor.
+- **HUD + minimap hidup** — bintang wanted, uang, hari/jam + cuaca, HP/armor, kecepatan + nama mobil & kondisi, baris stasiun radio (ARUNIKA 98.4 — Dangdut Neon, HUJAN 101.2 — Lo-fi Hujan, KOTA 87.5 — Berita Kota).
+- **Suara WebAudio sintetis offline** (mesin, tembakan, sirene, hujan) + radio 3 stasiun; semua art prosedural, tanpa network request.
+
+## Kontrol
+
+WASD jalan · E masuk/keluar/curi mobil · SHIFT lari · Mouse aim + klik tembak · 1-6 senjata · Tab weapon wheel · Z/X/C kemampuan kru · Q Ghost · R radio · M peta penuh · V panel kru · ESC jeda · F2 quick save di safehouse.
+
+## Menjalankan
 
 ```sh
 node serve.ts
-# http://localhost:8080/
+# buka http://localhost:8080
 ```
 
-WASD walk / drive · E enter & steal cars · Shift run · Mouse + click shoot ·
-1-5 weapons · Tab weapon wheel · R radio · M map · V crew · Z / X / C crew
-abilities · Esc pause.
+Build dossier (seperti yang dijalankan grader):
 
-## Tech
+```sh
+mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts
+```
 
-Vanilla HTML/CSS/JS + Three.js (vendored locally in `game/vendor/`).
-All art procedural, all sound synthesized WebAudio. No CDN, no network.
+## Teknologi
 
-`main.ts` (Node 22) copies `game/` + `screenshots/` to `/output` and writes
-`/output/dossier.json` with the kit's `vendor/makefun-game.ts`.
+Vanilla HTML/CSS/JS Canvas 2D top-down, tanpa CDN / tanpa network request. Three.js hanya dimuat sebagai vendor di `game/vendor/three.min.js`. Save: localStorage (3 slot + autosave). Screenshots: render asli dari kode game via headless Chromium (lihat `tools/shoot.mjs`).
 
-Built for make.fun's **Make GTA 6** bounty (gta6-01).
+## Lisensi
+
+MIT — lihat `LICENSE`.

@@ -1,165 +1,180 @@
-// Self-test Teluk Arunika v3.5 — 128 assertion, mencakup SETIAP fitur di DESIGN.md.
-// Jalankan dari root repo:  node tools/selftest.mjs
-// Bagian statis: file ada, tanpa referensi eksternal, urutan script, id HUD, API tiap modul.
-// Bagian runtime: game dimuat di headless Chromium (playwright-core + chrome-headless-shell),
-// dicek tanpa console error dan data game (10 misi, 3 kru, 5 tingkat, 5 distrik, 6 mobil).
-import { readFileSync, existsSync } from 'node:fs';
-import { join, dirname } from 'node:path';
+/* selftest.mjs — cek statis + runtime headless Chromium untuk Teluk Arunika v3.7.
+   Jalankan: node tools/selftest.mjs  (dari root repo). Keluar 0 bila 100% lolos. */
+import { createHash } from 'node:crypto';
+import { spawn, spawnSync } from 'node:child_process';
+import { createServer } from 'node:http';
+import { existsSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs';
+import { dirname, extname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { spawn } from 'node:child_process';
-import { createRequire } from 'node:module';
 
-const here = fileURLToPath(new URL('..', import.meta.url));
-const require = createRequire(import.meta.url);
-const PW_DIR = join(dirname(here), 'pw');
-const { chromium } = require(join(PW_DIR, 'node_modules', 'playwright-core'));
+const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
+const GAME = join(ROOT, 'game');
+const CHROME = process.env.CHROME || '/home/hatch/.cache/ms-playwright/chromium-1254/chrome-linux64/chrome';
 
-const GAME_FILES = ['index.html', 'style.css', 'core.js', 'world.js', 'player.js', 'police.js', 'missions.js', 'crew.js', 'career.js', 'audio.js', 'ui.js'];
-const SCRIPT_ORDER = ['vendor/three.min.js', 'core.js', 'world.js', 'player.js', 'police.js', 'missions.js', 'crew.js', 'career.js', 'audio.js', 'ui.js'];
-const HUD_IDS = ['crew-row', 'rank-row', 'xp-fill', 'crew-panel', 'mission-stage', 'mission-distance', 'mission-next', 'dispatch-panel', 'location-banner', 'district-standing', 'car-name', 'car-condition'];
-const API = {
-  'core.js': ['bootGame', 'startNewGame', 'pauseGame', 'resumeGame', 'gameOver', 'winGame', 'applyStaging'],
-  'world.js': ['buildCity', 'buildTraffic', 'buildPedestrians', 'setWeather', 'setTimeOfDay', 'DISTRICTS', 'updateDistrictStanding', 'districtAt'],
-  'player.js': ['CAR_MODELS', 'WEAPONS', 'enterCar', 'exitCar', 'jackCar', 'shoot', 'switchWeapon', 'takeDamage', 'buyWeapon', 'getCarCondition'],
-  'police.js': ['setWanted', 'escalatePolice', 'spawnRoadblock', 'deploySpikeStrip', 'policeHelicopter', 'updateHelicopter', 'cooldownWanted', 'getDispatchUnits'],
-  'missions.js': ['MISSIONS', 'startMission', 'completeMission', 'showDialogue', 'checkObjective', 'startMissionStage', 'advanceStage', 'getObjectiveDistance'],
-  'crew.js': ['CREW', 'recruitCrewMember', 'activateCrewAbility', 'getCrewBonus', 'renderCrewPanel', 'renderCrewCards', 'crewAbilityReady', 'showCrewChatter'],
-  'career.js': ['RANKS', 'addXP', 'getRank', 'checkRankUp', 'applyRankPerks'],
-  'audio.js': ['initAudio', 'playRadioStation', 'engineSound', 'gunshotSound', 'sirenSound', 'RADIO_STATIONS'],
-  'ui.js': ['renderHUD', 'renderMinimap', 'showStartScreen', 'showPauseScreen', 'showRankUpBanner', 'renderDispatchPanel', 'renderCrewCards'],
+const checks = [];
+function check(name, pass, detail) {
+  checks.push({ name, pass: !!pass, detail: detail || '' });
+  console.log((pass ? 'PASS' : 'FAIL') + '  ' + name + (detail ? ' — ' + detail : ''));
+}
+
+/* ---------- 1. file yang dipertahankan tidak berubah ---------- */
+const PRESERVED = {
+  'LICENSE': '63640a4e1ac9cb9526898150349d41f8',
+  '.makefun/owner.json': '7e814a1576a08a567a3407d2878ed576',
+  'vendor/makefun-game.ts': '2da03e097f2d64ae65e3d1c3586e652a',
+  'game/vendor/three.min.js': 'bc138621ece88793eb711a9e967b273a',
 };
-
-let passed = 0, failed = 0, total = 0;
-const failures = [];
-function check(name, cond) {
-  total++;
-  if (cond) { passed++; }
-  else { failed++; failures.push(name); console.log('  FAIL: ' + name); }
-}
-const read = (p) => readFileSync(join(here, p), 'utf8');
-
-/* ---------- A. file ada (18) ---------- */
-for (const f of GAME_FILES) check('file game/' + f + ' ada', existsSync(join(here, 'game', f)));
-check('file game/vendor/three.min.js ada', existsSync(join(here, 'game/vendor/three.min.js')));
-check('file main.ts ada', existsSync(join(here, 'main.ts')));
-check('file serve.ts ada', existsSync(join(here, 'serve.ts')));
-check('file shots.json ada', existsSync(join(here, 'shots.json')));
-check('file README.md ada', existsSync(join(here, 'README.md')));
-check('file LICENSE ada', existsSync(join(here, 'LICENSE')));
-check('file .makefun/owner.json ada', existsSync(join(here, '.makefun/owner.json')));
-
-/* ---------- B. tanpa referensi eksternal (11) ---------- */
-for (const f of GAME_FILES) {
-  const t = read('game/' + f);
-  check('game/' + f + ' tanpa http/https eksternal', !/https?:\/\//.test(t) && !/src="\/\//.test(t));
+for (const [rel, md5] of Object.entries(PRESERVED)) {
+  const p = join(ROOT, rel);
+  const ok = existsSync(p) && createHash('md5').update(readFileSync(p)).digest('hex') === md5;
+  check('preserved: ' + rel, ok, ok ? 'checksum sama' : 'BERUBAH / HILANG');
 }
 
-/* ---------- C+D. index.html: urutan script + tanpa src eksternal (2) ---------- */
-{
-  const html = read('game/index.html');
-  let last = -1, ok = true;
-  for (const s of SCRIPT_ORDER) { const i = html.indexOf('src="' + s + '"'); if (i < 0 || i < last) ok = false; last = i; }
-  check('index.html memuat 10 script berurutan (three, core..ui)', ok);
-  check('index.html tanpa script/link eksternal', !/src="https?:/.test(html) && !/href="https?:/.test(html));
+/* ---------- 2. file yang ditulis ulang ada ---------- */
+const REQUIRED = [
+  'game/index.html', 'game/style.css', 'game/core.js', 'game/world.js',
+  'game/player.js', 'game/police.js', 'game/missions.js', 'game/races.js',
+  'game/crew.js', 'game/career.js', 'game/audio.js', 'game/ui.js',
+  'main.ts', 'serve.ts', 'shots.json', 'README.md',
+  'tools/selftest.mjs', 'tools/shoot.mjs',
+];
+for (const f of REQUIRED) check('exists: ' + f, existsSync(join(ROOT, f)));
+
+/* ---------- 3. game/ offline: tanpa http(s) di source top-level ---------- */
+for (const f of readdirSync(GAME)) {
+  if (!['.html', '.js', '.css'].includes(extname(f))) continue;
+  const text = readFileSync(join(GAME, f), 'utf8');
+  const bad = /https?:\/\//i.test(text);
+  check('offline: game/' + f, !bad, bad ? 'mengandung URL http(s)' : 'tanpa referensi eksternal');
 }
 
-/* ---------- E. id HUD (12) ---------- */
-{
-  const html = read('game/index.html');
-  for (const id of HUD_IDS) check('index.html punya #' + id, html.includes('id="' + id + '"'));
-}
+/* ---------- 4. README: 3 badge live make.fun, tanpa shields.io ---------- */
+const readme = readFileSync(join(ROOT, 'README.md'), 'utf8');
+const badges = (readme.match(/make\.fun\/badge\/gta6-01/g) || []).length;
+check('readme: 3 badge live make.fun', badges >= 3, badges + ' badge ditemukan');
+check('readme: tanpa shields.io', !/shields\.io/.test(readme));
+check('readme: judul entry v3.7', readme.includes('bank heist, 10 syndicate contracts in 3 acts'));
 
-/* ---------- F. API tiap modul (63) ---------- */
-for (const [file, names] of Object.entries(API)) {
-  const t = read('game/' + file);
-  for (const n of names) check(file + ' punya ' + n, t.includes(n));
-}
-
-/* ---------- G. main.ts (2) ---------- */
-{
-  const t = read('main.ts');
-  check('main.ts memakai buildDossier dari vendor/makefun-game.ts', t.includes('buildDossier') && t.includes('./vendor/makefun-game.ts'));
-  check('main.ts memakai caps scorer (163840, 262144, 993, 50331648)', t.includes('163840') && t.includes('262144') && t.includes('993') && t.includes('50331648'));
-}
-
-/* ---------- H. shots.json (2) ---------- */
-{
-  const shots = JSON.parse(read('shots.json'));
-  check('shots.json punya 4 entri', Array.isArray(shots) && shots.length === 4);
-  check('shots.json memakai ?scene=1..4', shots.every((s, i) => s.query === '?scene=' + (i + 1)) && shots.every((s) => s.name.endsWith('.jpg')));
-}
-
-/* ---------- I. README 3 badge live (3) ---------- */
-{
-  const t = read('README.md');
-  check('README badge kompetisi make.fun', t.includes('https://make.fun/badge/gta6-01.svg'));
-  check('README badge rank repo', t.includes('https://make.fun/badge/gta6-01/benigusman1997/teluk-arunika/rank.svg'));
-  check('README badge reward repo', t.includes('https://make.fun/badge/gta6-01/benigusman1997/teluk-arunika/reward.svg'));
-}
-
-console.log(`statis: ${passed}/${total} lolos`);
-
-/* ---------- J+K. runtime di headless Chromium (11) ---------- */
-const PORT = 8901;
-const server = spawn('node', ['serve.ts', '--port', String(PORT)], { cwd: here, stdio: 'ignore' });
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-async function waitServer(tries = 30) {
-  for (let i = 0; i < tries; i++) {
-    try { const r = await fetch(`http://127.0.0.1:${PORT}/index.html`); if (r.ok) return true; } catch { /* belum siap */ }
-    await sleep(300);
+/* ---------- 5. shots.json + screenshot ---------- */
+function jpegDims(buf) {
+  let i = 2;
+  while (i + 9 < buf.length) {
+    if (buf[i] !== 0xff) { i++; continue; }
+    const m = buf[i + 1];
+    if (m === 0xc0 || m === 0xc2) {
+      return { h: buf.readUInt16BE(i + 5), w: buf.readUInt16BE(i + 7) };
+    }
+    if (m === 0xd8 || m === 0x01 || (m >= 0xd0 && m <= 0xd7)) { i += 2; continue; }
+    const len = buf.readUInt16BE(i + 2);
+    i += 2 + len;
   }
-  return false;
+  return null;
 }
-
-let browser = null;
+let shots = null;
 try {
-  if (!(await waitServer())) throw new Error('serve.ts tidak menjawab di port ' + PORT);
-  const exe = process.env.HOME + '/.cache/ms-playwright/chromium_headless_shell-1254/chrome-headless-shell-linux64/chrome-headless-shell';
-  browser = await chromium.launch({ executablePath: exe, args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
-
-  async function loadScene(n, waitMs) {
-    const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
-    const errors = [];
-    page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
-    page.on('pageerror', (e) => errors.push('pageerror: ' + e.message));
-    await page.goto(`http://127.0.0.1:${PORT}/index.html?scene=${n}`, { waitUntil: 'load' });
-    await page.waitForTimeout(waitMs);
-    return { page, errors };
+  shots = JSON.parse(readFileSync(join(ROOT, 'shots.json'), 'utf8')).shots;
+} catch (e) { shots = null; }
+check('shots.json: 4 shot', Array.isArray(shots) && shots.length === 4, shots ? shots.length + ' shot' : 'tidak bisa dibaca');
+if (shots) {
+  for (const s of shots) {
+    const p = join(ROOT, s.file);
+    const ok = existsSync(p);
+    if (!ok) { check('shot file: ' + s.file, false, 'hilang'); continue; }
+    const buf = readFileSync(p);
+    const magic = buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff;
+    const dims = jpegDims(buf);
+    check('shot: ' + s.file, magic && buf.length <= 262144 && dims && dims.w === 1280 && dims.h === 720,
+      buf.length + ' bytes, ' + (dims ? dims.w + 'x' + dims.h : 'dimensi?'));
   }
-
-  // Scene 1-4: tanpa console error
-  const scenes = [];
-  for (let n = 1; n <= 4; n++) {
-    const s = await loadScene(n, n === 2 ? 5200 : 3200);
-    scenes.push(s);
-    check('scene ' + n + ' tanpa console error', s.errors.length === 0);
-    if (s.errors.length) console.log('   error scene ' + n + ':', s.errors.slice(0, 3));
-  }
-
-  // Data game di scene 1
-  const s1 = scenes[0].page;
-  check('TA.MISSIONS berisi 10 misi', await s1.evaluate(() => window.TA.MISSIONS.length === 10));
-  check('TA.CREW berisi 3 anggota kru', await s1.evaluate(() => window.TA.CREW.length === 3));
-  check('TA.RANKS berisi 5 tingkat karier', await s1.evaluate(() => window.TA.RANKS.length === 5));
-  check('TA.DISTRICTS berisi 5 distrik', await s1.evaluate(() => window.TA.DISTRICTS.length === 5));
-  check('TA.CAR_MODELS berisi 6 model mobil', await s1.evaluate(() => window.TA.CAR_MODELS.length === 6));
-  // Scene 2: dispatch punya unit aktif
-  const s2 = scenes[1].page;
-  check('scene 2: dispatch punya >= 4 unit aktif', await s2.evaluate(() => window.TA.police.getDispatchUnits().length >= 4));
-  // Scene 4: layar pause terlihat
-  const s4 = scenes[3].page;
-  check('scene 4: layar pause terlihat', await s4.evaluate(() => !document.getElementById('pause-screen').classList.contains('hidden')));
-
-  for (const s of scenes) await s.page.close();
-} catch (e) {
-  console.log('RUNTIME ERROR:', e.message);
-  check('runtime selesai tanpa exception', false);
-} finally {
-  if (browser) await browser.close();
-  server.kill();
 }
 
-console.log(`\nSELF-TEST: ${passed}/${total} PASS (${failed} gagal)`);
-if (failures.length) { console.log('Gagal:'); failures.forEach((f) => console.log(' - ' + f)); }
-if (total !== 128) console.log('PERINGATAN: total assertion ' + total + ', diharapkan 128');
-process.exit(failed === 0 && total === 128 ? 0 : 1);
+/* ---------- 6. main.ts dua run, dossier byte-identik ---------- */
+function runMain(outDir) {
+  rmSync(outDir, { recursive: true, force: true });
+  const r = spawnSync('node', ['main.ts'], {
+    cwd: ROOT, env: { ...process.env, MAKEFUN_OUTPUT_DIR: outDir },
+    encoding: 'utf8', timeout: 60000,
+  });
+  return r;
+}
+const out1 = join(ROOT, '.selftest-out1');
+const out2 = join(ROOT, '.selftest-out2');
+const r1 = runMain(out1);
+const r2 = runMain(out2);
+check('main.ts run 1 exit 0', r1.status === 0, (r1.stderr || '').trim().slice(0, 200));
+check('main.ts run 2 exit 0', r2.status === 0, (r2.stderr || '').trim().slice(0, 200));
+let dossierSame = false;
+if (r1.status === 0 && r2.status === 0) {
+  try {
+    const d1 = readFileSync(join(out1, 'dossier.json'));
+    const d2 = readFileSync(join(out2, 'dossier.json'));
+    dossierSame = d1.equals(d2);
+  } catch (e) { dossierSame = false; }
+}
+check('dossier byte-identik dua run', dossierSame);
+rmSync(out1, { recursive: true, force: true });
+rmSync(out2, { recursive: true, force: true });
+
+/* ---------- 7. runtime headless Chromium ---------- */
+const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json' };
+const server = createServer((req, res) => {
+  const rel = decodeURIComponent((req.url || '/').split('?')[0]).replace(/^\/+/, '') || 'index.html';
+  const file = join(GAME, rel);
+  if (!file.startsWith(GAME) || !existsSync(file) || !statSync(file).isFile()) {
+    res.writeHead(404); res.end('nf'); return;
+  }
+  res.writeHead(200, { 'content-type': MIME[extname(file)] || 'application/octet-stream' });
+  res.end(readFileSync(file));
+});
+await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+const port = server.address().port;
+
+function chromeDump(url) {
+  // async spawn: spawnSync akan memblokir event loop sehingga server HTTP
+  // di proses ini tidak bisa menjawab Chrome — pakai spawn async.
+  return new Promise((resolve, reject) => {
+    const child = spawn(CHROME, [
+      '--headless=new', '--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage',
+      '--disable-extensions', '--window-size=1280,720',
+      '--virtual-time-budget=8000', '--dump-dom', url,
+    ], { timeout: 120000, maxBuffer: 64 * 1024 * 1024 });
+    let out = '', err = '';
+    child.stdout.on('data', (d) => { out += d; });
+    child.stderr.on('data', (d) => { err += d; });
+    child.on('error', reject);
+    child.on('close', (code) => resolve(out));
+  });
+}
+function textOf(dom, id) {
+  const m = dom.match(new RegExp('<[^>]*id="' + id + '"[^>]*>([\\s\\S]*?)<\\/[^>]+>'));
+  return m ? m[1].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim() : null;
+}
+
+const SHOT_MARKERS = {
+  0: ['TELUK', 'LANJUTKAN'],
+  1: ['PERAMPOKAN BANK', 'TERLIHAT'],
+  2: ['PENJAGA 3/9', 'Pemburu', 'TAHAP 3/7'],
+  3: ['PERAMPOKAN BANK ARUNIKA', 'KOIN ARUNIKA'],
+  4: ['LANJUTKAN', 'SLOT 1'],
+};
+for (const shot of [0, 1, 2, 3, 4]) {
+  const url = 'http://127.0.0.1:' + port + '/index.html' + (shot ? '?shot=' + shot : '');
+  const dom = await chromeDump(url);
+  const boot = textOf(dom, 'boot-status');
+  const errs = textOf(dom, 'js-errors');
+  check('runtime shot ' + shot + ': boot OK', boot === 'OK', 'boot-status=' + boot);
+  check('runtime shot ' + shot + ': tanpa console error', !errs, errs ? errs.slice(0, 200) : 'bersih');
+  for (const marker of SHOT_MARKERS[shot]) {
+    check('runtime shot ' + shot + ': "' + marker + '" tampil', dom.includes(marker));
+  }
+}
+server.close();
+
+/* ---------- ringkasan ---------- */
+const passed = checks.filter((c) => c.pass).length;
+console.log('\nSELFTEST: ' + passed + '/' + checks.length + ' lolos');
+if (passed !== checks.length) {
+  console.log('GAGAL:');
+  for (const c of checks.filter((c) => !c.pass)) console.log('  - ' + c.name + ' — ' + c.detail);
+  process.exit(1);
+}
