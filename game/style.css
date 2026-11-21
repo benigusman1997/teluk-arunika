@@ -28,6 +28,10 @@ html, body { width: 100%; height: 100%; overflow: hidden; background: #0a0e18;
   border-radius: 50%; background: rgba(10,16,24,.85); }
 #radio { font-size: 12px; color: #ffd75e; margin-top: 6px; max-width: 240px; }
 #hud-bottom-left { position: absolute; left: 16px; bottom: 16px; width: 300px; }
+#location-banner { margin-bottom: 10px; background: rgba(0,0,0,.6); border: 1px solid #4a5a6a;
+  border-left: 4px solid #22d3ee; border-radius: 4px; padding: 6px 10px; }
+.loc-name { font-size: 14px; font-weight: 900; letter-spacing: 1px; color: #fff; }
+.loc-standing { font-size: 12px; font-weight: 700; color: #9fd8ff; margin-top: 2px; }
 .bar-label { display: inline-block; width: 52px; font-size: 12px; font-weight: 800; }
 .bar { display: inline-block; width: 150px; height: 12px; background: rgba(0,0,0,.6);
   border: 1px solid #4a5a6a; border-radius: 3px; vertical-align: middle; overflow: hidden; }
@@ -38,13 +42,18 @@ html, body { width: 100%; height: 100%; overflow: hidden; background: #0a0e18;
 #ammo { color: #ffd75e; }
 #reload-indicator { color: #ff9a3c; font-size: 13px; }
 #ability-cd { font-size: 12px; color: #9fd8ff; margin-top: 4px; }
-#hud-bottom-right { position: absolute; right: 20px; bottom: 20px; }
+#hud-bottom-right { position: absolute; right: 20px; bottom: 20px; text-align: right; }
+#car-name { font-size: 15px; font-weight: 800; color: #ffd75e; letter-spacing: 1px; }
 #speedo { font-size: 34px; font-weight: 800; color: #fff; }
 .speed-unit { font-size: 14px; color: #9fd8ff; }
 #objective { position: absolute; top: 14px; left: 50%; transform: translateX(-50%);
   background: rgba(0,0,0,.65); border: 1px solid #facc15; border-left: 5px solid #facc15;
   padding: 8px 16px; font-size: 14px; font-weight: 700; color: #ffe9a8; border-radius: 4px;
-  max-width: 46vw; text-align: center; }
+  max-width: 46vw; text-align: center; line-height: 1.5; }
+.obj-line1 { font-size: 11px; letter-spacing: 2px; color: #facc15; font-weight: 900; }
+.obj-line2 { font-size: 17px; font-weight: 900; color: #fff; letter-spacing: 1px; }
+.obj-line3 { font-size: 13px; color: #ffe9a8; }
+.obj-line4 { font-size: 12px; color: #9fd8ff; font-weight: 700; }
 #crosshair { position: absolute; left: 50%; top: 50%; transform: translate(-50%,-50%);
   font-size: 22px; color: rgba(255,255,255,.9); }
 #interact-prompt { position: absolute; left: 50%; top: 62%; transform: translateX(-50%);
@@ -63,6 +72,10 @@ html, body { width: 100%; height: 100%; overflow: hidden; background: #0a0e18;
 #toast { position: fixed; left: 50%; bottom: 110px; transform: translateX(-50%); z-index: 8;
   background: rgba(0,0,0,.8); border: 1px solid #4a5a6a; padding: 10px 18px; border-radius: 6px;
   font-size: 15px; font-weight: 600; transition: opacity .4s; max-width: 70vw; text-align: center; }
+#crew-chatter { position: fixed; right: 20px; bottom: 150px; z-index: 8; max-width: 340px;
+  background: rgba(5,8,16,.92); border: 1px solid #22d3ee; border-left: 4px solid #22d3ee;
+  border-radius: 6px; padding: 9px 12px; font-size: 13px; line-height: 1.45; color: #e8ecf2; }
+#crew-chatter b { color: #22d3ee; letter-spacing: 1px; }
 #banner { position: fixed; left: 50%; top: 22%; transform: translateX(-50%); z-index: 9;
   background: linear-gradient(90deg, #7c3aed, #db2777); padding: 14px 28px; border-radius: 8px;
   font-size: 26px; font-weight: 900; letter-spacing: 2px; box-shadow: 0 0 30px rgba(168,85,247,.7); }
@@ -115,6 +128,27 @@ html, body { width: 100%; height: 100%; overflow: hidden; background: #0a0e18;
 .crew-name { font-weight: 800; font-size: 14px; }
 .crew-desc { font-size: 12px; color: #c8d0dc; line-height: 1.4; margin-top: 3px; }
 .crew-status { font-size: 13px; font-weight: 700; margin-top: 6px; color: #7dff9a; }
+
+/* ---------------- Kartu kru + dispatch (v3.5) ---------------- */
+#crew-cards { margin-top: 8px; text-align: left; }
+.crew-cards-title { font-size: 11px; font-weight: 900; letter-spacing: 2px; color: #ffb3d9; margin-bottom: 4px; }
+.crew-mini { background: rgba(0,0,0,.65); border: 1px solid #4a5a6a; border-left: 4px solid #ff2e88;
+  border-radius: 4px; padding: 5px 9px; margin-bottom: 5px; }
+.crew-mini-name { font-size: 12px; font-weight: 800; color: #fff; }
+.crew-mini-ability { font-size: 12px; color: #c8d0dc; margin-top: 1px; }
+.crew-mini-key { color: #facc15; font-weight: 900; }
+.crew-mini-status { font-weight: 900; float: right; }
+.crew-mini-status.ready { color: #4ade80; }
+.crew-mini-status.cd { color: #facc15; }
+#dispatch-panel { margin-top: 8px; text-align: left; background: rgba(0,0,0,.65);
+  border: 1px solid #ff5555; border-radius: 4px; padding: 7px 9px; width: 300px; }
+.dispatch-title { font-size: 12px; font-weight: 900; letter-spacing: 1px; color: #ff8888; }
+.dispatch-heli { font-size: 12px; font-weight: 900; color: #facc15; margin-top: 3px; letter-spacing: 1px; }
+.dispatch-row { font-size: 12px; color: #e8ecf2; margin-top: 3px; }
+.dispatch-name { font-weight: 900; color: #fff; }
+.dispatch-kind { color: #9fd8ff; font-weight: 700; }
+.dispatch-tactic { color: #ffd75e; font-weight: 700; }
+.dispatch-dist { color: #c8d0dc; float: right; }
 
 /* ---------------- Layar penuh ---------------- */
 .screen { position: fixed; inset: 0; z-index: 20; display: flex; align-items: center; justify-content: center;

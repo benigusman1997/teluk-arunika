@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>TELUK ARUNIKA: 7 Hari Utang — 10 narrative operations, crew abilities &amp; career progression</title>
+<title>TELUK ARUNIKA: 7 Hari Utang — 10 narrative operations, crew abilities &amp; career progression, staged missions, police dispatch, roadblocks + ELANG-1 tactical air unit, car theft, 4-weapon combat</title>
 <link rel="icon" href="data:,">
 <link rel="stylesheet" href="style.css">
 </head>
@@ -16,24 +16,27 @@
     <div id="wanted-stars" class="wanted">☆☆☆☆☆</div>
     <div id="money">$250</div>
     <div id="day-debt">HARI 1/7 · UTANG $5.000</div>
-    <div id="rank-row"><span id="rank-name">ANAK BARU</span> · <span id="xp-text">0 XP</span></div>
+    <div id="rank-row"><span id="rank-name">TINGKAT 1 · ANAK BARU</span> — <span id="xp-text">0 / 150 XP</span></div>
     <div id="xp-bar"><div id="xp-fill"></div></div>
-    <div id="crew-row">KRU: — (rekrut di bengkel, C)</div>
+    <div id="crew-row">KRU: — (rekrut di bengkel, V)</div>
   </div>
   <div id="hud-top-right">
     <div id="clock-weather">08:20 🌧 Siang</div>
     <div id="compass">N 0°</div>
     <canvas id="minimap" width="180" height="180"></canvas>
     <div id="radio">♪ DANGDUT NEON FM — Goyang Pelabuhan</div>
+    <div id="crew-cards" style="display:none"></div>
+    <div id="dispatch-panel" style="display:none"></div>
   </div>
   <div id="hud-bottom-left">
+    <div id="location-banner" style="display:none"></div>
     <div id="hp-row"><span class="bar-label">HP</span><div class="bar"><div id="hp-fill"></div></div><span id="hp-text">100 / 100</span></div>
     <div id="armor-row"><span class="bar-label">ARMOR</span><div class="bar"><div id="armor-fill"></div></div><span id="armor-text">0 / 100</span></div>
     <div id="weapon-row"><span id="weapon-name">PISTOL</span> <span id="ammo">12 / 72</span> <span id="reload-indicator" style="display:none">MEMUAT…</span></div>
     <div id="ability-cd"></div>
   </div>
   <div id="hud-bottom-right">
-    <div id="speedo" style="display:none"><span id="speed-num">0</span> <span class="speed-unit">km/jam</span></div>
+    <div id="speedo" style="display:none"><div id="car-name"></div><span id="speed-num">0</span> <span class="speed-unit">km/jam</span></div>
   </div>
   <div id="objective">Misi 1 — Taksi Pertama</div>
   <div id="crosshair">+</div>
@@ -43,6 +46,7 @@
   <div id="ability-flash" style="opacity:0"></div>
 </div>
 <div id="toast" style="opacity:0"></div>
+<div id="crew-chatter" style="display:none"></div>
 <div id="banner" style="display:none"></div>
 <div id="damage-flash" style="opacity:0"></div>
 <div id="saving" style="display:none">Saving…</div>
@@ -59,11 +63,11 @@
 </div>
 <div id="wheel" style="display:none"></div>
 
-<!-- ===================== Panel kru (tombol C) ===================== -->
+<!-- ===================== Panel kru (tombol V) ===================== -->
 <div id="crew-panel-wrap" style="display:none">
   <div class="panel-title">KRU — Bengkel Pak Amir</div>
   <div class="crew-panel-list"></div>
-  <div class="panel-hint">Tekan C untuk menutup. Rekrut dengan uang — kemampuan pasif langsung aktif.</div>
+  <div class="panel-hint">Tekan V untuk menutup. Rekrut dengan uang — kemampuan pasif langsung aktif.</div>
 </div>
 
 <!-- ===================== Layar start ===================== -->
@@ -74,12 +78,13 @@
     <div id="start-subtitle" class="screen-text">Raka berutang $5.000 ke Darma Wijaya. 7 hari. 10 misi. Satu bengkel yang harus diselamatkan.</div>
     <div class="feature-list">
       <span>10 MISI CERITA</span><span>3 KRU · KEMAMPUAN AKTIF</span><span>5 TINGKAT KARIER</span>
+      <span>MISI BERTAHAP</span><span>DISPATCH POLISI</span>
       <span>WANTED 1–5 · ELANG-1</span><span>CARJACKING · 4 SENJATA</span><span>RADIO 3 STASIUN</span>
     </div>
     <button id="btn-new-game" class="btn">▶ NEW GAME</button>
     <button id="btn-continue" class="btn secondary" style="display:none">↻ CONTINUE</button>
     <div class="controls">WASD jalan · E masuk/curi mobil (tahan) · Mouse aim · Klik tembak · 1–4 senjata · Tab weapon wheel<br>
-    Q kemampuan kru · R radio · C panel kru · M minimap zoom · Shift lari · Esc pause</div>
+    Z/X/C kemampuan kru (Sari/Budi/Agus) · V panel kru · R radio · M minimap zoom · Shift lari · Esc pause</div>
     <div class="screen-foot">Kota pelabuhan hujan tropis · Three.js · Semua art prosedural · Suara WebAudio sintetis · Offline total</div>
   </div>
 </div>

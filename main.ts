@@ -88,4 +88,4 @@ writeFileSync(
   }),
 );
 
-console.log('Teluk Arunika v3: dossier written to ' + join(out, 'dossier.json'));
+console.log('Teluk Arunika v3.5: dossier written to ' + join(out, 'dossier.json'));

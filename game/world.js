@@ -17,6 +17,78 @@
   W.rainVel = null;
   W.neonSigns = [];
 
+  // ---------------------------------------------------------- distrik (v3.5)
+  // Lima distrik, masing-masing punya skor suasana 0-100: naik saat misi/job
+  // selesai di distrik itu, turun saat menimbulkan kekacauan. Suasana
+  // memengaruhi bayaran taksi di distrik itu (getTaxiPay).
+  W.DISTRICTS = [
+    { id: 'pelabuhan', name: 'PELABUHAN', street: 'Dermaga Senja', standing: 58 },
+    { id: 'pasar', name: 'PASAR', street: 'Pasar Ikan Arunika', standing: 50 },
+    { id: 'gang', name: 'GANG NEON', street: 'Gang Lampion', standing: 45 },
+    { id: 'pantai', name: 'PANTAI', street: 'Pantai Arunika', standing: 62 },
+    { id: 'tol', name: 'TOL LAYANG', street: 'Tol Arunika', standing: 50 }
+  ];
+  W._DISTRICT_INIT = { pelabuhan: 58, pasar: 50, gang: 45, pantai: 62, tol: 50 };
+
+  W.getDistrictAt = function (x, z) {
+    var id;
+    if (z >= 165) id = 'pelabuhan';
+    else if (z <= -150) id = 'tol';
+    else if (x >= -30 && x <= 30 && z >= -30 && z <= 30) id = 'pasar';
+    else if (x < -30 && z >= -45 && z <= 45) id = 'gang';
+    else id = 'pantai';
+    for (var i = 0; i < W.DISTRICTS.length; i++) {
+      if (W.DISTRICTS[i].id === id) return W.DISTRICTS[i];
+    }
+    return W.DISTRICTS[0];
+  };
+
+  // Posisi pemain saat ini (mobil bila sedang mengemudi) — dipakai banner
+  // lokasi & bayaran taksi supaya distrik mengikuti mobil, bukan kaki.
+  W.playerPos = function () {
+    var s = TA.state;
+    if (s.inCar && TA.car) return { x: TA.car.x, z: TA.car.z };
+    return { x: TA.px, z: TA.pz };
+  };
+
+  W.updateDistrictStanding = function (id, delta) {
+    W.DISTRICTS.forEach(function (d) {
+      if (d.id === id) d.standing = TA.clamp(d.standing + delta, 0, 100);
+    });
+  };
+
+  W.resetDistricts = function () {
+    W.DISTRICTS.forEach(function (d) { d.standing = W._DISTRICT_INIT[d.id]; });
+  };
+
+  // Bayaran taksi di distrik saat ini: 0,5x-1,5x dari tarif dasar.
+  W.getTaxiPay = function (base) {
+    var p = W.playerPos();
+    var d = W.getDistrictAt(p.x, p.z);
+    var mult = 0.5 + d.standing / 100;
+    return { pay: Math.round(base * mult), district: d, mult: mult };
+  };
+
+  // Side job taksi: bila mengemudi TAKSI KUNING, tiap 45 detik satu
+  // penumpang diantar dan dibayar sesuai suasana distrik saat ini.
+  W.taxiTimer = 0;
+  W.updateTaxiJob = function (dt) {
+    if (TA.shot > 0) return; // mode screenshot: deterministik, tanpa job
+    var s = TA.state;
+    if (!s.inCar || !TA.car || TA.car.model !== 'TAKSI KUNING') { W.taxiTimer = 0; return; }
+    W.taxiTimer += dt;
+    if (W.taxiTimer >= 45) {
+      W.taxiTimer = 0;
+      var fare = W.getTaxiPay(90);
+      s.money += fare.pay;
+      s.jobsDone++;
+      TA.career.addXP(15);
+      W.updateDistrictStanding(fare.district.id, 3);
+      TA.ui.toast('Taksi: penumpang diantar di ' + fare.district.name +
+        ' — +' + TA.fmtMoney(fare.pay) + ' (+15 XP).');
+    }
+  };
+
   function canvasTexture(w, h, draw) {
     var c = document.createElement('canvas');
     c.width = w; c.height = h;
@@ -358,9 +430,16 @@
     });
     g.position.set(x, 0, z);
     g.rotation.y = heading || 0;
+    // Nama model mobil (v3.5): merah = PELABUHAN GT, kuning = TAKSI KUNING,
+    // sisanya dipilih acak dari model kota.
+    var model;
+    if (color === 0xc0392b) model = 'PELABUHAN GT';
+    else if (color === 0xd8a020) model = 'TAKSI KUNING';
+    else model = TA.pick(['ARUNIKA SEDAN', 'KOTA VAN', 'DERMAGA PICKUP']);
     var car = {
       group: g, x: x, z: z, heading: heading || 0, speed: 0,
       color: color, hp: 100, stolen: false, isPolice: false,
+      model: model,
       axis: 'x', dir: 1, stopped: false, driver: null, honked: false
     };
     g.userData.car = car;

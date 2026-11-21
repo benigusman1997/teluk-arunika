@@ -113,15 +113,15 @@ export async function newTab(port, url) {
       session._onScreencastFrame(msg.params);
     }
   };
-  await session.send('Page.enable');
-  await session.send('Runtime.enable');
-  await session.send('Network.enable');
-  await session.send('Log.enable');
+  await session.send('Page.enable', {}, 120000);
+  await session.send('Runtime.enable', {}, 120000);
+  await session.send('Network.enable', {}, 120000);
+  await session.send('Log.enable', {}, 120000);
   // Paksa viewport persis 1280x720 (tanpa ini headless bisa memberi 1280x577).
   await session.send('Emulation.setDeviceMetricsOverride', {
     width: 1280, height: 720, deviceScaleFactor: 1, mobile: false,
-  });
-  await session.send('Page.navigate', { url });
+  }, 120000);
+  await session.send('Page.navigate', { url }, 120000);
   return session;
 }
 

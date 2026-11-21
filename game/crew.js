@@ -1,6 +1,7 @@
 // TELUK ARUNIKA v3 — crew.js
 // Sistem kru: 3 anggota yang direkrut dengan uang di bengkel Pak Amir.
-// Kemampuan pasif BENAR-BENAR mengubah gameplay; kemampuan aktif di tombol Q.
+// Kemampuan pasif BENAR-BENAR mengubah gameplay; kemampuan aktif di tombol
+// masing-masing (v3.5): Sari = Z, Budi = X, Agus = C. Panel kru lengkap di V.
 (function () {
   'use strict';
 
@@ -9,25 +10,25 @@
   C.CREW = [
     {
       id: 'sari', name: 'Sari', nick: 'Si Gesit', role: 'Sopir',
-      cost: 300, rankNeeded: 2,
+      cost: 300, rankNeeded: 2, key: 'Z',
       passive: 'Mobil +15% kecepatan maksimum & handling lebih responsif.',
-      ability: 'GASPOL (Q di mobil): boost 3 detik, wanted tidak naik selama boost. Cooldown 45 dtk.',
+      ability: 'GASPOL (Z di mobil): boost 3 detik, wanted tidak naik selama boost. Cooldown 45 dtk.',
       color: '#ff2e88',
       quote: 'Gaspol, Raka!'
     },
     {
       id: 'budi', name: 'Budi', nick: 'Montir', role: 'Mekanik',
-      cost: 250, rankNeeded: 2,
+      cost: 250, rankNeeded: 2, key: 'X',
       passive: 'Armor pulih +1/dtk sampai 50. Mobil pulih +2 HP/dtk. Biaya perbaikan & armor -20%.',
-      ability: 'Pasif murni — tidak ada tombol aktif. Budi bekerja di belakang layar.',
+      ability: 'PERBAIKI CEPAT (X): armor +25 instan. Cooldown 60 dtk.',
       color: '#facc15',
       quote: 'Mobilmu aman bersamaku.'
     },
     {
       id: 'agus', name: 'Agus', nick: 'Si Pendiam', role: 'Peretas',
-      cost: 400, rankNeeded: 3,
+      cost: 400, rankNeeded: 3, key: 'C',
       passive: 'Wanted cooldown 30% lebih cepat (sembunyi lebih singkat).',
-      ability: 'GHOST (Q saat jalan kaki): wanted langsung turun 1 bintang. Sekali per misi. Cooldown 60 dtk.',
+      ability: 'GHOST (C saat jalan kaki): wanted langsung turun 1 bintang. Sekali per misi.',
       color: '#22d3ee',
       quote: 'Mereka tidak melihat kita.'
     }
@@ -92,64 +93,126 @@
     return b;
   };
 
-  // Kemampuan aktif (tombol Q). Konteks menentukan siapa yang bekerja.
-  C.activateCrewAbility = function () {
+  // Kemampuan aktif per anggota (v3.5): Sari = Z, Budi = X, Agus = C.
+  // Cooldown dihitung per anggota di TA.state.crewCd (detik).
+  C.activateCrewAbility = function (id) {
     var s = TA.state;
-    if (s.mode !== 'playing') return;
-    if (s.abilityCd > 0) {
-      TA.ui.toast('Kemampuan kru cooldown — ' + Math.ceil(s.abilityCd) + ' dtk lagi.');
-      return;
+    if (s.mode !== 'playing') return false;
+    var member = null;
+    C.CREW.forEach(function (m) { if (m.id === id) member = m; });
+    if (!member) return false;
+    if (!C.isRecruited(id)) {
+      TA.ui.toast(member.name + ' belum direkrut — rekrut di bengkel Pak Amir (V).');
+      return false;
     }
-    if (s.inCar && s.crew.sari) {
+    if (id === 'sari') {
+      if (!s.inCar) {
+        TA.ui.toast('SARI: Gaspol hanya bisa di mobil.');
+        return false;
+      }
+      if (s.crewCd.sari > 0) {
+        TA.ui.toast('SARI: Gaspol cooldown — ' + Math.ceil(s.crewCd.sari) + ' dtk.');
+        return false;
+      }
       // GASPOL: boost 3 detik + wanted beku.
       s.gaspolUntil = performance.now() + 3000;
-      s.abilityCd = 45;
+      s.crewCd.sari = 45;
       TA.ui.toast('SARI: Gaspol!');
       TA.audio.boostSound();
       TA.ui.flashAbility('SARI: GASPOL!');
-      return;
+      TA.ui.showCrewChatter('Sari', 'Gaspol! Pegang erat, Raka!');
+      return true;
     }
-    if (!s.inCar && s.crew.agus) {
+    if (id === 'budi') {
+      if (s.crewCd.budi > 0) {
+        TA.ui.toast('BUDI: Perbaiki Cepat cooldown — ' + Math.ceil(s.crewCd.budi) + ' dtk.');
+        return false;
+      }
+      if (s.armor >= s.maxArmor) {
+        TA.ui.toast('BUDI: Armor sudah penuh.');
+        return false;
+      }
+      // PERBAIKI CEPAT: armor +25 instan.
+      s.armor = Math.min(s.maxArmor, s.armor + 25);
+      s.crewCd.budi = 60;
+      TA.ui.toast('BUDI: Perbaiki Cepat! Armor +25.');
+      TA.audio.repairSound();
+      TA.ui.flashAbility('BUDI: PERBAIKI CEPAT!');
+      TA.ui.showCrewChatter('Budi', 'Armor sudah kutambal, Raka. Lanjut!');
+      TA.ui.renderHUD(true);
+      return true;
+    }
+    if (id === 'agus') {
       if (s.ghostUsedThisMission) {
         TA.ui.toast('AGUS: Ghost sudah dipakai di misi ini.');
-        return;
+        return false;
       }
       if (s.wanted <= 0) {
         TA.ui.toast('AGUS: Tidak ada wanted untuk dihapus.');
-        return;
+        return false;
       }
+      // GHOST: wanted langsung turun 1 bintang, sekali per misi.
       s.ghostUsedThisMission = true;
-      s.abilityCd = 60;
       TA.police.setWanted(s.wanted - 1);
       TA.ui.toast('AGUS: Ghost — wanted turun 1 bintang. Mereka kehilangan jejakmu.');
       TA.audio.ghostSound();
       TA.ui.flashAbility('AGUS: GHOST!');
-      return;
+      TA.ui.showCrewChatter('Agus', 'Kamera sudah kubutakan. Mereka kehilangan jejakmu.');
+      return true;
     }
-    if (s.crew.budi && !s.crew.sari && !s.crew.agus) {
-      TA.ui.toast('BUDI: Mobil dan armormu sedang kuperbaiki — pasif, tanpa tombol.');
-      return;
+    return false;
+  };
+
+  // Status kemampuan satu anggota untuk kartu HUD: {ready, label}.
+  C.crewAbilityReady = function (id) {
+    var s = TA.state;
+    if (!C.isRecruited(id)) return { ready: false, label: 'BELUM DIREKRUT' };
+    if (id === 'sari') {
+      return s.crewCd.sari > 0 ? { ready: false, label: Math.ceil(s.crewCd.sari) + ' dtk' } : { ready: true, label: 'READY' };
     }
-    if (!s.crew.sari && !s.crew.budi && !s.crew.agus) {
-      TA.ui.toast('Belum ada kru. Rekrut di bengkel Pak Amir (tombol C).');
-      return;
+    if (id === 'budi') {
+      return s.crewCd.budi > 0 ? { ready: false, label: Math.ceil(s.crewCd.budi) + ' dtk' } : { ready: true, label: 'READY' };
     }
-    if (s.inCar && !s.crew.sari) {
-      TA.ui.toast('Sari belum direkrut — Gaspol butuh sopir. Rekrut di bengkel (C).');
-      return;
+    if (id === 'agus') {
+      return s.ghostUsedThisMission ? { ready: false, label: 'SEKALI/MISI' } : { ready: true, label: 'READY' };
     }
-    TA.ui.toast('Tidak ada kemampuan aktif yang cocok di situasi ini.');
+    return { ready: false, label: '—' };
   };
 
   // Dipanggil tiap frame dari core.tick.
   C.update = function (dt) {
     var s = TA.state;
-    if (s.abilityCd > 0) s.abilityCd -= dt;
+    if (s.crewCd.sari > 0) s.crewCd.sari -= dt;
+    if (s.crewCd.budi > 0) s.crewCd.budi -= dt;
+    if (s.crewCd.agus > 0) s.crewCd.agus -= dt;
     var bonus = C.getCrewBonus();
     // Budi: armor pulih pelan sampai 50.
     if (bonus.armorRegen > 0 && s.armor < 50 && s.armor < s.maxArmor) {
       s.armor = Math.min(50, s.armor + bonus.armorRegen * dt);
     }
+  };
+
+  // Kartu kemampuan kru di HUD (v3.5): nama + kemampuan + tombol + status.
+  C.renderCrewCards = function () {
+    var e = TA.el('crew-cards');
+    if (!e) return;
+    var recruited = C.CREW.filter(function (m) { return C.isRecruited(m.id); });
+    if (!recruited.length) {
+      e.style.display = 'none';
+      e.innerHTML = '';
+      return;
+    }
+    var html = '<div class="crew-cards-title">KRU — KEMAMPUAN</div>';
+    recruited.forEach(function (m) {
+      var st = C.crewAbilityReady(m.id);
+      var abilityName = m.id === 'sari' ? 'GASPOL' : m.id === 'budi' ? 'PERBAIKI CEPAT' : 'GHOST';
+      html += '<div class="crew-mini" style="border-left-color:' + m.color + '">' +
+        '<div class="crew-mini-name">' + m.name.toUpperCase() + ' &ldquo;' + m.nick + '&rdquo; — ' + m.role + '</div>' +
+        '<div class="crew-mini-ability">' + abilityName + ' <span class="crew-mini-key">[' + m.key + ']</span> ' +
+        '<span class="crew-mini-status ' + (st.ready ? 'ready' : 'cd') + '">' + st.label + '</span></div></div>';
+    });
+    e.innerHTML = html;
+    e.style.display = '';
   };
 
   C.renderCrewPanel = function () {

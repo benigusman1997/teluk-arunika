@@ -37,7 +37,7 @@ async function main() {
       const tab = await newTab(CDP_PORT, 'http://127.0.0.1:' + PORT + '/index.html' + shot.query);
       tab.onConsole = (t) => errors.push(t);
       tab.onException = (t) => errors.push(t);
-      const ready = await tab.waitFor('window.__TA_READY__ === true', 120000);
+      const ready = await tab.waitFor('window.__TA_READY__ === true', 300000);
       if (!ready) { console.log('  FAIL  ' + shot.name + ' — shot tidak siap'); tab.close(); continue; }
       // Pompa frame manual, dipecah 10 frame per evaluate: headless
       // men-throttle requestAnimationFrame dan satu frame SwiftShader lambat.

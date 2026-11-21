@@ -128,18 +128,20 @@
     if (s.crew.sari) crewNames.push('Sari ✓');
     if (s.crew.budi) crewNames.push('Budi ✓');
     if (s.crew.agus) crewNames.push('Agus ✓');
-    set('crew-row', 'KRU: ' + (crewNames.length ? crewNames.join('  ') : '— (rekrut di bengkel, C)'));
-    // Bar XP + tingkat karier.
+    set('crew-row', 'KRU: ' + (crewNames.length ? crewNames.join('  ') : '— (rekrut di bengkel, V)'));
+    // Tingkat karier berangka (v3.5): "TINGKAT 3 · Penguasa Jalanan — 450 / 800 XP".
     var rank = TA.career.getRank();
-    set('rank-name', rank.name.toUpperCase());
-    set('xp-text', s.xp + ' XP' + (rank.next ? ' · ' + (rank.next.xp - s.xp) + ' XP ke ' + rank.next.name : ' · MAKS'));
+    set('rank-name', 'TINGKAT ' + (rank.index + 1) + ' · ' + rank.name.toUpperCase());
+    set('xp-text', rank.next ? (s.xp + ' / ' + rank.next.xp + ' XP') : (s.xp + ' XP · MAKS'));
     var xpFill = TA.el('xp-fill');
     if (xpFill) xpFill.style.width = (rank.next ? Math.round(100 * rank.xpInto / rank.xpNeeded) : 100) + '%';
-    // Speedometer (hanya saat di mobil).
+    // Speedometer + nama/kondisi mobil (hanya saat di mobil).
     var sp = TA.el('speedo');
     if (sp) {
       sp.style.display = s.inCar ? '' : 'none';
       set('speed-num', Math.round(s.speedKmh));
+      var cond = TA.player.getCarCondition();
+      set('car-name', cond ? (cond.name + ' — ' + cond.pct + '% ' + cond.label) : '');
     }
     // Crosshair hanya saat jalan kaki.
     var ch = TA.el('crosshair');
@@ -151,9 +153,78 @@
       ab.style.display = gaspol ? '' : 'none';
       if (gaspol) ab.textContent = '⚡ GASPOL — wanted beku';
     }
-    // Cooldown kemampuan.
-    var cd = TA.el('ability-cd');
-    if (cd) cd.textContent = s.abilityCd > 0 ? 'Q cooldown: ' + Math.ceil(s.abilityCd) + ' dtk' : (s.crew.sari || s.crew.agus ? 'Q siap — kemampuan kru' : '');
+    // Panel-panel v3.5 (dirender tiap HUD refresh).
+    U.renderMissionBanner();
+    U.renderDispatchPanel();
+    TA.crew.renderCrewCards();
+    U.renderLocationBanner();
+  };
+
+  // Banner misi bertahap (v3.5): "MISI 6 DARI 10 · TAHAP 2/3" + judul tahap +
+  // objektif + jarak (meter) + "NEXT: ...". Menggantikan teks objektif lama
+  // selama ada misi aktif; bila tidak ada misi, #objective dibiarkan apa adanya.
+  U.renderMissionBanner = function () {
+    var e = TA.el('objective');
+    if (!e) return;
+    var m = TA.missions.current();
+    var st = TA.missions.currentStage();
+    if (!m || !TA.state.missionActive || !st) return;
+    var dist = TA.missions.getObjectiveDistance();
+    var next = TA.state.missionStage + 1 < m.stages.length
+      ? m.stages[TA.state.missionStage + 1].title : 'Selesaikan misi';
+    e.innerHTML =
+      '<div class="obj-line1">MISI ' + m.id + ' DARI 10 · TAHAP ' + (TA.state.missionStage + 1) + '/' + m.stages.length + '</div>' +
+      '<div class="obj-line2">' + st.title.toUpperCase() + '</div>' +
+      '<div class="obj-line3">' + st.objective + ' · ' + dist + ' m</div>' +
+      '<div class="obj-line4">NEXT: ' + next + '</div>';
+  };
+
+  // Panel dispatch polisi (v3.5): unit bernama + taktik + jarak meter.
+  U.renderDispatchPanel = function () {
+    var e = TA.el('dispatch-panel');
+    if (!e) return;
+    var units = TA.police.getDispatchUnits();
+    if (!units.length || TA.state.wanted <= 0) {
+      e.style.display = 'none';
+      e.innerHTML = '';
+      return;
+    }
+    var html = '<div class="dispatch-title">DISPATCH POLISI — ' + units.length + ' UNIT</div>';
+    if (TA.police.heli) html += '<div class="dispatch-heli">ELANG-1 DITERJUNKAN</div>';
+    units.forEach(function (u) {
+      html += '<div class="dispatch-row"><span class="dispatch-name">' + u.name + '</span> ' +
+        '<span class="dispatch-kind">' + u.kind + '</span> — ' +
+        '<span class="dispatch-tactic">' + u.tactic + '</span> ' +
+        '<span class="dispatch-dist">' + u.dist + ' m</span></div>';
+    });
+    e.innerHTML = html;
+    e.style.display = '';
+  };
+
+  // Banner lokasi + suasana distrik (v3.5): "PELABUHAN — Dermaga Senja" + "NETRAL · 58".
+  U.renderLocationBanner = function () {
+    var e = TA.el('location-banner');
+    if (!e) return;
+    var p = TA.world.playerPos();
+    var d = TA.world.getDistrictAt(p.x, p.z);
+    if (!d) { e.style.display = 'none'; return; }
+    var label = d.standing >= 70 ? 'DIHORMATI' : d.standing >= 30 ? 'NETRAL' : 'BURUK';
+    e.innerHTML = '<div class="loc-name">' + d.name + ' — ' + d.street + '</div>' +
+      '<div class="loc-standing">' + label + ' · ' + d.standing + '</div>';
+    e.style.display = '';
+  };
+
+  // Obrolan radio kru (v3.5): kotak dialog kecil berisi tips taktis kru.
+  // Di mode screenshot, kotak tetap tampil sampai capture (tanpa timer).
+  U.chatterTimer = null;
+  U.showCrewChatter = function (name, text) {
+    var e = TA.el('crew-chatter');
+    if (!e) return;
+    e.innerHTML = '<b>' + name.toUpperCase() + ':</b> ' + text;
+    e.style.display = '';
+    if (U.chatterTimer) clearTimeout(U.chatterTimer);
+    if (TA.shot > 0) return;
+    U.chatterTimer = setTimeout(function () { e.style.display = 'none'; }, 4500);
   };
 
   U.setObjective = function (text) {
@@ -457,13 +528,22 @@
         U.renderMinimap();
       }
       // Prompt carjacking: tampilkan bila ada mobil lambat di dekat pemain.
+      // v3.5: prompt menyertakan nama + kondisi mobil. Mobil curian yang
+      // ditata (TA.jackTarget) didahulukan supaya prompt shot 1 deterministik.
       if (TA.state.mode === 'playing' && !TA.state.inCar && !TA.player.jackHolding) {
-        var car = TA.player.nearestCar(10);
+        var car = null;
+        if (TA.jackTarget) {
+          var jdx = TA.jackTarget.x - TA.px, jdz = TA.jackTarget.z - TA.pz;
+          if (Math.sqrt(jdx * jdx + jdz * jdz) < 10) car = TA.jackTarget;
+        }
+        if (!car) car = TA.player.nearestCar(10);
         var prompt = TA.el('interact-prompt');
         if (prompt) {
           if (car && Math.abs(car.speed) < 1.5) {
+            var cond = TA.player.getCarCondition(car);
             prompt.style.display = '';
-            prompt.textContent = 'TAHAN E — CURI MOBIL';
+            prompt.textContent = 'TAHAN E — CURI MOBIL' +
+              (cond ? ' · ' + cond.name + ' — ' + cond.pct + '% ' + cond.label : '');
           } else {
             prompt.style.display = 'none';
           }

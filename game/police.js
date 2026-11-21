@@ -48,11 +48,52 @@
       if (n === 3) TA.ui.toast('Wanted 3 — ROADBLOCK di depan! Cari jalan lain.');
       if (n === 4) TA.ui.toast('Wanted 4 — spike strip & manuver PIT. ELANG-1 bersiap.');
       if (n === 5) TA.ui.toast('Wanted 5 — ELANG-1 di udara! Sembunyi atau masuk safehouse.');
+      // Kekacauan menurunkan suasana distrik tempatmu berada.
+      var d = TA.world.getDistrictAt(TA.px, TA.pz);
+      if (d) TA.world.updateDistrictStanding(d.id, -3);
+      // Obrolan radio kru saat wanted naik.
+      if (TA.crew.isRecruited('agus')) {
+        TA.ui.showCrewChatter('Agus', 'Wanted naik ke ' + n + '. Jangan panik — sembunyi di gang, kameranya kubutakan.');
+      } else if (TA.crew.isRecruited('sari')) {
+        TA.ui.showCrewChatter('Sari', 'Wanted ' + n + '! Gaspol, Raka — jangan berhenti di jalan besar.');
+      }
       TA.audio.sirenSound();
     }
     if (n === 0) TA.audio.stopSiren();
     PL.escalatePolice();
     TA.ui.renderHUD(true);
+  };
+
+  // ---------------------------------------------------------- dispatch (v3.5)
+  // Daftar unit polisi aktif: NAMA + JENIS + TAKTIK + JARAK (meter),
+  // diurutkan dari yang terdekat. Dipakai panel dispatch di HUD.
+  PL.getDispatchUnits = function () {
+    var s = TA.state;
+    var px = s.inCar && TA.car ? TA.car.x : TA.px;
+    var pz = s.inCar && TA.car ? TA.car.z : TA.pz;
+    var dist = function (x, z) {
+      return Math.round(Math.sqrt((px - x) * (px - x) + (pz - z) * (pz - z)));
+    };
+    var units = [];
+    if (PL.heli) {
+      units.push({ name: 'ELANG-1', kind: 'AIR', tactic: 'SPOTLIGHT', dist: dist(PL.heli.group.position.x, PL.heli.group.position.z) });
+    }
+    PL.roadblocks.forEach(function (r, i) {
+      units.push({ name: 'BLOKIR-0' + (3 + i * 2), kind: 'BLOKIR', tactic: 'ROADBLOCK', dist: dist(r.x, r.z) });
+    });
+    PL.spikes.forEach(function (sp, i) {
+      units.push({ name: 'BLOKIR-0' + (7 + i * 2), kind: 'BLOKIR', tactic: 'SPIKE STRIP', dist: dist(sp.x, sp.z) });
+    });
+    var tactics = s.wanted >= 4 ? ['PIT', 'RAMMING', 'FLANKING', 'BOX IN'] : ['RAMMING', 'FLANKING', 'BOX IN', 'PIT'];
+    var names = ['PATROLI-07', 'PATROLI-12', 'PATROLI-21', 'PATROLI-09'];
+    PL.patrols.forEach(function (c, i) {
+      units.push({ name: names[i % names.length], kind: 'MOBIL', tactic: tactics[i % tactics.length], dist: dist(c.x, c.z) });
+    });
+    PL.footPatrols.forEach(function (f) {
+      units.push({ name: 'PATROLI-31', kind: 'KAKI', tactic: 'PENGEJARAN', dist: dist(f.x, f.z) });
+    });
+    units.sort(function (a, b) { return a.dist - b.dist; });
+    return units.slice(0, 6);
   };
 
   // Sesuaikan kekuatan polisi dengan level wanted saat ini.
@@ -153,6 +194,9 @@
     var c2 = PL.makePoliceCar(x + 7, z - 3);
     PL.roadblocks.push({ group: g, x: x, z: z, cars: [c1, c2] });
     TA.ui.toast('ROADBLOCK! Polisi menutup jalan di depan.');
+    if (TA.crew.isRecruited('sari')) {
+      TA.ui.showCrewChatter('Sari', 'Roadblock di depan, dua blok lagi. Belok kiri di gang!');
+    }
   };
 
   PL.clearRoadblocks = function () {

@@ -16,7 +16,12 @@
         { who: 'Pak Amir', text: 'Antar penumpang di pangkalan taksi. Jangan bikin masalah dulu.' }
       ],
       reward: 120, xp: 100,
-      outro: 'Penumpang pertama diantar. $120 masuk. 6 hari tersisa.'
+      outro: 'Penumpang pertama diantar. $120 masuk. 6 hari tersisa.',
+      stages: [
+        { title: 'Nyalakan Mesin', objective: 'Jalan ke pangkalan taksi', type: 'reach', target: { x: 20, z: 20 }, next: 'Jemput Penumpang' },
+        { title: 'Jemput Penumpang', objective: 'Jemput penumpang di Pasar Arunika', type: 'reach', target: { x: 0, z: 0 }, next: 'Antar ke Pelabuhan' },
+        { title: 'Antar ke Pelabuhan', objective: 'Antar penumpang ke pelabuhan', type: 'reach', target: { x: 0, z: 195 }, next: 'Selesaikan misi' }
+      ]
     },
     {
       id: 2, title: 'Paket Basah', day: 2, type: 'goto',
@@ -26,7 +31,12 @@
         { who: 'Sari', text: 'Aku baru di kota ini. Kau butuh sopir yang tahu jalan tikus?' }
       ],
       reward: 150, xp: 100,
-      outro: 'Paket sampai. $150. Sari mengawasimu dari warung kopi.'
+      outro: 'Paket sampai. $150. Sari mengawasimu dari warung kopi.',
+      stages: [
+        { title: 'Ambil Paket', objective: 'Ambil paket di Pasar Arunika', type: 'reach', target: { x: 0, z: 0 }, next: 'Lintasi Gang Neon' },
+        { title: 'Lintasi Gang Neon', objective: 'Bawa paket lewat gang neon', type: 'reach', target: { x: -40, z: 0 }, next: 'Serahkan di Pelabuhan' },
+        { title: 'Serahkan di Pelabuhan', objective: 'Serahkan paket di dermaga', type: 'reach', target: { x: 0, z: 195 }, next: 'Selesaikan misi' }
+      ]
     },
     {
       id: 3, title: 'Setoran Warung', day: 3, type: 'collect',
@@ -36,7 +46,12 @@
         { who: 'Raka', text: 'Tiga warung, hujan-hujanan. Baiklah.' }
       ],
       reward: 220, xp: 100, collectNeeded: 3,
-      outro: 'Tiga warung lunas. $220. Utang makin dekat terbayar.'
+      outro: 'Tiga warung lunas. $220. Utang makin dekat terbayar.',
+      stages: [
+        { title: 'Warung Pertama', objective: 'Tagih setoran warung pertama', type: 'collect', target: { x: -14, z: 10 }, next: 'Warung Kedua' },
+        { title: 'Warung Kedua', objective: 'Tagih setoran warung kedua', type: 'collect', target: { x: 14, z: -10 }, next: 'Warung Ketiga' },
+        { title: 'Warung Ketiga', objective: 'Tagih setoran warung terakhir', type: 'collect', target: { x: 0, z: 16 }, next: 'Selesaikan misi' }
+      ]
     },
     {
       id: 4, title: 'Mata-Mata Pelabuhan', day: 4, type: 'goto',
@@ -46,7 +61,12 @@
         { who: 'Raka', text: 'Amati dulu. Jangan sampai ketahuan.' }
       ],
       reward: 180, xp: 100,
-      outro: 'Kau tahu jadwal jaga gudang itu sekarang. Informasi itu mahal.'
+      outro: 'Kau tahu jadwal jaga gudang itu sekarang. Informasi itu mahal.',
+      stages: [
+        { title: 'Menyusup ke Dermaga', objective: 'Sampai di dermaga pelabuhan', type: 'reach', target: { x: 0, z: 180 }, next: 'Amati Gudang' },
+        { title: 'Amati Gudang', objective: 'Amati jadwal jaga gudang Darma', type: 'reach', target: { x: 0, z: 195 }, next: 'Kembali ke Bengkel' },
+        { title: 'Kembali ke Bengkel', objective: 'Laporkan ke Pak Amir', type: 'reach', target: { x: -60, z: 60 }, next: 'Selesaikan misi' }
+      ]
     },
     {
       id: 5, title: 'Bayar atau Khianati', day: 5, type: 'choice',
@@ -56,7 +76,12 @@
         { who: 'Raka', text: 'Lima ratus... Aku punya pilihannya. Bayar, atau khianati dia sekali untuk selamanya.' }
       ],
       reward: 0, xp: 50,
-      outro: 'Keputusan hari ke-5 akan menentukan akhir cerita ini.'
+      outro: 'Keputusan hari ke-5 akan menentukan akhir cerita ini.',
+      stages: [
+        { title: 'Temui Darma', objective: 'Temui Darma di bengkel Pak Amir', type: 'reach', target: { x: -60, z: 60 }, next: 'Tentukan Pilihan' },
+        { title: 'Tentukan Pilihan', objective: 'Bayar $500 atau khianati Darma', type: 'choice', target: { x: -60, z: 60 }, next: 'Tinggalkan Bengkel' },
+        { title: 'Tinggalkan Bengkel', objective: 'Tinggalkan bengkel, kembali ke pasar', type: 'reach', target: { x: 0, z: 0 }, next: 'Selesaikan misi' }
+      ]
     },
     {
       id: 6, title: 'Balas Dendam', day: 6, type: 'kill',
@@ -66,7 +91,12 @@
         { who: 'Budi', text: 'Mobilmu sudah kupasangi pelat baja. Hajar mereka, Raka.' }
       ],
       reward: 300, xp: 100, killsNeeded: 5,
-      outro: 'Lima anak buah Darma tumbang. Gang neon kembali tenang.'
+      outro: 'Lima anak buah Darma tumbang. Gang neon kembali tenang.',
+      stages: [
+        { title: 'Cari Anak Buah Darma', objective: 'Masuk ke gang neon', type: 'reach', target: { x: -40, z: 0 }, next: 'Wreck the Regent' },
+        { title: 'WRECK THE REGENT', objective: 'Hancurkan 5 anak buah Darma', type: 'kill', count: 5, target: { x: -40, z: 0 }, next: 'Kabur dari Polisi' },
+        { title: 'Kabur dari Polisi', objective: 'Turunkan wanted sampai 0 / sembunyi di safehouse', type: 'escape', target: { x: -40, z: 0 }, next: 'Selesaikan misi' }
+      ]
     },
     {
       id: 7, title: 'Pelarian Tol Layang', day: 6, type: 'escape',
@@ -76,7 +106,12 @@
         { who: 'Raka', text: 'Pegang erat. Kita hilang di gang neon.' }
       ],
       reward: 260, xp: 100,
-      outro: 'Kau lolos dari kejaran. Safehouse melindungimu malam ini.'
+      outro: 'Kau lolos dari kejaran. Safehouse melindungimu malam ini.',
+      stages: [
+        { title: 'Naik ke Tol Layang', objective: 'Naik ke jalan tol layang', type: 'reach', target: { x: 0, z: -160 }, next: 'Hilang di Lalu Lintas' },
+        { title: 'Hilang di Lalu Lintas', objective: 'Bertahan 20 detik tanpa tertangkap', type: 'survive', seconds: 20, target: { x: 0, z: -160 }, next: 'Masuk Safehouse' },
+        { title: 'Masuk Safehouse', objective: 'Masuk ke safehouse gang neon', type: 'reach', target: { x: -40, z: 0 }, next: 'Selesaikan misi' }
+      ]
     },
     {
       id: 8, title: 'Gudang Terbakar', day: 7, type: 'kill',
@@ -86,7 +121,12 @@
         { who: 'Raka', text: 'Enam penjaga. Satu kesempatan. Masuk.' }
       ],
       reward: 350, xp: 100, killsNeeded: 6,
-      outro: 'Dokumen utang direbut. Darma tidak punya lagi pegangan atas bengkel.'
+      outro: 'Dokumen utang direbut. Darma tidak punya lagi pegangan atas bengkel.',
+      stages: [
+        { title: 'Masuk Gudang', objective: 'Masuk ke gudang Darma', type: 'reach', target: { x: 40, z: 200 }, next: 'Habisi 6 Penjaga' },
+        { title: 'Habisi 6 Penjaga', objective: 'Habisi 6 penjaga gudang', type: 'kill', count: 6, target: { x: 40, z: 200 }, next: 'Ambil Dokumen' },
+        { title: 'Ambil Dokumen', objective: 'Ambil dokumen utang ayahmu', type: 'reach', target: { x: 40, z: 210 }, next: 'Selesaikan misi' }
+      ]
     },
     {
       id: 9, title: 'Jebakan di Pasar', day: 7, type: 'waves',
@@ -96,7 +136,12 @@
         { who: 'Raka', text: 'Tiga gelombang. Aku tidak akan lari lagi.' }
       ],
       reward: 400, xp: 100, waves: 3,
-      outro: 'Pasar bertahan. Darma kehabisan anak buah — tinggal dia sendiri.'
+      outro: 'Pasar bertahan. Darma kehabisan anak buah — tinggal dia sendiri.',
+      stages: [
+        { title: 'Gelombang 1', objective: 'Tahan gelombang 1 di pasar', type: 'waves', wave: 1, target: { x: 0, z: 0 }, next: 'Gelombang 2' },
+        { title: 'Gelombang 2', objective: 'Tahan gelombang 2 di pasar', type: 'waves', wave: 2, target: { x: 0, z: 0 }, next: 'Gelombang 3' },
+        { title: 'Gelombang 3', objective: 'Tahan gelombang terakhir', type: 'waves', wave: 3, target: { x: 0, z: 0 }, next: 'Selesaikan misi' }
+      ]
     },
     {
       id: 10, title: 'Operasi Terakhir: Fajar di Pelabuhan', day: 7, type: 'final',
@@ -108,7 +153,12 @@
         { who: 'Budi', text: 'Mobil dan senjatamu sudah siap. Akhiri ini, Raka.' }
       ],
       reward: 1000, xp: 100, waves: 3,
-      outro: 'Gudang terakhir Darma jatuh. Fajar naik di Teluk Arunika.'
+      outro: 'Gudang terakhir Darma jatuh. Fajar naik di Teluk Arunika.',
+      stages: [
+        { title: 'Serbu Dermaga', objective: 'Serbu dermaga pelabuhan', type: 'reach', target: { x: 0, z: 185 }, next: 'Bersihkan Gudang' },
+        { title: 'Bersihkan Gudang', objective: 'Habisi gelombang 1 & 2 di gudang', type: 'waves', wave: 2, target: { x: 0, z: 195 }, next: 'Gelombang Terakhir' },
+        { title: 'Gelombang Terakhir', objective: 'Habisi gelombang terakhir, hadapi Darma', type: 'waves', wave: 3, target: { x: 0, z: 195 }, next: 'Hadapi Darma' }
+      ]
     }
   ];
 
@@ -120,6 +170,7 @@
   M.markerPulse = 0;
   M.wave = 0;
   M.waveTimer = 0;
+  M.wavesCleared = {}; // gelombang yang sudah dibersihkan (untuk tahap 'waves')
   M.collectCount = 0;
   M.escapeTimer = 0;
   M.choiceMade = false;
@@ -148,22 +199,73 @@
     s.missionKills = 0;
     s.missionStage = 0;
     s.ghostUsedThisMission = false;
-    M.wave = 0; M.waveTimer = 0; M.collectCount = 0; M.escapeTimer = 0;
+    M.wave = 0; M.waveTimer = 0; M.wavesCleared = {}; M.collectCount = 0; M.escapeTimer = 0;
     M.choiceMade = false; M.finalChoice = null;
     s.missionTarget = m.killsNeeded || m.collectNeeded || m.waves || 0;
-    // Penanda objektif.
-    if (m.target) {
-      M.marker.position.set(m.target.x, 7, m.target.z);
-      M.marker.visible = true;
-    }
-    TA.ui.setObjective('Misi ' + m.id + ' — ' + m.title);
     if (m.type === 'kill') M.spawnEnemies(m.killsNeeded, m.target.x, m.target.z);
     if (m.type === 'waves' || m.type === 'final') { M.wave = 1; M.spawnWave(1); }
     if (m.type === 'escape' && TA.state.wanted < 3) TA.police.setWanted(3);
+    M.startMissionStage(i, 0);
     if (!shotMode && m.intro) {
       M.showDialogue(m.intro, null);
     }
     TA.ui.renderHUD(true);
+  };
+
+  // ---------------------------------------------------------- misi bertahap (v3.5)
+  M.currentStage = function () {
+    var m = M.current();
+    return (m && m.stages) ? (m.stages[TA.state.missionStage] || null) : null;
+  };
+
+  // Jarak (meter) dari pemain/mobil ke objektif tahap saat ini.
+  M.getObjectiveDistance = function () {
+    var m = M.current();
+    var st = M.currentStage();
+    var t = (st && st.target) || (m && m.target);
+    if (!t) return 0;
+    var s = TA.state;
+    var px = s.inCar && TA.car ? TA.car.x : TA.px;
+    var pz = s.inCar && TA.car ? TA.car.z : TA.pz;
+    return Math.round(Math.sqrt((px - t.x) * (px - t.x) + (pz - t.z) * (pz - t.z)));
+  };
+
+  M.startMissionStage = function (mi, si) {
+    var m = M.MISSIONS[mi];
+    if (!m || !m.stages || !m.stages[si]) return;
+    var s = TA.state;
+    s.missionStage = si;
+    var st = m.stages[si];
+    if (st.type === 'survive') st._t = st.seconds;
+    if (st.target) {
+      M.marker.position.set(st.target.x, 7, st.target.z);
+      M.marker.visible = true;
+    }
+    TA.ui.renderMissionBanner();
+    if (st.type === 'choice') {
+      M.showBranchChoice();
+    } else if (!TA.shot) {
+      TA.ui.toast('TAHAP ' + (si + 1) + '/' + m.stages.length + ' — ' + st.title);
+    }
+  };
+
+  M.advanceStage = function () {
+    var m = M.current();
+    if (!m || !TA.state.missionActive) return;
+    var s = TA.state;
+    if (m.type === 'collect') {
+      M.collectCount++;
+      s.jobsDone++;
+      TA.career.addXP(10);
+      TA.ui.toast('Setoran warung ' + M.collectCount + '/' + m.collectNeeded + ' ditagih.');
+    }
+    if (s.missionStage + 1 < m.stages.length) {
+      M.startMissionStage(s.missionIndex, s.missionStage + 1);
+    } else if (m.type === 'final') {
+      M.finalChoiceStep();
+    } else {
+      M.completeMission();
+    }
   };
 
   M.clearEnemies = function () {
@@ -236,6 +338,9 @@
     }
   };
 
+  // v3.5: penyelesaian misi dinilai dari TAHAP saat ini (bukan tipe misi lama).
+  // Gelombang tetap maju sendiri (Misi 9 & 10): begitu satu gelombang habis,
+  // gelombang berikut muncul — tahap 'waves' mencatatnya lewat wavesCleared.
   M.checkObjective = function (dt) {
     var s = TA.state;
     var m = M.current();
@@ -243,54 +348,33 @@
     var px = s.inCar && TA.car ? TA.car.x : TA.px;
     var pz = s.inCar && TA.car ? TA.car.z : TA.pz;
 
-    if (m.type === 'goto' || m.type === 'collect') {
-      var dx = px - m.target.x, dz = pz - m.target.z;
-      var d = Math.sqrt(dx * dx + dz * dz);
-      if (m.type === 'goto') {
-        if (d < 9) M.completeMission();
-      } else {
-        // collect: 3 titik setoran di sekitar pasar.
-        if (d < 9) {
-          M.collectCount++;
-          s.jobsDone++;
-          TA.career.addXP(10);
-          TA.ui.toast('Setoran warung ' + M.collectCount + '/' + m.collectNeeded + ' ditagih.');
-          // Pindah penanda ke titik berikutnya.
-          var spots = [{ x: -14, z: 10 }, { x: 14, z: -10 }, { x: 0, z: 16 }];
-          if (M.collectCount < m.collectNeeded) {
-            var sp = spots[M.collectCount];
-            m.target.x = sp.x; m.target.z = sp.z;
-            M.marker.position.set(sp.x, 7, sp.z);
-          } else M.completeMission();
-        }
-      }
-    } else if (m.type === 'kill') {
-      if (s.missionKills >= m.killsNeeded) M.completeMission();
-    } else if (m.type === 'waves' || m.type === 'final') {
-      if (TA.enemies.length === 0 && s.missionActive) {
+    if ((m.type === 'waves' || m.type === 'final') && TA.enemies.length === 0) {
+      if (!M.wavesCleared[M.wave]) {
+        M.wavesCleared[M.wave] = true;
         if (M.wave < m.waves) {
           M.wave++;
           M.waveTimer = 1.2;
-        } else if (m.type === 'waves') {
-          M.completeMission();
-        } else {
-          M.finalChoiceStep();
         }
       }
-    } else if (m.type === 'escape') {
-      var sh = TA.world.markers.safehouse;
-      var sd = Math.sqrt((px - sh.x) * (px - sh.x) + (pz - sh.z) * (pz - sh.z));
-      if (s.wanted <= 1 && sd < 12) {
-        M.completeMission();
-      } else if (s.wanted <= 0) {
-        M.completeMission();
-      }
-    } else if (m.type === 'choice') {
-      var cdx = px - m.target.x, cdz = pz - m.target.z;
-      if (Math.sqrt(cdx * cdx + cdz * cdz) < 9 && !M.choiceMade) {
-        M.choiceMade = true;
-        M.showBranchChoice();
-      }
+    }
+
+    var st = M.currentStage();
+    if (!st) return;
+    var dx, dz;
+    if (st.type === 'reach' || st.type === 'collect') {
+      dx = px - st.target.x; dz = pz - st.target.z;
+      if (Math.sqrt(dx * dx + dz * dz) < 12) M.advanceStage();
+    } else if (st.type === 'kill') {
+      if (s.missionKills >= st.count) M.advanceStage();
+    } else if (st.type === 'escape') {
+      if (s.wanted <= 0) M.advanceStage();
+    } else if (st.type === 'survive') {
+      st._t = (st._t == null ? st.seconds : st._t) - dt;
+      if (st._t <= 0) M.advanceStage();
+    } else if (st.type === 'choice') {
+      if (M.choiceMade) M.advanceStage();
+    } else if (st.type === 'waves') {
+      if (M.wavesCleared[st.wave]) M.advanceStage();
     }
   };
 
@@ -312,7 +396,8 @@
               TA.ui.toast('Uangmu tidak cukup! Darma murka — wanted +2.');
               TA.police.setWanted(Math.min(5, s.wanted + 2));
             }
-            M.completeMission();
+            M.choiceMade = true;
+            M.advanceStage();
           }
         },
         {
@@ -323,7 +408,8 @@
             TA.career.addXP(25);
             TA.police.setWanted(Math.min(5, s.wanted + 2));
             TA.ui.toast('Kau mengkhianati Darma. Mulai sekarang, dia memburumu.');
-            M.completeMission();
+            M.choiceMade = true;
+            M.advanceStage();
           }
         }
       ]
@@ -371,6 +457,12 @@
     s.debt = Math.max(0, s.debt - Math.round(m.reward * 0.4));
     TA.career.addXP(m.xp);
     if (m.type === 'goto' || m.type === 'collect') s.jobsDone++;
+    // Suasana distrik naik: misi selesai di distrik itu.
+    var d = TA.world.getDistrictAt(m.target.x, m.target.z);
+    if (d) TA.world.updateDistrictStanding(d.id, 8);
+    if (TA.crew.isRecruited('budi')) {
+      TA.ui.showCrewChatter('Budi', 'Bagus, Raka. Mobil aman, armor sudah kupulihkan.');
+    }
     TA.ui.hideDialogue();
     M.marker.visible = false;
     TA.ui.toast('MISI SELESAI — ' + m.title + ' · +' + TA.fmtMoney(m.reward) + ' · +' + m.xp + ' XP');

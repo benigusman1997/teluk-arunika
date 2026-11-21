@@ -63,8 +63,7 @@
       missionTarget: 0,
       missionStage: 0,
       crew: { sari: false, budi: false, agus: false },
-      abilityCd: 0,
-      abilityUntil: 0,
+      crewCd: { sari: 0, budi: 0, agus: 0 }, // cooldown kemampuan kru (detik)
       ghostUsedThisMission: false,
       gaspolUntil: 0,
       radio: 0,
@@ -209,6 +208,7 @@
       TA.world.updateTraffic(dt);
       TA.world.updatePedestrians(dt);
       TA.world.updateRain(dt);
+      TA.world.updateTaxiJob(dt);
       TA.police.update(dt);
       TA.missions.update(dt);
       TA.crew.update(dt);
@@ -260,9 +260,11 @@
       if (e.code === 'Digit2') TA.player.switchWeapon(1);
       if (e.code === 'Digit3') TA.player.switchWeapon(2);
       if (e.code === 'Digit4') TA.player.switchWeapon(3);
-      if (e.code === 'KeyQ') TA.crew.activateCrewAbility();
+      if (e.code === 'KeyZ') TA.crew.activateCrewAbility('sari');
+      if (e.code === 'KeyX') TA.crew.activateCrewAbility('budi');
+      if (e.code === 'KeyC') TA.crew.activateCrewAbility('agus');
+      if (e.code === 'KeyV') TA.ui.toggleCrewPanel();
       if (e.code === 'KeyR') TA.audio.cycleRadio();
-      if (e.code === 'KeyC') TA.ui.toggleCrewPanel();
       if (e.code === 'KeyM') TA.ui.toggleMinimapZoom();
       if (e.code === 'Tab') { e.preventDefault(); TA.ui.showWeaponWheel(true); }
       if (e.code === 'KeyE') TA.player.tryEnterCar();
@@ -306,8 +308,10 @@
     s.timeMinutes = 8 * 60 + 20; s.weather = 'rain'; s.timeOfDay = 'day';
     s.missionIndex = 0; s.missionActive = false; s.missionKills = 0;
     s.crew = { sari: false, budi: false, agus: false };
-    s.abilityCd = 0; s.kills = 0; s.carsStolen = 0; s.jobsDone = 0; s.missionsDone = 0;
+    s.crewCd = { sari: 0, budi: 0, agus: 0 };
+    s.kills = 0; s.carsStolen = 0; s.jobsDone = 0; s.missionsDone = 0;
     s.inCar = false; s.dead = false; s.playSeconds = 0;
+    TA.world.resetDistricts();
     TA.px = 0; TA.pz = 24; TA.pyaw = 0; TA.ppitch = 0;
     TA.player.resetWeapons();
     TA.police.clearPolice();
@@ -408,7 +412,8 @@
     TA.player.resetWeapons();
     s.wanted = 0; s.inCar = false; s.dead = false;
     s.crew = { sari: false, budi: false, agus: false };
-    s.abilityCd = 0; s.gaspolUntil = 0;
+    s.crewCd = { sari: 0, budi: 0, agus: 0 };
+    s.gaspolUntil = 0;
     TA.car = null;
     if (n === 1) {
       // Siang hujan, on-foot, mobil curian di depan, wanted 2, kru + XP terlihat.
@@ -420,18 +425,18 @@
       TA.world.setWeather('rain');
       TA.px = 2; TA.pz = 26; TA.pyaw = 0.15; TA.ppitch = -0.02;
       TA.world.placeJackCar(2, 18);
+      TA.jackTarget.hp = 62; // kondisi mobil curian: PELABUHAN GT — 62% RUSAK
       TA.missions.startMission(2, true); // mode shot: tanpa dialog
-      TA.ui.setObjective('Misi 3 — Kumpulkan setoran dari 3 warung di pasar');
     } else if (n === 2) {
       // Kejar-kejaran malam: di mobil, roadblock + spike strip, ELANG-1, toast Gaspol.
       s.money = 2380; s.day = 5; s.debt = 3100; s.xp = 520; s.rankIndex = 2;
-      s.wanted = 4; s.hp = 74; s.armor = 60; s.speedKmh = 87;
+      s.hp = 74; s.armor = 60; s.speedKmh = 87;
       s.crew.sari = true; s.crew.budi = true;
       s.timeMinutes = 22 * 60 + 40;
       TA.world.setTimeOfDay('night');
       TA.world.setWeather('rain');
       TA.car = TA.world.makeCar(0xc0392b, 40, 8, Math.PI);
-      TA.car.speed = 24; TA.car.stolen = true;
+      TA.car.speed = 24; TA.car.stolen = true; TA.car.hp = 62; // PELABUHAN GT — 62% RUSAK
       TA.scene.add(TA.car.group);
       s.inCar = true;
       TA.camera.position.set(40, 4.4, 17.5); // snap kamera kejar ke posisi akhir
@@ -447,8 +452,10 @@
       heli.light.target.updateMatrixWorld();
       TA.ui.toast('SARI: Gaspol!');
       TA.ui.flashAbility('SARI: GASPOL!');
-      TA.ui.setObjective('Lolos dari kejaran — capai safehouse di gang neon');
-      TA.missions.startMission(6, true);
+      // v3.5: Misi 6 tahap 2 "WRECK THE REGENT" + obrolan kru soal roadblock.
+      TA.missions.startMission(5, true);
+      TA.missions.startMissionStage(5, 1);
+      TA.ui.showCrewChatter('Sari', 'Roadblock di depan, dua blok lagi. Belok kiri di gang!');
     } else if (n === 3) {
       // Misi 10, fajar di pelabuhan: baku tembak di balik kontainer, wheel + dialog.
       s.money = 3120; s.day = 7; s.debt = 500; s.xp = 1450; s.rankIndex = 3;
@@ -459,6 +466,7 @@
       TA.world.setWeather('clear');
       TA.px = -6; TA.pz = 168; TA.pyaw = 3.2; TA.ppitch = 0.02;
       TA.missions.startMission(9, true);
+      TA.missions.startMissionStage(9, 1); // v3.5: tahap 2 "Bersihkan Gudang"
       TA.missions.spawnEnemies(6, 0, 180);
       TA.player.WEAPONS.forEach(function (w) { w.owned = true; });
       TA.player.switchWeapon(3);
@@ -468,7 +476,6 @@
         { who: 'Sari', text: 'Gaspol, Raka. Kita habisi gudang ini bareng-bareng.' },
         { who: 'Agus', text: 'Kamera pelabuhan sudah kubutakan. Mereka tidak lihat kita datang.' }
       ], null, true);
-      TA.ui.setObjective('Misi 10 — Operasi Terakhir: Fajar di Pelabuhan');
     } else if (n === 4) {
       // Malam neon + pause: panel karier + panel kru terbuka.
       s.money = 4860; s.day = 6; s.debt = 1800; s.xp = 640; s.rankIndex = 2;
@@ -479,7 +486,6 @@
       TA.world.setWeather('rain');
       TA.px = -38; TA.pz = -20; TA.pyaw = 2.9; TA.ppitch = 0;
       TA.missions.startMission(5, true);
-      TA.ui.setObjective('Side job: antar penumpang ke pelabuhan — $90');
       s.mode = 'paused';
       TA.ui.showPauseScreen();
     }

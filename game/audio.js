@@ -219,6 +219,10 @@
     });
   };
   A.recruitSound = function () { A.missionSound(); };
+  A.repairSound = function () {
+    A.blip(660, 0.08, 'square', 0.1);
+    setTimeout(function () { A.blip(880, 0.12, 'square', 0.1); }, 90);
+  };
   A.boostSound = function () {
     A.blip(220, 0.5, 'sawtooth', 0.12, 880);
     A.noiseBurst(0.4, 0.12, 3000);

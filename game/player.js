@@ -13,6 +13,19 @@
     { name: 'Rifle', damage: 42, rate: 0.16, mag: 24, reload: 1.6, range: 160, spread: 0.006, auto: true, price: 950, owned: false }
   ];
 
+  // Nama model mobil (v3.5) — tampil di blok kecepatan + prompt carjacking.
+  P.CAR_MODELS = ['ARUNIKA SEDAN', 'PELABUHAN GT', 'TAKSI KUNING', 'KOTA VAN', 'DERMAGA PICKUP'];
+
+  // Kondisi mobil saat ini: {name, pct, label} — label PRIMA (≥80%), RUSAK
+  // (50-79%), PARAH (<50%). Kondisi turun saat tabrakan, pulih di bengkel/Budi.
+  P.getCarCondition = function (car) {
+    car = car || TA.car;
+    if (!car) return null;
+    var pct = Math.round(TA.clamp(car.hp, 0, 100));
+    var label = pct >= 80 ? 'PRIMA' : pct >= 50 ? 'RUSAK' : 'PARAH';
+    return { name: car.model || 'ARUNIKA SEDAN', pct: pct, label: label };
+  };
+
   P.ammo = [];          // sisa peluru per senjata (di luar mag)
   P.mag = [];           // isi mag saat ini
   P.firing = false;
@@ -142,7 +155,10 @@
     if (TA.world.collides(nx, nz, 1.6)) {
       car.speed *= 0.35; // tabrakan: melambat drastis
       TA.audio.crashSound();
-      if (Math.abs(car.speed) > 6) P.takeDamage(2, 'tabrakan');
+      if (Math.abs(car.speed) > 6) {
+        car.hp = Math.max(0, car.hp - 2); // kondisi mobil turun saat tabrakan
+        P.takeDamage(2, 'tabrakan');
+      }
     } else {
       car.x = nx; car.z = nz;
     }
@@ -230,6 +246,9 @@
     TA.car = car;
     s.inCar = true;
     s.carsStolen++;
+    // Curi mobil menurunkan suasana distrik tempat kejadian.
+    var d = TA.world.getDistrictAt(car.x, car.z);
+    if (d) TA.world.updateDistrictStanding(d.id, -2);
     TA.police.setWanted(Math.min(5, s.wanted + 1));
     TA.career.addXP(10);
     TA.ui.toast('Mobil dicuri! Wanted +1 — bawa ke garasi untuk ganti warna.');

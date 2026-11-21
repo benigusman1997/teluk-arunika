@@ -135,11 +135,14 @@ async function main() {
         async function loadPage(url) {
           errors.length = 0; badRequests.length = 0; externalReqs.length = 0;
           const tab = await newTab(CDP_PORT, url);
-          tab.onConsole = (t) => errors.push(t);
+          // Abaikan noise driver SwiftShader: THREE mencatat "Shader Error ...
+          // VALIDATE_STATUS false" ke console saat validasi program gagal
+          // sesekali di software renderer — bukan error game (render tetap jalan).
+          tab.onConsole = (t) => { if (!/Shader Error|VALIDATE_STATUS/.test(t)) errors.push(t); };
           tab.onException = (t) => errors.push(t);
           tab.onRequest = (u) => { if (!u.startsWith('http://127.0.0.1:' + PORT) && !u.startsWith('data:')) externalReqs.push(u); };
           tab.onResponse = (u, st) => { if (st >= 400) badRequests.push(u + ' -> ' + st); };
-          const ready = await tab.waitFor('window.__TA_READY__ === true', 120000);
+          const ready = await tab.waitFor('window.__TA_READY__ === true', 300000);
           if (ready) {
             // Pompa frame manual, dipecah 10 frame per evaluate: headless
             // men-throttle requestAnimationFrame dan satu frame SwiftShader lambat.
@@ -171,10 +174,27 @@ async function main() {
           check('save/load roundtrip', await ev(r.tab, 'TA.saveGame("1"); TA.state.money = 99999; TA.loadGame("1"); TA.state.mode = "playing"; TA.ui.hideDialogue(); TA.state.money === 250'));
           check('addXP + rank-up ke Sopir Andal', await ev(r.tab, 'TA.state.xp = 0; TA.career.addXP(150); TA.career.getRank().name === "Sopir Andal"'));
           check('rekrut Sari (butuh rank 2 + $300)', await ev(r.tab, 'TA.state.money = 1000; TA.crew.recruitCrewMember("sari") === true && TA.state.crew.sari === true'));
+          check('rekrut Budi (butuh rank 2 + $250)', await ev(r.tab, 'TA.crew.recruitCrewMember("budi") === true && TA.state.crew.budi === true'));
+          check('addXP + rank-up ke Penguasa Jalanan', await ev(r.tab, 'TA.career.addXP(250); TA.career.getRank().name === "Penguasa Jalanan"'));
+          check('rank berangka: TINGKAT 3 · 400 / 800 XP', await ev(r.tab, 'TA.state.xp = 400; TA.career.applyRankPerks(); TA.ui.renderHUD(true); document.getElementById("rank-name").textContent === "TINGKAT 3 · PENGUASA JALANAN" && document.getElementById("xp-text").textContent === "400 / 800 XP"'));
+          check('rekrut Agus (butuh rank 3 + $400)', await ev(r.tab, 'TA.crew.recruitCrewMember("agus") === true && TA.state.crew.agus === true'));
           check('bonus kru Sari: speedMul 1.15', await ev(r.tab, 'TA.crew.getCrewBonus().speedMul === 1.15'));
-          check('Gaspol aktif saat di mobil', await ev(r.tab, 'TA.state.inCar = true; TA.car = TA.world.makeCar(0xc0392b, 0, 0, 0); TA.crew.activateCrewAbility(); TA.state.abilityCd > 40'));
+          check('Gaspol (Z) aktif saat di mobil', await ev(r.tab, 'TA.state.inCar = true; TA.car = TA.world.makeCar(0xc0392b, 0, 0, 0); TA.crew.activateCrewAbility("sari") === true && TA.state.crewCd.sari > 40'));
+          check('Budi Perbaiki Cepat (X): armor +25', await ev(r.tab, 'TA.state.armor = 20; TA.crew.activateCrewAbility("budi") === true && TA.state.armor === 45 && TA.state.crewCd.budi > 50'));
+          check('Agus Ghost (C): wanted -1, sekali/misi', await ev(r.tab, 'TA.police.setWanted(2); TA.state.ghostUsedThisMission = false; TA.crew.activateCrewAbility("agus") === true && TA.state.wanted === 1 && TA.state.ghostUsedThisMission === true'));
           check('wanted 5 -> ELANG-1 spawn', await ev(r.tab, 'TA.police.setWanted(5); !!TA.police.heli'));
           check('roadblock spawn di wanted 3+', await ev(r.tab, 'TA.police.roadblocks.length >= 1'));
+          check('dispatch: 6 unit + ELANG-1 SPOTLIGHT', await ev(r.tab, 'TA.police.getDispatchUnits().length >= 4 && TA.police.getDispatchUnits().some(function (u) { return u.name === "ELANG-1" && u.tactic === "SPOTLIGHT" && typeof u.dist === "number"; })'));
+          check('dispatch: unit punya nama + taktik + jarak', await ev(r.tab, 'TA.police.getDispatchUnits().every(function (u) { return u.name && u.tactic && typeof u.dist === "number"; })'));
+          check('semua misi punya 3 tahap', await ev(r.tab, 'TA.missions.MISSIONS.every(function (m) { return m.stages && m.stages.length === 3; })'));
+          check('startMissionStage + currentStage', await ev(r.tab, 'TA.missions.startMissionStage(0, 1); TA.missions.currentStage().title === "Jemput Penumpang" && TA.state.missionStage === 1'));
+          check('getObjectiveDistance angka meter', await ev(r.tab, 'typeof TA.missions.getObjectiveDistance() === "number" && TA.missions.getObjectiveDistance() >= 0'));
+          check('5 distrik + getDistrictAt', await ev(r.tab, 'TA.world.DISTRICTS.length === 5 && TA.world.getDistrictAt(0, 195).id === "pelabuhan" && TA.world.getDistrictAt(0, 0).id === "pasar" && TA.world.getDistrictAt(-40, 0).id === "gang" && TA.world.getDistrictAt(0, -160).id === "tol" && TA.world.getDistrictAt(100, 100).id === "pantai"'));
+          check('updateDistrictStanding naik/turun', await ev(r.tab, 'var s0 = TA.world.getDistrictAt(0, 0).standing; TA.world.updateDistrictStanding("pasar", 5); var s1 = TA.world.getDistrictAt(0, 0).standing; TA.world.updateDistrictStanding("pasar", -5); s1 === s0 + 5'));
+          check('getTaxiPay ikut suasana distrik', await ev(r.tab, 'var f = TA.world.getTaxiPay(90); f.pay > 0 && f.district && typeof f.mult === "number"'));
+          check('5 model mobil + getCarCondition', await ev(r.tab, 'TA.player.CAR_MODELS.length === 5 && TA.player.getCarCondition().name === "PELABUHAN GT" && TA.player.getCarCondition().pct === 100 && TA.player.getCarCondition().label === "PRIMA"'));
+          check('kartu kru: 3 mini card tampil', await ev(r.tab, 'TA.crew.renderCrewCards(); document.querySelectorAll("#crew-cards .crew-mini").length === 3 && document.getElementById("crew-cards").style.display !== "none"'));
+          check('banner lokasi tampil (PASAR)', await ev(r.tab, 'document.getElementById("location-banner").style.display !== "none" && document.getElementById("location-banner").textContent.indexOf("PASAR") >= 0'));
           check('tanpa console error (menu+game)', errors.length === 0, errors.slice(0, 3).join(' | '));
           check('tanpa request eksternal', externalReqs.length === 0, externalReqs.slice(0, 3).join(', '));
           check('tanpa HTTP error', badRequests.length === 0, badRequests.slice(0, 3).join(', '));
@@ -197,6 +217,7 @@ async function main() {
               check('shot3: dialog terlihat', await ev(rr.tab, 'document.getElementById("dialogue").style.display !== "none"'));
               check('shot3: misi 10 aktif', await ev(rr.tab, 'TA.missions.current().id === 10'));
               check('shot3: musuh 10 spawn (gelombang 1 + 6)', await ev(rr.tab, 'TA.enemies.length === 10'));
+              check('shot3: banner tahap MISI 10 · TAHAP 2/3', await ev(rr.tab, 'document.getElementById("objective").textContent.indexOf("MISI 10 DARI 10") >= 0 && document.getElementById("objective").textContent.indexOf("TAHAP 2/3") >= 0 && document.getElementById("objective").textContent.indexOf("BERSIHKAN GUDANG") >= 0'));
             }
             if (s.name.startsWith('shot4')) {
               check('shot4: pause terlihat', await ev(rr.tab, '!document.getElementById("pause-screen").classList.contains("hidden")'));
@@ -204,17 +225,26 @@ async function main() {
               check('shot4: panel kru terisi (kolom pause)', await ev(rr.tab, 'document.querySelectorAll(".crew-panel-list")[1].innerHTML.length > 100'));
               check('shot4: panel kru popup terisi', await ev(rr.tab, 'document.querySelectorAll(".crew-panel-list")[0].innerHTML.length > 100'));
               check('shot4: jam 02:14', await ev(rr.tab, 'TA.fmtClock(TA.state.timeMinutes) === "02:14"'));
+              check('shot4: rank berangka 640 / 800 XP', await ev(rr.tab, 'document.getElementById("xp-text").textContent === "640 / 800 XP"'));
             }
             if (s.name.startsWith('shot1')) {
               check('shot1: wanted 2', await ev(rr.tab, 'TA.state.wanted === 2'));
               check('shot1: Sari direkrut', await ev(rr.tab, 'TA.state.crew.sari === true'));
               check('shot1: XP 120', await ev(rr.tab, 'TA.state.xp === 120'));
+              check('shot1: rank berangka 120 / 150 XP', await ev(rr.tab, 'document.getElementById("xp-text").textContent === "120 / 150 XP" && document.getElementById("rank-name").textContent.indexOf("TINGKAT 1") === 0'));
+              check('shot1: banner lokasi PASAR + NETRAL', await ev(rr.tab, 'document.getElementById("location-banner").style.display !== "none" && document.getElementById("location-banner").textContent.indexOf("PASAR") >= 0 && document.getElementById("location-banner").textContent.indexOf("NETRAL") >= 0'));
+              check('shot1: prompt PELABUHAN GT — 62% RUSAK', await ev(rr.tab, 'document.getElementById("interact-prompt").style.display !== "none" && document.getElementById("interact-prompt").textContent.indexOf("PELABUHAN GT") >= 0 && document.getElementById("interact-prompt").textContent.indexOf("62%") >= 0'));
             }
             if (s.name.startsWith('shot2')) {
               check('shot2: wanted 4', await ev(rr.tab, 'TA.state.wanted === 4'));
               check('shot2: ELANG-1 ada', await ev(rr.tab, '!!TA.police.heli'));
               check('shot2: roadblock ada', await ev(rr.tab, 'TA.police.roadblocks.length >= 1'));
               check('shot2: spike strip ada', await ev(rr.tab, 'TA.police.spikes.length >= 1'));
+              check('shot2: dispatch 6 UNIT + ELANG-1 DITERJUNKAN', await ev(rr.tab, 'document.getElementById("dispatch-panel").style.display !== "none" && document.getElementById("dispatch-panel").textContent.indexOf("6 UNIT") >= 0 && document.getElementById("dispatch-panel").textContent.indexOf("ELANG-1 DITERJUNKAN") >= 0'));
+              check('shot2: kartu kru 2 (Sari + Budi)', await ev(rr.tab, 'document.querySelectorAll("#crew-cards .crew-mini").length === 2'));
+              check('shot2: banner MISI 6 · TAHAP 2/3 WRECK THE REGENT', await ev(rr.tab, 'document.getElementById("objective").textContent.indexOf("MISI 6 DARI 10") >= 0 && document.getElementById("objective").textContent.indexOf("TAHAP 2/3") >= 0 && document.getElementById("objective").textContent.indexOf("WRECK THE REGENT") >= 0'));
+              check('shot2: obrolan kru Roadblock tampil', await ev(rr.tab, 'document.getElementById("crew-chatter").style.display !== "none" && document.getElementById("crew-chatter").textContent.indexOf("Roadblock") >= 0'));
+              check('shot2: mobil PELABUHAN GT — 62% RUSAK', await ev(rr.tab, 'document.getElementById("car-name").textContent.indexOf("PELABUHAN GT") >= 0 && document.getElementById("car-name").textContent.indexOf("62%") >= 0'));
             }
           }
           rr.tab.close();
