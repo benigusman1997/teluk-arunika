@@ -1,361 +1,400 @@
-/* TELUK ARUNIKA — core.js: boot, namespace TA, loop utama, input, mode game, staging ?scene= */
+// Teluk Arunika v3.6 — core.js
+// Boot + namespace window.TA, renderer/scene/camera, main loop, input,
+// game-state machine (menu / playing / paused / cutscene / end / map).
+// One job: own the frame. Every other module attaches to TA.<module>.
 (function () {
   'use strict';
-  window.TA = window.TA || {};
-  var TA = window.TA;
 
-  /* ---------- util deterministik ---------- */
-  TA.RNG_SEED = 20261121;
-  function mulberry32(a) {
-    return function () {
-      a |= 0; a = (a + 0x6D2B79F5) | 0;
-      var t = Math.imul(a ^ (a >>> 15), 1 | a);
-      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-    };
-  }
-  TA.rng = mulberry32(TA.RNG_SEED);
-  TA.reseed = function (seed) { TA.rng = mulberry32(seed); };
-  TA.rand = function (a, b) { return a + TA.rng() * (b - a); };
-  TA.randInt = function (a, b) { return Math.floor(TA.rand(a, b + 1)); };
-  TA.pick = function (arr) { return arr[Math.floor(TA.rng() * arr.length)]; };
-  TA.clamp = function (v, a, b) { return Math.max(a, Math.min(b, v)); };
-  TA.dist2d = function (ax, az, bx, bz) { var dx = ax - bx, dz = az - bz; return Math.sqrt(dx * dx + dz * dz); };
-  TA.fmtMoney = function (n) { return Math.round(n).toLocaleString('en-US'); };
+  var TA = window.TA || (window.TA = {});
 
-  /* ---------- state ---------- */
-  TA.DEFAULT_STATE = function () {
-    return {
-      mode: 'menu', // menu | playing | paused | cutscene | end
-      money: 250, debt: 7000, day: 1,
-      timeMin: 9 * 60 + 20, // 09:20
-      weather: 'rain', // rain | clear | drizzle
-      wanted: 0, wantedHeat: 0, hiddenTimer: 0,
-      hp: 100, maxHp: 100, armor: 0, maxArmor: 100,
-      xp: 0, rank: 1,
-      crew: { sari: false, budi: false, agus: false },
-      crewCooldown: { sari: 0, budi: 0, agus: 0 },
-      ghostUsedThisMission: false,
-      missionIndex: 0, missionStage: 0, missionActive: false, missionDone: [],
-      branchChoice: null, // 'pay' | 'betray' (misi 5)
-      mission10Wave: 0, mission10Choice: null,
-      district: 'Pasar', street: 'Jl. Merdeka',
-      radio: -1, radioStation: '',
-      weapon: 0, weaponsOwned: [true, false, false, false],
-      inCar: false, car: null, carHp: 100, speedKmh: 0,
-      taxiJob: null, packageJob: null,
-      stats: { missionsDone: 0, carsStolen: 0, taxisDone: 0, packagesDone: 0, shotsFired: 0, enemiesDown: 0, wantedEscapes: 0 },
-      staged: 0, webgl: true, minimapZoom: 1,
-      saveNoticeUntil: 0, chatterUntil: 0,
-      jackProgress: 0, jackTarget: null,
-      endTitle: '', endText: ''
-    };
+  // ---------- shared state ----------
+  TA.state = {
+    screen: 'menu',            // menu | playing | paused | cutscene | end | map
+    prevScreen: 'playing',
+    money: 1250,
+    day: 1,
+    debt: 5000,
+    debtDueDay: 7,
+    hp: 100, maxHp: 100,
+    armor: 50, maxArmor: 50,
+    wanted: 0,
+    wantedHeat: 0,             // 0..1, builds while seen, decays while hidden
+    xp: 0,
+    time: 14.5,                // hours 0..24
+    weather: 'rain',           // rain | clear | storm
+    district: 'PELABUHAN',
+    street: 'Dermaga Senja',
+    inCar: false,
+    carIndex: -1,
+    carSpeed: 0,               // km/h
+    weapon: 1,                 // 0 fists, 1 pistol, 2 smg, 3 shotgun, 4 rifle
+    missionIndex: 7,           // 0-based; Misi 8 active by default for the demo
+    missionStage: 2,           // 0-based; stage 3 of 4
+    missionActive: true,
+    race: null,                // { index, checkpoint, time, running }
+    raceActive: false,
+    carExport: null,           // { target, delivered }
+    taxi: null,
+    waypoint: null,            // { x, z, label, distKm }
+    radio: 0,
+    mapTab: 'PETA',
+    mapOpen: false,
+    wheelOpen: false,
+    crewPanelOpen: false,
+    chatter: null,             // { name, text, until }
+    banner: null,              // { title, sub, until }
+    rankBanner: null,
+    dialogue: null,            // { speaker, text, lines, i }
+    saving: false,
+    paused: false,
+    camHold: false, // photo mode: freeze the follow camera (set by stageShot)
+    muted: false,
+    elapsed: 0,
+    kills: 0,
+    carsStolen: 0,
+    racesWon: 0,
+    exportsDone: 0,
+    shotsFired: 0,
+    heliActive: false,
+    roadblockActive: false,
+    spikeActive: false,
+    ghostUsedThisMission: false,
+    choiceMadeDay5: false,
+    gameWon: false,
   };
-  TA.state = TA.DEFAULT_STATE();
 
-  TA.input = { keys: {}, mouseX: 640, mouseY: 360, mouseDown: false, mouseClicked: false };
-  TA.player = { x: 0, z: 0, angle: 0, speed: 0, onFoot: true, mesh: null, carMesh: null, moving: false };
-  TA.enemies = [];
-  TA.time = { last: 0, elapsed: 0 };
+  TA.config = {
+    dayLengthSec: 480,         // full 24h cycle in seconds (visual only)
+    debtTotal: 5000,
+    startMoney: 1250,
+  };
 
-  /* ---------- boot ---------- */
-  TA.bootGame = function () {
-    var canvas = document.getElementById('game-canvas');
-    TA.canvas = canvas;
-    try {
-      TA.renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true });
-      TA.renderer.setSize(1280, 720, false);
-      TA.renderer.setPixelRatio(1);
-    } catch (e) {
-      TA.state.webgl = false;
-      var ctx = canvas.getContext('2d');
-      if (ctx) { ctx.fillStyle = '#0a0d14'; ctx.fillRect(0, 0, 1280, 720); }
+  TA.keys = {};
+  TA.mouse = { x: 0, y: 0, down: false };
+  TA.clock = { last: 0, dt: 0 };
+
+  TA.three = null;             // THREE namespace once loaded
+  TA.renderer = null;
+  TA.scene = null;
+  TA.camera = null;
+  TA.playerObj = null;         // THREE.Group for Raka on foot
+  TA.carObj = null;            // THREE.Group for the driven car
+  TA.playerPos = { x: 0, z: 8 };
+  TA.playerYaw = 0;            // facing angle
+  TA.camYaw = 0;
+  TA.camPitch = 0.32;
+  TA.camDist = 9;
+
+  // ---------- boot ----------
+  function bootGame() {
+    TA.three = window.THREE;
+    if (!TA.three) {
+      document.getElementById('load-error').style.display = 'block';
+      return;
     }
-    TA.scene = new THREE.Scene();
-    TA.scene.background = new THREE.Color(0x1a2436);
-    TA.scene.fog = new THREE.Fog(0x1a2436, 60, 240);
-    TA.camera = new THREE.PerspectiveCamera(55, 1280 / 720, 0.1, 600);
-    TA.camera.position.set(10, 17, 12);
+    var canvas = document.getElementById('game-canvas');
+    TA.renderer = new TA.three.WebGLRenderer({ canvas: canvas, antialias: true });
+    TA.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    TA.renderer.setSize(window.innerWidth, window.innerHeight);
+    TA.renderer.shadowMap.enabled = true;
+    TA.renderer.shadowMap.type = TA.three.PCFSoftShadowMap;
+    TA.renderer.outputColorSpace = TA.three.SRGBColorSpace;
+    TA.renderer.toneMapping = TA.three.ACESFilmicToneMapping;
+    TA.renderer.toneMappingExposure = 1.05;
 
-    var hemi = new THREE.HemisphereLight(0x8fa8cc, 0x1a1410, 0.75);
+    TA.scene = new TA.three.Scene();
+    TA.scene.background = new TA.three.Color(0x1a2733);
+    TA.scene.fog = new TA.three.Fog(0x1a2733, 60, 240);
+
+    TA.camera = new TA.three.PerspectiveCamera(62, window.innerWidth / window.innerHeight, 0.1, 600);
+    TA.camera.position.set(0, 12, 20);
+
+    var hemi = new TA.three.HemisphereLight(0x8fa8c8, 0x1a1410, 0.9);
+    hemi.name = 'hemi';
     TA.scene.add(hemi);
-    TA.sun = new THREE.DirectionalLight(0xffe0b3, 0.9);
-    TA.sun.position.set(40, 80, 20);
-    TA.scene.add(TA.sun);
-    TA.moon = new THREE.DirectionalLight(0x7a9cc8, 0.35);
-    TA.moon.position.set(-30, 60, -40);
-    TA.scene.add(TA.moon);
+    var sun = new TA.three.DirectionalLight(0xffe0b3, 1.4);
+    sun.name = 'sun';
+    sun.position.set(60, 90, 30);
+    sun.castShadow = true;
+    sun.shadow.mapSize.set(2048, 2048);
+    sun.shadow.camera.left = -90; sun.shadow.camera.right = 90;
+    sun.shadow.camera.top = 90; sun.shadow.camera.bottom = -90;
+    sun.shadow.camera.far = 300;
+    TA.scene.add(sun);
+    TA.lights = { hemi: hemi, sun: sun };
 
     TA.world.buildCity();
-    TA.world.buildTraffic();
-    TA.world.buildPedestrians();
-    TA.world.buildRain();
-    TA.player.spawnPlayer(0, 0);
-    TA.police.init();
-    TA.ui.init();
+    TA.world.buildVolcanicIsland();
+    TA.world.spawnTraffic();
+    TA.world.spawnPedestrians();
+    TA.player.buildPlayer();
+    TA.player.spawnCars();
+    TA.police.buildPolice();
+    TA.career.loadSave();
     TA.audio.initAudio();
-    TA.bindInput();
-    TA.applyStaging();
-    if (TA.state.mode === 'menu' && TA.state.staged === 0) TA.ui.showStartScreen();
-    TA.time.last = performance.now();
-    requestAnimationFrame(TA.frame);
-  };
+    TA.ui.buildHUD();
+    TA.ui.showStartScreen();
+    TA.world.setTimeOfDay(TA.state.time);
+    TA.world.setWeather(TA.state.weather);
 
-  TA.frame = function (now) {
-    var dt = Math.min(0.05, (now - TA.time.last) / 1000 || 0.016);
-    TA.time.last = now;
-    TA.time.elapsed += dt;
-    try { TA.tick(dt); } catch (e) { if (TA.state.mode !== 'menu') console.error(e); }
-    requestAnimationFrame(TA.frame);
-  };
+    bindInput();
+    window.addEventListener('resize', onResize);
+    TA.clock.last = performance.now();
+    requestAnimationFrame(tick);
+  }
 
-  TA.tick = function (dt) {
+  function onResize() {
+    TA.camera.aspect = window.innerWidth / window.innerHeight;
+    TA.camera.updateProjectionMatrix();
+    TA.renderer.setSize(window.innerWidth, window.innerHeight);
+  }
+
+  // ---------- input ----------
+  function bindInput() {
+    window.addEventListener('keydown', function (e) {
+      if (e.repeat) return;
+      TA.keys[e.code] = true;
+      if (TA.ui.isDialogueOpen() && (e.code === 'Space' || e.code === 'Enter')) {
+        TA.missions.advanceDialogue();
+        e.preventDefault();
+        return;
+      }
+      if (TA.state.screen === 'playing' || TA.state.screen === 'map') {
+        if (e.code === 'Escape') { pauseGame(); e.preventDefault(); }
+        else if (e.code === 'KeyM') { TA.ui.toggleFullMap(); }
+        else if (e.code === 'KeyR') { TA.audio.cycleRadio(); }
+        else if (e.code === 'KeyV') { TA.ui.toggleCrewPanel(); }
+        else if (e.code === 'KeyE') { TA.player.tryEnterExitCar(); }
+        else if (e.code === 'Tab') { TA.ui.toggleWeaponWheel(); e.preventDefault(); }
+        else if (e.code === 'KeyZ') { TA.crew.activateCrewAbility('sari'); }
+        else if (e.code === 'KeyX') { TA.crew.activateCrewAbility('budi'); }
+        else if (e.code === 'KeyC') { TA.crew.activateCrewAbility('agus'); }
+        else if (e.code === 'Digit1') { TA.player.switchWeapon(0); }
+        else if (e.code === 'Digit2') { TA.player.switchWeapon(1); }
+        else if (e.code === 'Digit3') { TA.player.switchWeapon(2); }
+        else if (e.code === 'Digit4') { TA.player.switchWeapon(3); }
+        else if (e.code === 'Digit5') { TA.player.switchWeapon(4); }
+        else if (e.code === 'KeyN') { TA.missions.startMission(TA.state.missionIndex); }
+      } else if (TA.state.screen === 'paused' && e.code === 'Escape') {
+        resumeGame();
+      } else if (TA.state.screen === 'cutscene' && (e.code === 'Space' || e.code === 'Enter')) {
+        TA.missions.advanceDialogue();
+      } else if (TA.state.screen === 'menu' && e.code === 'Enter') {
+        startNewGame();
+      }
+    });
+    window.addEventListener('keyup', function (e) { TA.keys[e.code] = false; });
+    window.addEventListener('mousedown', function (e) {
+      TA.mouse.down = true;
+      if (TA.state.screen === 'playing') TA.player.shoot();
+    });
+    window.addEventListener('mouseup', function () { TA.mouse.down = false; });
+    window.addEventListener('mousemove', function (e) {
+      TA.mouse.x = e.clientX; TA.mouse.y = e.clientY;
+    });
+    var canvas = document.getElementById('game-canvas');
+    canvas.addEventListener('wheel', function (e) {
+      if (TA.ui.minimapHovered(e.clientX, e.clientY)) {
+        TA.ui.zoomMinimap(e.deltaY < 0 ? 1 : -1);
+        e.preventDefault();
+      }
+    }, { passive: false });
+  }
+
+  // ---------- state machine ----------
+  function startNewGame() {
     var s = TA.state;
-    if (s.mode === 'playing' || s.mode === 'cutscene') {
-      s.timeMin += dt * 2.2; // ~2.2 menit game per detik nyata
-      if (s.timeMin >= 1440) { s.timeMin -= 1440; s.day = Math.min(7, s.day + 1); }
+    s.money = TA.config.startMoney; s.day = 1; s.debt = TA.config.debtTotal;
+    s.hp = s.maxHp; s.armor = 50; s.wanted = 0; s.xp = 0;
+    s.missionIndex = 0; s.missionStage = 0; s.missionActive = false;
+    s.screen = 'playing';
+    TA.ui.hideStartScreen();
+    TA.ui.showBanner('HARI 1 — UTANG $5.000', '7 hari lagi. Bengkel ayahmu taruhannya.');
+    TA.missions.startMission(0);
+    TA.audio.playRadioStation(0);
+  }
+
+  function continueGame() {
+    TA.state.screen = 'playing';
+    TA.ui.hideStartScreen();
+    TA.audio.playRadioStation(TA.state.radio);
+  }
+
+  function pauseGame() {
+    if (TA.state.screen !== 'playing' && TA.state.screen !== 'map') return;
+    TA.state.prevScreen = TA.state.screen;
+    TA.state.screen = 'paused';
+    TA.state.paused = true;
+    TA.ui.showPauseScreen();
+  }
+
+  function resumeGame() {
+    TA.state.screen = TA.state.prevScreen === 'map' ? 'map' : 'playing';
+    TA.state.paused = false;
+    TA.ui.hidePauseScreen();
+  }
+
+  function gameOver(reason) {
+    TA.state.screen = 'end';
+    TA.state.gameWon = false;
+    TA.ui.showEndScreen(false, reason || 'Raka tumbang di jalanan Teluk Arunika.');
+  }
+
+  function winGame() {
+    TA.state.screen = 'end';
+    TA.state.gameWon = true;
+    TA.ui.showEndScreen(true, 'UTANG LUNAS — Bengkel Selamat');
+  }
+
+  // ---------- main loop ----------
+  function tick(now) {
+    requestAnimationFrame(tick);
+    var dt = Math.max(0, Math.min((now - TA.clock.last) / 1000, 0.05));
+    TA.clock.last = now;
+    TA.state.elapsed += dt;
+
+    if (TA.state.screen === 'playing' || TA.state.screen === 'map' || TA.state.screen === 'cutscene') {
+      TA.state.time = (TA.state.time + dt * (24 / TA.config.dayLengthSec)) % 24;
       TA.world.update(dt);
       TA.player.update(dt);
       TA.police.update(dt);
       TA.missions.update(dt);
+      if (TA.races) TA.races.updateRace(dt);
       TA.crew.update(dt);
       TA.career.update(dt);
       TA.audio.update(dt);
-      TA.updateCamera(dt);
-    } else if (s.mode === 'menu') {
-      TA.world.updateMenu(dt);
-      TA.updateCamera(dt);
-    } else if (s.mode === 'paused' || s.mode === 'end') {
-      TA.world.updateAmbient(dt);
+      updateCamera(dt);
     }
     TA.ui.update(dt);
-    if (TA.state.webgl && TA.renderer) {
-      try { TA.renderer.render(TA.scene, TA.camera); } catch (e) { /* render gagal: HUD tetap jalan */ }
-    }
-  };
+    TA.renderer.render(TA.scene, TA.camera);
+  }
 
-  TA.updateCamera = function (dt) {
-    var p = TA.player, cam = TA.camera;
-    var tx = p.x + 11, ty = 17, tz = p.z + 13;
-    if (s_inCarZoom()) { tx = p.x + 14; ty = 20; tz = p.z + 16; }
-    cam.position.x += (tx - cam.position.x) * Math.min(1, dt * 4);
-    cam.position.y += (ty - cam.position.y) * Math.min(1, dt * 4);
-    cam.position.z += (tz - cam.position.z) * Math.min(1, dt * 4);
-    cam.lookAt(p.x, 0, p.z);
-    function s_inCarZoom() { return !p.onFoot; }
-  };
+  function updateCamera(dt) {
+    if (TA.state.camHold) return; // frozen for the staged shot
+    var target = TA.state.inCar && TA.carObj ? TA.carObj.position : TA.playerObj.position;
+    var yaw = TA.camYaw;
+    var dist = TA.state.inCar ? TA.camDist + 4 : TA.camDist;
+    var cx = target.x - Math.sin(yaw) * dist;
+    var cz = target.z - Math.cos(yaw) * dist;
+    var cy = target.y + 3.5 + TA.camPitch * dist * 0.6;
+    TA.camera.position.x += (cx - TA.camera.position.x) * Math.min(1, dt * 6);
+    TA.camera.position.y += (cy - TA.camera.position.y) * Math.min(1, dt * 6);
+    TA.camera.position.z += (cz - TA.camera.position.z) * Math.min(1, dt * 6);
+    TA.camera.lookAt(target.x, target.y + 1.8, target.z);
+  }
 
-  /* ---------- mode / lifecycle ---------- */
-  TA.setMode = function (m) { TA.state.mode = m; };
-  TA.startNewGame = function () {
-    TA.state = TA.DEFAULT_STATE();
-    TA.state.mode = 'playing';
-    TA.enemies = [];
-    TA.reseed(TA.RNG_SEED);
-    TA.player.spawnPlayer(0, 0);
-    TA.police.reset();
-    TA.world.resetCityState();
-    TA.ui.hideAllScreens();
-    document.getElementById('hud').classList.remove('hidden');
-    TA.missions.startMission(0);
-    TA.career.applyRankPerks();
-  };
-  TA.pauseGame = function () {
-    if (TA.state.mode !== 'playing') return;
-    TA.state.mode = 'paused';
-    TA.ui.showPauseScreen();
-  };
-  TA.resumeGame = function () {
-    if (TA.state.mode !== 'paused') return;
-    TA.state.mode = 'playing';
-    TA.ui.hidePauseScreen();
-  };
-  TA.gameOver = function (reason) {
-    TA.state.mode = 'end';
-    TA.state.endTitle = 'RAKA TERTANGKAP — BENGKEL DISITA';
-    TA.state.endText = reason || 'Raka kehabisan HP di jalanan Teluk Arunika. Utang tak terbayar, bengkel ayahnya disita Darma.';
-    TA.ui.showEndScreen();
-  };
-  TA.winGame = function () {
-    TA.state.mode = 'end';
-    TA.state.endTitle = 'UTANG LUNAS — BENGKEL SELAMAT';
-    var r = TA.career.getRank();
-    TA.state.endText = 'Fajar di pelabuhan. Darma jatuh, utang lunas, bengkel ayah selamat. ' +
-      'Raka menutup 7 hari sebagai ' + r.name + ' Teluk Arunika.' +
-      (TA.state.mission10Choice === 'capture' ? ' Darma ditangkap hidup-hidup — reputasi Raka melambung.' : ' Darma kabur dengan perahu, tapi uangnya tertinggal.');
-    TA.ui.showEndScreen();
-  };
+  // Snap the follow camera to its ideal spot at once (used by screenshot
+  // staging; normal play keeps the smooth lerp in updateCamera).
+  function snapCamera() {
+    var target = TA.state.inCar && TA.carObj ? TA.carObj.position : TA.playerObj.position;
+    var dist = TA.state.inCar ? TA.camDist + 4 : TA.camDist;
+    TA.camera.position.set(
+      target.x - Math.sin(TA.camYaw) * dist,
+      target.y + 3.5 + TA.camPitch * dist * 0.6,
+      target.z - Math.cos(TA.camYaw) * dist
+    );
+    TA.camera.lookAt(target.x, target.y + 1.8, target.z);
+  }
 
-  /* ---------- input ---------- */
-  TA.bindInput = function () {
-    window.addEventListener('keydown', function (e) {
-      var k = e.key.toLowerCase();
-      TA.input.keys[k] = true;
-      if (k === 'escape') {
-        if (TA.state.mode === 'playing') TA.pauseGame();
-        else if (TA.state.mode === 'paused') TA.resumeGame();
-      }
-      if (k === 'm') TA.state.minimapZoom = TA.state.minimapZoom === 1 ? 1.6 : 1;
-      if (k === 'r' && TA.state.mode === 'playing') TA.audio.cycleRadio();
-      if (k === 'v' && TA.state.mode === 'playing') TA.ui.toggleCrewPanel();
-      if (k === 'b' && TA.state.mode === 'playing') TA.ui.toggleShop();
-      if (k === 'q' && TA.state.mode === 'playing') TA.crew.activateCrewAbility(TA.crew.activeAbilityKey());
-      if (k === 'z' && TA.state.mode === 'playing') TA.crew.activateCrewAbility('sari');
-      if (k === 'x' && TA.state.mode === 'playing') TA.crew.activateCrewAbility('budi');
-      if (k === 'c' && TA.state.mode === 'playing') TA.crew.activateCrewAbility('agus');
-      if (['1', '2', '3', '4'].indexOf(k) >= 0 && TA.state.mode === 'playing') TA.player.switchWeapon(Number(k) - 1);
-      if ((k === ' ' || k === 'enter') && TA.state.mode === 'cutscene') TA.missions.advanceDialogue();
-      if (k === 't' && TA.state.mode === 'playing') TA.player.tryTaxiJob();
-      if (k === 'g' && TA.state.mode === 'playing') TA.player.tryPackageJob();
-    });
-    window.addEventListener('keyup', function (e) { TA.input.keys[e.key.toLowerCase()] = false; });
-    window.addEventListener('mousemove', function (e) {
-      var r = TA.canvas.getBoundingClientRect();
-      TA.input.mouseX = (e.clientX - r.left) * (1280 / r.width);
-      TA.input.mouseY = (e.clientY - r.top) * (720 / r.height);
-    });
-    window.addEventListener('mousedown', function (e) {
-      if (e.target !== TA.canvas) return;
-      TA.input.mouseDown = true;
-      TA.input.mouseClicked = true;
-      if (TA.state.mode === 'playing') TA.player.shoot();
-      else if (TA.state.mode === 'cutscene') TA.missions.advanceDialogue();
-    });
-    window.addEventListener('mouseup', function () { TA.input.mouseDown = false; });
-    document.getElementById('btn-newgame').addEventListener('click', function () { TA.audio.unlock(); TA.startNewGame(); });
-    document.getElementById('btn-continue').addEventListener('click', function () {
-      var ok = TA.career.loadGame(0);
-      if (ok) { TA.audio.unlock(); TA.state.mode = 'playing'; TA.ui.hideAllScreens(); document.getElementById('hud').classList.remove('hidden'); }
-    });
-    document.getElementById('btn-resume').addEventListener('click', function () { TA.resumeGame(); });
-    document.getElementById('btn-quit').addEventListener('click', function () {
-      TA.career.saveGame(0);
-      TA.state.mode = 'menu';
-      TA.ui.hidePauseScreen();
-      TA.ui.showStartScreen();
-      document.getElementById('hud').classList.add('hidden');
-    });
-    document.getElementById('btn-restart').addEventListener('click', function () { TA.startNewGame(); });
-    document.querySelectorAll('#pause-screen .save-slots button').forEach(function (b) {
-      b.addEventListener('click', function () { TA.career.saveGame(Number(b.getAttribute('data-slot'))); TA.ui.refreshPauseScreen(); });
-    });
-    document.querySelectorAll('#weapon-wheel .wheel-slot').forEach(function (el) {
-      el.addEventListener('click', function () { TA.player.switchWeapon(Number(el.getAttribute('data-weapon'))); TA.ui.hideWeaponWheel(); });
-    });
-  };
-
-  /* ---------- staging deterministik ?scene=1..4 ---------- */
-  TA.applyStaging = function () {
-    var q = new URLSearchParams(window.location.search);
-    var scene = Number(q.get('scene') || 0);
-    if (!scene || scene < 1 || scene > 4) return;
-    TA.reseed(TA.RNG_SEED + scene);
-    TA.startNewGame();
-    TA.state.staged = scene;
-    TA.ui.hideAllScreens();
-    document.getElementById('hud').classList.remove('hidden');
-    TA.state.mode = 'playing';
-    if (scene === 1) TA.staging.scene1();
-    else if (scene === 2) TA.staging.scene2();
-    else if (scene === 3) TA.staging.scene3();
-    else if (scene === 4) TA.staging.scene4();
-  };
-
-  TA.staging = {
-    scene1: function () {
-      // Siang hujan, on-foot, mobil curian di depan, wanted 2, kru Sari, XP 120
-      var s = TA.state;
-      s.weather = 'rain'; s.timeMin = 9 * 60 + 20; s.day = 1;
-      s.xp = 120;
-      s.crew.sari = true;
-      TA.world.setWeather('rain'); TA.world.setTimeOfDay(9.33);
-      TA.player.spawnPlayer(6, 10);
-      TA.player.spawnParkedCar('sedan', 8.5, 7, Math.PI);
-      TA.police.setWanted(2, 'curanmor');
-      TA.missions.startMission(0);
-      s.missionStage = 0;
-      TA.world.updateDistrictFromPlayer();
-      // Lewati dialog intro agar mode bermain + prompt "Hold E to jack" terlihat
-      TA.missions.advanceDialogue();
-      TA.missions.advanceDialogue();
-      TA.crew.showCrewChatter('SARI', 'Mobil itu kuncinya longgar. Tahan E, cepat!');
-    },
-    scene2: function () {
-      // Kejar-kejaran malam: di mobil, roadblock + spike strip, ELANG-1, wanted 4
-      var s = TA.state;
-      s.weather = 'clear'; s.timeMin = 23 * 60 + 40; s.day = 3;
-      s.xp = 520; s.rank = 3;
-      s.crew.sari = true; s.crew.budi = true; s.crew.agus = true;
-      TA.world.setWeather('clear'); TA.world.setTimeOfDay(23.67);
-      TA.player.spawnPlayer(-30, -30);
-      var car = TA.player.spawnParkedCar('gt', -30, -34, Math.PI * 0.5);
-      TA.player.enterCar(car);
-      s.speedKmh = 87; s.carHp = 100; s.armor = 100;
-      TA.career.applyRankPerks();
-      TA.police.setWanted(4, 'kejar-kejaran');
-      TA.police.spawnRoadblock(-30, -70);
-      TA.police.deploySpikeStrip(-30, -58);
-      TA.police.activateHelicopter();
-      TA.police.heliLocked = true; // ELANG-1 tetap di udara untuk shot 2 (wanted 4)
-      TA.missions.startMission(5);
-      s.missionStage = 1; // TAHAP 2/3
-      TA.world.updateDistrictFromPlayer();
-      // Lewati dialog intro misi 6 (3 baris) agar kejar-kejaran terlihat
-      TA.missions.advanceDialogue();
-      TA.missions.advanceDialogue();
-      TA.missions.advanceDialogue();
+  // ---------- screenshot staging (photo mode: sets real game state) ----------
+  // ?shot=1..4 in the URL stages the scene the screenshot plan calls for.
+  // Every staged element is live game state rendered by the normal loop.
+  function stageShot(n) {
+    var s = TA.state;
+    s.screen = 'playing';
+    TA.ui.hideStartScreen();
+    if (n === 1) {
+      // Street race, day, Port
+      s.time = 13.5; s.weather = 'clear'; s.district = 'PELABUHAN'; s.street = 'Dermaga Senja';
+      s.wanted = 0; s.money = 1250; s.day = 3;
+      s.inCar = true; s.carIndex = 1;
+      TA.player.getCars()[1].mesh.position.set(-80, 0, 162);
+      TA.player.getCars()[1].mesh.rotation.y = 0;
+      TA.player.placePlayerAt(-80, 0, 162, 0);
+      TA.player.enterCarByIndex(1);
+      s.missionIndex = 1; s.missionStage = 0; s.missionActive = false;
+      TA.world.setTimeOfDay(13.5); TA.world.setWeather('clear');
+      TA.races.startRace(0);
+      var rs = TA.races.getRaceState();
+      if (rs) rs.time = 23.4;
+      TA.camYaw = Math.PI;
+      TA.crew.showCrewChatter('SARI', 'Start di depan, jangan rem di tikungan pertama!');
+    } else if (n === 2) {
+      // Full map at night
+      s.time = 22.4; s.weather = 'rain'; s.district = 'PASAR'; s.street = 'Jalan Ikan Bakar';
+      s.wanted = 2; s.money = 1850; s.day = 4;
+      s.missionIndex = 5; s.missionStage = 1; s.missionActive = true;
+      TA.world.setTimeOfDay(22.4); TA.world.setWeather('rain');
+      TA.police.setWanted(2, true);
+      TA.ui.showFullMap();
+      TA.ui.setWaypoint(96, -40, 'Lantern Mile');
+    } else if (n === 3) {
+      // Mission 8 on Pulau Abu, volcanic dusk, weapon wheel open
+      s.time = 18.2; s.weather = 'clear'; s.district = 'PULAU ABU'; s.street = 'Jalan Bara';
+      s.wanted = 5; s.money = 2400; s.day = 6;
+      s.missionIndex = 7; s.missionStage = 2; s.missionActive = true;
+      TA.player.placePlayerAt(224, 0, 10, -1.57);
+      TA.world.setTimeOfDay(18.2); TA.world.setWeather('clear');
+      TA.police.setWanted(5, true);
+      TA.police.placeHelicopterNearPlayer();
+      TA.police.spawnRoadblock();
+      TA.police.deploySpikeStrip();
+      TA.police.logPoliceRadio('ELANG-1: target terpantau di Pulau Abu');
+      TA.police.logPoliceRadio('BLOKIR-03: roadblock dipasang di Pelabuhan');
+      TA.police.logPoliceRadio('PATROLI-12: tembakan di Pasar Senja');
+      TA.crew.showCrewChatter('AGUS', 'Bara di mana-mana. Jangan diam di tempat terbuka.');
+      TA.ui.openWeaponWheel();
+      TA.camYaw = 1.57;
+    } else if (n === 4) {
+      // Night chase on the elevated toll road, wanted 5
+      s.time = 2.1; s.weather = 'storm'; s.district = 'TOL LAYANG'; s.street = 'Tol Layang';
+      s.wanted = 5; s.money = 3100; s.day = 5;
+      s.missionIndex = 5; s.missionStage = 2; s.missionActive = true;
+      s.inCar = true; s.carIndex = 0;
+      TA.player.getCars()[0].mesh.position.set(-40, 0, -140);
+      TA.player.getCars()[0].mesh.rotation.y = 0;
+      TA.player.placePlayerAt(-40, 0, -140, 0);
+      TA.player.enterCarByIndex(0);
+      TA.world.setTimeOfDay(2.1); TA.world.setWeather('storm');
+      TA.police.setWanted(5, true);
+      TA.police.placeHelicopterNearPlayer(-16, 10);
+      TA.police.spawnRoadblock();
+      TA.police.deploySpikeStrip();
+      TA.police.logPoliceRadio('ELANG-1: target terpantau di Tol Layang');
+      TA.police.logPoliceRadio('PATROLI-07: PIT siap di tikungan tol');
       TA.crew.showCrewChatter('SARI', 'Roadblock di depan, dua blok lagi. Belok kiri di gang!');
-      TA.crew.showCrewChatter('SARI', 'Gaspol!');
-    },
-    scene3: function () {
-      // Misi 10 fajar di pelabuhan: tembak-menembak, weapon wheel, dialog Darma + kru
-      var s = TA.state;
-      s.weather = 'clear'; s.timeMin = 5 * 60 + 50; s.day = 7;
-      s.xp = 1350; s.rank = 4;
-      s.crew.sari = true; s.crew.budi = true; s.crew.agus = true;
-      s.hp = 78; s.armor = 60;
-      TA.career.applyRankPerks();
-      TA.world.setWeather('clear'); TA.world.setTimeOfDay(5.83);
-      TA.player.spawnPlayer(128, -10);
-      TA.missions.startMission(9);
-      s.missionStage = 1;
-      TA.missions.spawnMission10Wave(1);
-      TA.police.setWanted(1, 'tembak-menembak');
-      TA.ui.showWeaponWheel();
-      TA.ui.weaponWheelUntil = Infinity; // staging: wheel tetap terbuka untuk screenshot
-      TA.missions.showDialogue([
-        { who: 'DARMA', text: 'Raka... kau pikir bisa mengambil pelabuhanku? Anak taksi kemarin sore!' },
-        { who: 'SARI', text: 'Jangan dengarkan dia, Raka. Kita sudah sampai sejauh ini — habisi!' },
-        { who: 'RAKA', text: 'Tujuh hari, Darma. Hari ini utangku lunas — dengan caraku.' }
-      ], function () { TA.state.mode = 'playing'; });
-      s.mode = 'cutscene';
-    },
-    scene4: function () {
-      // Malam neon + pause/karier: gang neon, taksi side job, jam 02:14 hujan
-      var s = TA.state;
-      s.weather = 'rain'; s.timeMin = 2 * 60 + 14; s.day = 4;
-      s.xp = 450; s.rank = 3; s.money = 1240;
-      s.crew.sari = true; s.crew.budi = true; s.crew.agus = false;
-      TA.world.setWeather('rain'); TA.world.setTimeOfDay(2.23);
-      TA.player.spawnPlayer(20, 90);
-      TA.player.spawnParkedCar('taxi', 24, 86, 0);
-      TA.player.taxiJob = { from: 'Gang Neon', to: 'Pelabuhan', pay: 85, tx: 130, tz: 20, state: 'pickup', px: 20, pz: 96 };
-      s.taxiJob = TA.player.taxiJob;
-      TA.missions.startMission(3);
-      TA.world.updateDistrictFromPlayer();
-      // Lewati dialog intro misi 4 (2 baris) agar layar pause bersih
-      TA.missions.advanceDialogue();
-      TA.missions.advanceDialogue();
-      TA.state.mode = 'paused';
-      TA.ui.showPauseScreen();
+      TA.ui.showBanner('MISI 6 DARI 10 · BAB II · TAHAP 3/4', 'Tembus roadblock — JALUR TOL BERDARAH');
+      TA.camYaw = Math.PI;
     }
+    TA.career.refreshRank();
+    snapCamera();
+    if (n === 3) {
+      // frame Raka below the weapon wheel: camera north-west of him, level
+      // look at the crater (sightline verified clear of rocks + bridge deck)
+      TA.camera.position.set(194, 6, 2);
+      TA.camera.lookAt(252, 6, 30);
+      TA.state.camHold = true;
+    }
+  }
+
+  TA.core = {
+    bootGame: bootGame,
+    startNewGame: startNewGame,
+    continueGame: continueGame,
+    pauseGame: pauseGame,
+    resumeGame: resumeGame,
+    gameOver: gameOver,
+    winGame: winGame,
+    stageShot: stageShot,
   };
 
   window.addEventListener('DOMContentLoaded', function () {
-    if (typeof THREE === 'undefined') {
-      document.getElementById('start-screen').innerHTML = '<div class="start-inner"><h1>THREE.JS GAGAL DIMUAT</h1><p>game/vendor/three.min.js tidak ditemukan.</p></div>';
-      return;
+    bootGame();
+    var params = new URLSearchParams(window.location.search);
+    var shot = parseInt(params.get('shot') || '0', 10);
+    if (shot >= 1 && shot <= 4) {
+      // let the first frame settle, then stage the shot state
+      setTimeout(function () { stageShot(shot); }, 350);
     }
-    TA.bootGame();
   });
 })();

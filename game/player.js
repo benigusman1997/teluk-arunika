@@ -1,454 +1,521 @@
-/* TELUK ARUNIKA — player.js: jalan kaki + mengemudi, carjacking, 4 senjata, side job, toko */
+// Teluk Arunika v3.6 — player.js
+// On foot + driving, carjacking (hold E), 4 guns + fists with ammo counts,
+// weapon wheel, drive-by, HP/armor, shops (buy weapon / armor / ammo).
 (function () {
   'use strict';
   var TA = window.TA;
 
-  TA.CAR_MODELS = [
-    { id: 'sedan', name: 'ARUNIKA SEDAN', topSpeed: 132, accel: 22, color: 0x8a2f2f },
-    { id: 'gt', name: 'PELABUHAN GT', topSpeed: 178, accel: 30, color: 0x2f5f8a },
-    { id: 'taxi', name: 'TAKSI KUNING', topSpeed: 120, accel: 20, color: 0xd8a018 },
-    { id: 'pickup', name: 'PICKUP BAJA', topSpeed: 118, accel: 18, color: 0x3f6b3a },
-    { id: 'van', name: 'VAN PASAR', topSpeed: 105, accel: 15, color: 0x7a7a7a },
-    { id: 'neon', name: 'SPORT NEON', topSpeed: 190, accel: 34, color: 0x9a2f8a }
+  // Car models: name + base top speed. Condition % drops on crashes.
+  var CAR_MODELS = [
+    { name: 'ARUNIKA SEDAN', topSpeed: 132, accel: 22, color: 0xc0c8d0 },
+    { name: 'PELABUHAN GT', topSpeed: 168, accel: 30, color: 0xb3402a },
+    { name: 'TAKSI KUNING', topSpeed: 118, accel: 19, color: 0xd8b820 },
+    { name: 'KERONO LOWRIDER', topSpeed: 142, accel: 25, color: 0x7a3ab3 },
+    { name: 'PICKUP BAJA', topSpeed: 124, accel: 20, color: 0x3a7a3a },
+    { name: 'VAN PASAR', topSpeed: 104, accel: 16, color: 0x2a5a8a },
   ];
 
-  TA.WEAPONS = [
-    { id: 'pistol', name: 'PISTOL', damage: 25, rate: 0.35, range: 42, price: 0 },
-    { id: 'smg', name: 'SMG', damage: 14, rate: 0.1, range: 38, price: 450 },
-    { id: 'shotgun', name: 'SHOTGUN', damage: 48, rate: 0.9, range: 22, price: 600 },
-    { id: 'rifle', name: 'RIFLE', damage: 40, rate: 0.5, range: 70, price: 900 }
+  // Weapons: fists + 4 guns. Ammo is mag / reserve (ISLA-style wheel counts).
+  var WEAPONS = [
+    { name: 'Fists', key: 'fists', damage: 12, rate: 0.4, auto: false, range: 2.2, infinite: true },
+    { name: '.38 Pistol', key: 'pistol', damage: 22, rate: 0.28, auto: false, range: 55, infinite: false },
+    { name: 'SMG', key: 'smg', damage: 14, rate: 0.09, auto: true, range: 48, infinite: false },
+    { name: 'Shotgun', key: 'shotgun', damage: 55, rate: 0.9, auto: false, range: 22, infinite: false },
+    { name: 'Rifle', key: 'rifle', damage: 40, rate: 0.22, auto: false, range: 90, infinite: false },
   ];
 
-  TA.SHOP_ITEMS = [
-    { kind: 'weapon', index: 1, name: 'SMG', price: 450 },
-    { kind: 'weapon', index: 2, name: 'SHOTGUN', price: 600 },
-    { kind: 'weapon', index: 3, name: 'RIFLE', price: 900 },
-    { kind: 'armor', index: -1, name: 'ARMOR 50', price: 200 },
-    { kind: 'repair', index: -1, name: 'PERBAIKI MOBIL (100%)', price: 150 }
-  ];
-
-  TA.player = TA.player || {};
-  var P = TA.player;
-  P.x = 0; P.z = 0; P.angle = 0; P.speed = 0; P.onFoot = true;
-  P.mesh = null; P.carMesh = null; P.moving = false;
-  P.lastShot = 0; P.tracers = [];
-  P.parkedCars = [];
-
-  P.makePedMesh = function (shirtColor) {
-    var g = new THREE.Group();
-    var body = new THREE.Mesh(new THREE.BoxGeometry(0.7, 1.0, 0.4), TA.world.mat(shirtColor));
-    body.position.y = 1.0; g.add(body);
-    var head = new THREE.Mesh(new THREE.SphereGeometry(0.28, 10, 8), TA.world.mat(0xd8a878));
-    head.position.y = 1.75; g.add(head);
-    var legL = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.8, 0.26), TA.world.mat(0x2a2f38));
-    legL.position.set(-0.18, 0.4, 0); g.add(legL);
-    var legR = legL.clone(); legR.position.x = 0.18; g.add(legR);
-    return g;
+  var AMMO = {
+    pistol: { mag: 12, magSize: 12, reserve: 48 },
+    smg: { mag: 30, magSize: 30, reserve: 60 },
+    shotgun: { mag: 6, magSize: 6, reserve: 18 },
+    rifle: { mag: 10, magSize: 10, reserve: 30 },
   };
 
-  P.makeCarMesh = function (color, scale) {
-    var s = scale || 1;
-    var g = new THREE.Group();
-    var body = new THREE.Mesh(new THREE.BoxGeometry(2.0 * s, 0.65 * s, 4.2 * s), TA.world.mat(color, { roughness: 0.35, metalness: 0.5 }));
-    body.position.y = 0.55 * s; g.add(body);
-    var cabin = new THREE.Mesh(new THREE.BoxGeometry(1.7 * s, 0.6 * s, 2.0 * s), TA.world.mat(0x1a2028, { roughness: 0.2, metalness: 0.6 }));
-    cabin.position.set(0, 1.15 * s, -0.2 * s); g.add(cabin);
-    var wheelGeo = new THREE.CylinderGeometry(0.38 * s, 0.38 * s, 0.3 * s, 10);
-    var wheelMat = TA.world.mat(0x111111, { roughness: 0.9 });
-    [[-0.95, 1.35], [0.95, 1.35], [-0.95, -1.35], [0.95, -1.35]].forEach(function (w) {
-      var wheel = new THREE.Mesh(wheelGeo, wheelMat);
+  var AMMO_PRICE = { pistol: 40, smg: 90, shotgun: 70, rifle: 120 };
+  var ARMOR_PRICE = 150;
+  var WEAPON_PRICE = { pistol: 250, smg: 600, shotgun: 450, rifle: 900 };
+
+  var ownedWeapons = { pistol: true, smg: false, shotgun: false, rifle: false };
+  var cars = [];            // drivable parked cars
+  var lastShot = 0;
+  var jackProgress = 0;
+  var jackTarget = null;
+  var tracers = [];
+  var moveSpeed = 6;
+
+  function buildPlayer() {
+    var T = TA.three;
+    var g = new T.Group();
+    g.name = 'raka';
+    var body = new T.Mesh(new T.CapsuleGeometry(0.34, 0.85, 3, 10),
+      new T.MeshStandardMaterial({ color: 0x4a9fe8, roughness: 0.6, emissive: 0x1a4a7a, emissiveIntensity: 1.0 }));
+    body.position.y = 1.05; body.castShadow = true;
+    g.add(body);
+    var head = new T.Mesh(new T.SphereGeometry(0.27, 12, 12),
+      new T.MeshStandardMaterial({ color: 0xd8a878, roughness: 0.8 }));
+    head.position.y = 1.92;
+    g.add(head);
+    var cap = new T.Mesh(new T.CylinderGeometry(0.29, 0.29, 0.12, 12),
+      new T.MeshStandardMaterial({ color: 0xd83a2a, roughness: 0.7 }));
+    cap.position.y = 2.12;
+    g.add(cap);
+    var legs = new T.Mesh(new T.BoxGeometry(0.5, 0.7, 0.3),
+      new T.MeshStandardMaterial({ color: 0x22262e, roughness: 0.9 }));
+    legs.position.y = 0.35;
+    g.add(legs);
+    g.position.set(TA.playerPos.x, 0, TA.playerPos.z);
+    TA.scene.add(g);
+    TA.playerObj = g;
+  }
+
+  function makeCarMesh(model, x, z, rotY) {
+    var T = TA.three;
+    var g = new T.Group();
+    var body = new T.Mesh(new T.BoxGeometry(2, 0.75, 4.4),
+      new T.MeshStandardMaterial({ color: model.color, roughness: 0.3, metalness: 0.65 }));
+    body.position.y = 0.7; body.castShadow = true;
+    g.add(body);
+    var cabin = new T.Mesh(new T.BoxGeometry(1.7, 0.6, 2.1),
+      new T.MeshStandardMaterial({ color: 0x141c26, roughness: 0.15, metalness: 0.8 }));
+    cabin.position.set(0, 1.32, -0.2);
+    g.add(cabin);
+    var wheelGeo = new T.CylinderGeometry(0.42, 0.42, 0.3, 12);
+    var wheelMat = new T.MeshStandardMaterial({ color: 0x0a0a0a, roughness: 0.9 });
+    [[-0.95, 1.5], [0.95, 1.5], [-0.95, -1.5], [0.95, -1.5]].forEach(function (w) {
+      var wheel = new T.Mesh(wheelGeo, wheelMat);
       wheel.rotation.z = Math.PI / 2;
-      wheel.position.set(w[0] * s, 0.38 * s, w[1] * s);
+      wheel.position.set(w[0], 0.42, w[1]);
       g.add(wheel);
     });
-    var lightMat = new THREE.MeshBasicMaterial({ color: 0xfff2b0 });
-    var l1 = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.2, 0.1), lightMat);
-    l1.position.set(-0.6 * s, 0.6 * s, 2.12 * s); g.add(l1);
-    var l2 = l1.clone(); l2.position.x = 0.6 * s; g.add(l2);
+    var head = new T.Mesh(new T.BoxGeometry(1.6, 0.28, 0.2),
+      new T.MeshStandardMaterial({ color: 0xffffff, emissive: 0xfff2c0, emissiveIntensity: 1.8 }));
+    head.position.set(0, 0.75, 2.25);
+    g.add(head);
+    var tail = new T.Mesh(new T.BoxGeometry(1.6, 0.28, 0.2),
+      new T.MeshStandardMaterial({ color: 0x330000, emissive: 0xff2222, emissiveIntensity: 1.2 }));
+    tail.position.set(0, 0.75, -2.25);
+    g.add(tail);
+    g.position.set(x, 0, z);
+    g.rotation.y = rotY || 0;
+    TA.scene.add(g);
     return g;
-  };
+  }
 
-  P.makePlayerMesh = function () {
-    var g = new THREE.Group();
-    var jacket = new THREE.Mesh(new THREE.BoxGeometry(0.8, 1.05, 0.45), TA.world.mat(0x1f6f6f));
-    jacket.position.y = 1.05; g.add(jacket);
-    var head = new THREE.Mesh(new THREE.SphereGeometry(0.3, 12, 10), TA.world.mat(0xd8a878));
-    head.position.y = 1.85; g.add(head);
-    var cap = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.16, 0.62), TA.world.mat(0x222831));
-    cap.position.y = 2.08; g.add(cap);
-    var legL = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.85, 0.28), TA.world.mat(0x2a2f38));
-    legL.position.set(-0.2, 0.42, 0); g.add(legL);
-    var legR = legL.clone(); legR.position.x = 0.2; g.add(legR);
-    var arm = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.9, 0.24), TA.world.mat(0x1f6f6f));
-    arm.position.set(0.52, 1.05, 0.15); arm.rotation.x = -0.9; g.add(arm);
-    g.userData.arm = arm;
-    return g;
-  };
+  function spawnCars() {
+    var spots = [
+      { model: 0, x: 6, z: 14, rot: 0.2 },
+      { model: 1, x: -8, z: 22, rot: -0.3 },
+      { model: 2, x: 14, z: -10, rot: 1.57 },
+      { model: 3, x: -14, z: -30, rot: 0 },
+      { model: 4, x: 46, z: 30, rot: 0.6 },
+      { model: 5, x: -46, z: 90, rot: -1.2 },
+    ];
+    spots.forEach(function (s, i) {
+      var model = CAR_MODELS[s.model];
+      var mesh = makeCarMesh(model, s.x, s.z, s.rot);
+      cars.push({
+        index: i, model: model, mesh: mesh,
+        condition: 62 + ((i * 13) % 36), // 62..97%
+        hp: 100, locked: i % 3 === 0, alarm: false,
+        speed: 0, steer: 0,
+      });
+    });
+  }
 
-  P.spawnPlayer = function (x, z) {
-    if (P.mesh) TA.scene.remove(P.mesh);
-    P.mesh = P.makePlayerMesh();
-    TA.scene.add(P.mesh);
-    P.x = x; P.z = z; P.angle = 0; P.speed = 0; P.onFoot = true;
-    P.mesh.position.set(x, 0, z);
-    if (P.carMesh) { TA.scene.remove(P.carMesh); P.carMesh = null; }
-    TA.state.inCar = false; TA.state.car = null; TA.state.speedKmh = 0;
-  };
+  function placePlayerAt(x, y, z, yaw) {
+    TA.playerPos.x = x; TA.playerPos.z = z;
+    TA.playerYaw = yaw || 0;
+    if (TA.playerObj) TA.playerObj.position.set(x, y || 0, z);
+    if (TA.playerObj) TA.playerObj.rotation.y = TA.playerYaw;
+  }
 
-  P.spawnParkedCar = function (modelId, x, z, angle) {
-    var model = null;
-    for (var i = 0; i < TA.CAR_MODELS.length; i++) if (TA.CAR_MODELS[i].id === modelId) model = TA.CAR_MODELS[i];
-    if (!model) model = TA.CAR_MODELS[0];
-    var mesh = P.makeCarMesh(model.color, 1);
-    mesh.position.set(x, 0, z);
-    mesh.rotation.y = angle || 0;
-    TA.scene.add(mesh);
-    var car = { model: model, mesh: mesh, x: x, z: z, angle: angle || 0, hp: 100, locked: true, speed: 0 };
-    P.parkedCars.push(car);
-    return car;
-  };
-
-  P.getCarCondition = function (car) {
-    var c = car || TA.state.car;
-    if (!c) return { name: '—', pct: 100, label: '100% PRIMA' };
-    var pct = Math.max(0, Math.round(c.hp));
-    var word = pct >= 80 ? 'PRIMA' : pct >= 50 ? 'RUSAK' : pct >= 25 ? 'PARAH' : 'HANCUR';
-    return { name: c.model.name, pct: pct, label: pct + '% ' + word };
-  };
-
-  P.nearestParkedCar = function (maxDist) {
-    var best = null, bestD = maxDist || 4;
-    for (var i = 0; i < P.parkedCars.length; i++) {
-      var c = P.parkedCars[i];
-      var d = TA.dist2d(P.x, P.z, c.x, c.z);
+  function nearestCar(maxDist) {
+    var best = null, bestD = maxDist || 6;
+    var px = TA.playerObj.position.x, pz = TA.playerObj.position.z;
+    cars.forEach(function (c) {
+      var dx = c.mesh.position.x - px, dz = c.mesh.position.z - pz;
+      var d = Math.sqrt(dx * dx + dz * dz);
       if (d < bestD) { bestD = d; best = c; }
-    }
+    });
     return best;
-  };
+  }
 
-  P.enterCar = function (car) {
-    if (!car) return false;
-    if (P.carMesh) TA.scene.remove(P.carMesh);
-    P.carMesh = car.mesh;
-    P.onFoot = false;
-    TA.state.inCar = true;
-    TA.state.car = car;
-    TA.state.carHp = car.hp;
-    P.x = car.x; P.z = car.z; P.angle = car.angle;
-    if (P.mesh) P.mesh.visible = false;
-    TA.audio.engineSound(0);
-    return true;
-  };
-
-  P.exitCar = function () {
-    if (P.onFoot) return;
-    var car = TA.state.car;
-    if (car) { car.x = P.x; car.z = P.z; car.angle = P.angle; car.hp = TA.state.carHp; }
-    P.onFoot = true;
-    TA.state.inCar = false;
-    TA.state.car = null;
-    TA.state.speedKmh = 0;
-    P.x += Math.sin(P.angle + Math.PI / 2) * 2.2;
-    P.z += Math.cos(P.angle + Math.PI / 2) * 2.2;
-    if (P.mesh) { P.mesh.visible = true; P.mesh.position.set(P.x, 0, P.z); }
-    TA.audio.engineSound(0);
-  };
-
-  P.jackCar = function (car) {
-    // Tahan E: alarm, pengemudi kabur, wanted +1, lalu masuk mobil
+  // Hold E near a car: jack it (alarm, driver flees, wanted +1).
+  function tryEnterExitCar() {
     var s = TA.state;
-    s.jackProgress += 1 / 60;
-    if (s.jackProgress < 1.2) return false;
-    s.jackProgress = 0;
-    s.jackTarget = null;
-    car.locked = false;
-    s.stats.carsStolen++;
-    TA.career.addXP(10, 'curi mobil');
-    TA.police.setWanted(s.wanted + 1, 'curanmor');
-    TA.crew.showCrewChatter('SARI', 'Bagus! Alarmnya mati. Jalan, jangan dilihatin!');
-    TA.audio.alarmSound();
-    P.enterCar(car);
-    return true;
-  };
-
-  P.damageCar = function (n) {
-    if (!TA.state.car) return;
-    TA.state.carHp = TA.clamp(TA.state.carHp - n, 0, 100);
-    TA.state.car.hp = TA.state.carHp;
-    if (TA.state.carHp <= 0) {
-      TA.audio.explosionSound();
-      P.exitCar();
-      TA.player.takeDamage(15);
-    }
-  };
-
-  P.movePlayer = function (dt) {
-    var k = TA.input.keys;
-    var s = TA.state;
-    if (P.onFoot) {
-      var mx = 0, mz = 0;
-      if (k['w']) mz -= 1;
-      if (k['s']) mz += 1;
-      if (k['a']) mx -= 1;
-      if (k['d']) mx += 1;
-      var len = Math.sqrt(mx * mx + mz * mz);
-      P.moving = len > 0;
-      if (len > 0) {
-        mx /= len; mz /= len;
-        var spd = k['shift'] ? 9 : 5.5;
-        var nx = P.x + mx * spd * dt, nz = P.z + mz * spd * dt;
-        if (!TA.world.collides(nx, P.z, 0.6)) P.x = nx;
-        if (!TA.world.collides(P.x, nz, 0.6)) P.z = nz;
-        P.angle = Math.atan2(mx, mz);
-      }
-      P.mesh.position.set(P.x, Math.abs(Math.sin(TA.time.elapsed * 10)) * (P.moving ? 0.06 : 0), P.z);
-      P.mesh.rotation.y = P.angle;
-      // Interaksi: mobil terdekat
-      var car = P.nearestParkedCar(4);
-      if (car) {
-        if (car.locked) {
-          TA.ui.showInteract('Tahan E untuk mencuri mobil');
-          if (k['e']) { s.jackTarget = car; P.jackCar(car); }
-          else s.jackProgress = 0;
-        } else {
-          TA.ui.showInteract('Tekan E untuk masuk mobil');
-          if (k['e']) P.enterCar(car);
-        }
-      } else if (TA.dist2d(P.x, P.z, TA.world.safehouse.x, TA.world.safehouse.z) < 7) {
-        TA.ui.showInteract('SAFEHOUSE — wanted perlahan turun · tekan E untuk sembunyi');
-        if (k['e']) { TA.police.cooldownWanted(dt * 6); }
-      } else if (TA.dist2d(P.x, P.z, TA.world.garagePos.x, TA.world.garagePos.z) < 8 && TA.state.car) {
-        TA.ui.showInteract('BENGKEL — tekan E untuk perbaiki mobil ($' + P.repairCost() + ')');
-        if (k['e']) P.repairCar();
-      } else {
-        TA.ui.hideInteract();
-      }
+    if (s.inCar) { exitCar(); return; }
+    var car = nearestCar(6);
+    if (!car) return;
+    if (car.locked) {
+      jackCar(car);
     } else {
-      // Mengemudi
-      var car2 = TA.state.car;
-      var bonus = TA.crew.getCrewBonus();
-      var top = car2.model.topSpeed * bonus.speedMul / 3.6; // m/detik
-      if (k['w']) P.speed += car2.model.accel * dt * (P.speed < 0 ? 2 : 1);
-      else if (k['s']) P.speed -= car2.model.accel * 1.4 * dt;
-      else P.speed -= Math.sign(P.speed) * 8 * dt;
-      P.speed = TA.clamp(P.speed, -top * 0.35, top);
-      if (Math.abs(P.speed) < 0.2 && !k['w'] && !k['s']) P.speed = 0;
-      var steer = 0;
-      if (k['a']) steer = 1;
-      if (k['d']) steer = -1;
-      var steerFactor = TA.clamp(Math.abs(P.speed) / 8, 0, 1);
-      P.angle += steer * 1.9 * steerFactor * dt * Math.sign(P.speed || 1) * bonus.handling;
-      var nx2 = P.x + Math.sin(P.angle) * P.speed * dt;
-      var nz2 = P.z + Math.cos(P.angle) * P.speed * dt;
-      if (TA.world.collides(nx2, nz2, 1.6)) {
-        P.damageCar(Math.abs(P.speed) * 0.9);
-        TA.audio.crash();
-        P.speed *= -0.25;
-      } else {
-        P.x = nx2; P.z = nz2;
-      }
-      s.speedKmh = Math.round(Math.abs(P.speed) * 3.6);
-      car2.x = P.x; car2.z = P.z; car2.angle = P.angle;
-      car2.mesh.position.set(P.x, 0, P.z);
-      car2.mesh.rotation.y = P.angle;
-      TA.audio.engineSound(Math.abs(P.speed) / top);
-      if (k['e']) P.exitCar();
-      // Budi: mobil pulih pelan
-      if (bonus.carRegen > 0 && s.carHp < 100) {
-        s.carHp = Math.min(100, s.carHp + bonus.carRegen * dt);
-        car2.hp = s.carHp;
-      }
-      TA.ui.hideInteract();
+      enterCar(car);
     }
-  };
+  }
 
-  P.update = function (dt) {
-    if (TA.state.mode !== 'playing') return;
-    P.movePlayer(dt);
-    P.updateJobs();
-    // Tracer memudar
-    for (var i = P.tracers.length - 1; i >= 0; i--) {
-      var t = P.tracers[i];
-      t.life -= dt;
-      if (t.life <= 0) { TA.scene.remove(t.mesh); P.tracers.splice(i, 1); }
-      else t.mesh.material.opacity = t.life * 3;
-    }
-    // Regen armor Budi
-    var bonus = TA.crew.getCrewBonus();
-    if (bonus.armorRegen > 0 && TA.state.armor < 50) {
-      TA.state.armor = Math.min(50, TA.state.armor + bonus.armorRegen * dt);
-    }
-    // Update posisi mesh pemain saat di mobil (kamera mengikuti P.x/P.z)
-    if (!P.onFoot && P.carMesh) {
-      P.carMesh.position.set(P.x, 0, P.z);
-      P.carMesh.rotation.y = P.angle;
-    }
-  };
-
-  P.switchWeapon = function (i) {
+  function jackCar(car) {
     var s = TA.state;
-    if (i < 0 || i > 3) return;
-    if (!s.weaponsOwned[i]) { TA.ui.flashWeapon('Belum dimiliki — beli di toko (B)'); return; }
-    s.weapon = i;
-    TA.ui.flashWeapon(TA.WEAPONS[i].name);
-    TA.ui.showWeaponWheel();
-  };
-
-  P.weaponWheelOpen = false;
-  P.shoot = function () {
-    var s = TA.state;
-    if (s.mode !== 'playing') return;
-    var now = TA.time.elapsed;
-    var w = TA.WEAPONS[s.weapon];
-    if (now - P.lastShot < w.rate) return;
-    P.lastShot = now;
-    s.stats.shotsFired++;
-    TA.audio.gunshotSound(w.id);
-    // Arah tembak: dari pemain ke arah mouse di layar
-    var aimAngle = P.angle;
-    var best = null, bestD = w.range;
-    for (var i = 0; i < TA.enemies.length; i++) {
-      var e = TA.enemies[i];
-      if (e.hp <= 0) continue;
-      var d = TA.dist2d(P.x, P.z, e.x, e.z);
-      if (d < bestD) {
-        var ang = Math.atan2(e.x - P.x, e.z - P.z);
-        var diff = Math.abs(((ang - aimAngle + Math.PI * 3) % (Math.PI * 2)) - Math.PI);
-        if (diff < 0.6 || d < 6) { best = e; bestD = d; }
-      }
+    jackProgress += 0.34;
+    car.alarm = true;
+    TA.audio.gunshotSound(0.2);
+    if (jackProgress >= 1) {
+      jackProgress = 0;
+      car.locked = false;
+      car.alarm = false;
+      s.carsStolen++;
+      TA.police.setWanted(Math.min(5, s.wanted + 1));
+      TA.career.addXP(10);
+      TA.ui.showBanner('MOBIL DICURI — ' + car.model.name, 'Bawa ke garage untuk ganti warna & turunkan wanted.');
+      TA.crew.showCrewChatter('AGUS', 'Alarm mati. Cepat, sebelum patroli datang.');
+      enterCar(car);
+    } else {
+      TA.ui.showToast('Hold E — membobol ' + car.model.name + '… ' + Math.round(jackProgress * 100) + '%');
     }
-    // Tracer visual
-    var endX = P.x + Math.sin(aimAngle) * (best ? bestD : w.range);
-    var endZ = P.z + Math.cos(aimAngle) * (best ? bestD : w.range);
-    var geo = new THREE.BufferGeometry().setFromPoints([
-      new THREE.Vector3(P.x, 1.4, P.z), new THREE.Vector3(endX, 1.2, endZ)
-    ]);
-    var line = new THREE.Line(geo, new THREE.LineBasicMaterial({ color: 0xffe27a, transparent: true, opacity: 1 }));
+  }
+
+  function enterCar(car) {
+    var s = TA.state;
+    s.inCar = true;
+    s.carIndex = car.index;
+    TA.carObj = car.mesh;
+    TA.playerObj.visible = false;
+    TA.ui.showToast('Masuk ' + car.model.name + ' — ' + Math.round(car.condition) + '% kondisi');
+  }
+
+  function enterCarByIndex(i) {
+    var car = cars[i];
+    if (!car) return;
+    TA.state.inCar = true;
+    TA.state.carIndex = i;
+    TA.carObj = car.mesh;
+    TA.playerObj.visible = false;
+    TA.playerObj.position.copy(car.mesh.position);
+  }
+
+  function exitCar() {
+    var s = TA.state;
+    var car = cars[s.carIndex];
+    s.inCar = false;
+    s.carIndex = -1;
+    TA.carObj = null;
+    TA.playerObj.visible = true;
+    if (car) {
+      TA.playerObj.position.set(car.mesh.position.x + 3, 0, car.mesh.position.z + 3);
+      TA.playerPos.x = TA.playerObj.position.x;
+      TA.playerPos.z = TA.playerObj.position.z;
+    }
+  }
+
+  function getCarCondition() {
+    if (TA.state.carIndex < 0) return null;
+    var car = cars[TA.state.carIndex];
+    return car ? car.condition : null;
+  }
+
+  function getCurrentCarName() {
+    if (TA.state.carIndex < 0) return null;
+    var car = cars[TA.state.carIndex];
+    return car ? car.model.name : null;
+  }
+
+  function damageCar(amount) {
+    if (TA.state.carIndex < 0) return;
+    var car = cars[TA.state.carIndex];
+    car.condition = Math.max(5, car.condition - amount);
+    car.hp -= amount * 2;
+    if (car.hp <= 0) explodeCar(car);
+  }
+
+  function explodeCar(car) {
+    var T = TA.three;
+    var flash = new T.PointLight(0xff6600, 60, 30);
+    flash.position.copy(car.mesh.position).y += 2;
+    TA.scene.add(flash);
+    setTimeout(function () { TA.scene.remove(flash); }, 400);
+    car.condition = 5; car.hp = 100;
+    TA.ui.showToast('Mobil meledak! ' + car.model.name + ' hancur.');
+    if (TA.state.inCar) takeDamage(25);
+  }
+
+  function repairCar() {
+    if (TA.state.carIndex < 0) return false;
+    var car = cars[TA.state.carIndex];
+    var cost = Math.round((100 - car.condition) * 2 * TA.crew.getCrewBonus().repairDiscount);
+    if (TA.state.money < cost) return false;
+    TA.state.money -= cost;
+    car.condition = 100; car.hp = 100;
+    TA.ui.showToast('Mobil diperbaiki — 100% kondisi ($' + cost + ')');
+    return true;
+  }
+
+  // ---------- combat ----------
+  function currentWeapon() { return WEAPONS[TA.state.weapon]; }
+
+  function switchWeapon(i) {
+    if (i < 0 || i >= WEAPONS.length) return;
+    if (i > 0 && !ownedWeapons[WEAPONS[i].key]) {
+      TA.ui.showToast(WEAPONS[i].name + ' belum dibeli — kunjungi toko senjata.');
+      return;
+    }
+    TA.state.weapon = i;
+    TA.audio.gunshotSound(0.05);
+    TA.ui.refreshWeaponWheel();
+  }
+
+  function shoot() {
+    var s = TA.state;
+    var w = currentWeapon();
+    var now = TA.state.elapsed;
+    if (now - lastShot < w.rate) return;
+    lastShot = now;
+    if (!w.infinite) {
+      var a = AMMO[w.key];
+      if (a.mag <= 0) {
+        if (a.reserve > 0) { reloadWeapon(); return; }
+        TA.ui.showToast('Amunisi habis! Beli di toko senjata (R ke toko).');
+        return;
+      }
+      a.mag--;
+    }
+    s.shotsFired++;
+    TA.audio.gunshotSound(0.5);
+    TA.world.panicPedestrians(TA.playerObj.position.x, TA.playerObj.position.z);
+    TA.police.onGunshot();
+    // tracer line from player toward aim
+    var T = TA.three;
+    var from = TA.playerObj.position.clone(); from.y += 1.4;
+    var dir = new T.Vector3(-Math.sin(TA.playerYaw), 0, -Math.cos(TA.playerYaw));
+    if (s.inCar && TA.carObj) {
+      from = TA.carObj.position.clone(); from.y += 1.2;
+      dir = new T.Vector3(-Math.sin(TA.carObj.rotation.y), 0, -Math.cos(TA.carObj.rotation.y));
+    }
+    var to = from.clone().add(dir.clone().multiplyScalar(w.range));
+    var geo = new T.BufferGeometry().setFromPoints([from, to]);
+    var line = new T.Line(geo, new T.LineBasicMaterial({ color: 0xffe08a, transparent: true, opacity: 0.9 }));
     TA.scene.add(line);
-    P.tracers.push({ mesh: line, life: 0.12 });
-    if (best) {
-      best.hp -= w.damage;
-      if (best.hp <= 0) {
-        best.dead = true;
-        s.stats.enemiesDown++;
-        TA.career.addXP(5, 'musuh dilumpuhkan');
-        if (best.mesh) best.mesh.visible = false;
+    tracers.push({ line: line, until: now + 0.08 });
+    // hit chance vs nearest police unit (abstracted combat)
+    TA.police.damageNearestEnemy(w.damage);
+  }
+
+  function reloadWeapon() {
+    var w = currentWeapon();
+    if (w.infinite) return;
+    var a = AMMO[w.key];
+    var need = a.magSize - a.mag;
+    var take = Math.min(need, a.reserve);
+    a.mag += take; a.reserve -= take;
+    TA.ui.showToast('Reload ' + w.name + ' — ' + a.mag + '/' + a.reserve);
+  }
+
+  function driveBy() {
+    if (!TA.state.inCar) return;
+    shoot();
+  }
+
+  function takeDamage(amount) {
+    var s = TA.state;
+    var absorbed = Math.min(s.armor, amount);
+    s.armor -= absorbed;
+    s.hp -= (amount - absorbed);
+    TA.ui.flashDamage();
+    if (s.hp <= 0) {
+      s.hp = 0;
+      TA.core.gameOver('Raka tumbang di jalanan Teluk Arunika.');
+    }
+  }
+
+  function heal(amount) {
+    var s = TA.state;
+    s.hp = Math.min(s.maxHp, s.hp + amount);
+  }
+
+  // ---------- shops ----------
+  function buyWeapon(key) {
+    var price = WEAPON_PRICE[key];
+    if (!price || ownedWeapons[key]) return false;
+    var discount = TA.crew.getCrewBonus().shopDiscount;
+    var cost = Math.round(price * discount);
+    if (TA.state.money < cost) return false;
+    TA.state.money -= cost;
+    ownedWeapons[key] = true;
+    TA.ui.showToast(WEAPONS.filter(function (w) { return w.key === key; })[0].name + ' dibeli ($' + cost + ')');
+    return true;
+  }
+
+  function buyArmor() {
+    var cost = Math.round(ARMOR_PRICE * TA.crew.getCrewBonus().shopDiscount);
+    if (TA.state.money < cost || TA.state.armor >= TA.state.maxArmor) return false;
+    TA.state.money -= cost;
+    TA.state.armor = TA.state.maxArmor;
+    TA.ui.showToast('Armor penuh ($' + cost + ')');
+    return true;
+  }
+
+  function buyAmmo(key) {
+    var a = AMMO[key];
+    if (!a) return false;
+    var cost = AMMO_PRICE[key] || 50;
+    if (TA.state.money < cost) return false;
+    TA.state.money -= cost;
+    a.reserve += a.magSize * 2;
+    TA.ui.showToast('Amunisi ' + key + ' +' + (a.magSize * 2) + ' ($' + cost + ')');
+    return true;
+  }
+
+  function getAmmoDisplay(key) {
+    if (key === 'fists') return '∞';
+    var a = AMMO[key];
+    return a.mag + '/' + a.reserve;
+  }
+
+  // ---------- per-frame ----------
+  function update(dt) {
+    var s = TA.state;
+    var k = TA.keys;
+    var sprint = k['ShiftLeft'] || k['ShiftRight'];
+    if (s.screen !== 'playing' && s.screen !== 'map') return;
+
+    if (s.inCar && TA.carObj) {
+      updateDriving(dt);
+    } else {
+      // on foot: WASD relative to camera yaw
+      var sp = (sprint ? 9 : moveSpeed);
+      var mx = 0, mz = 0;
+      if (k['KeyW']) mz -= 1;
+      if (k['KeyS']) mz += 1;
+      if (k['KeyA']) mx -= 1;
+      if (k['KeyD']) mx += 1;
+      if (mx !== 0 || mz !== 0) {
+        var len = Math.sqrt(mx * mx + mz * mz);
+        mx /= len; mz /= len;
+        var cy = TA.camYaw;
+        var wx = mx * Math.cos(cy) - mz * Math.sin(cy);
+        var wz = mx * Math.sin(cy) + mz * Math.cos(cy);
+        TA.playerPos.x += wx * sp * dt;
+        TA.playerPos.z += wz * sp * dt;
+        TA.playerPos.x = Math.max(-245, Math.min(305, TA.playerPos.x));
+        TA.playerPos.z = Math.max(-245, Math.min(245, TA.playerPos.z));
+        TA.playerYaw = Math.atan2(wx, wz);
+        TA.playerObj.position.set(TA.playerPos.x, 0, TA.playerPos.z);
+        TA.playerObj.rotation.y = TA.playerYaw;
+        updateDistrictFromPosition();
+      }
+      // hold E near a locked car = jacking progress
+      if (k['KeyE']) {
+        var car = nearestCar(6);
+        if (car && car.locked) jackCar(car);
+      }
+      // crew passive: Budi regenerates armor slowly
+      if (TA.crew.getCrewBonus().armorRegen > 0) {
+        s.armor = Math.min(50, s.armor + TA.crew.getCrewBonus().armorRegen * dt);
       }
     }
-    // Tembakan menarik perhatian: wanted naik bila ada polisi dekat
-    if (s.wanted < 2 && TA.police.nearestUnitDist() < 40) TA.police.setWanted(2, 'tembakan');
-  };
 
-  P.driveBy = function () { P.shoot(); };
-
-  P.takeDamage = function (n) {
-    var s = TA.state;
-    var remaining = n;
-    if (s.armor > 0) {
-      var absorbed = Math.min(s.armor, remaining);
-      s.armor -= absorbed; remaining -= absorbed;
-    }
-    s.hp -= remaining;
-    TA.audio.hurtSound();
-    if (s.hp <= 0) { s.hp = 0; TA.gameOver(); }
-  };
-
-  P.repairCost = function () {
-    var bonus = TA.crew.getCrewBonus();
-    var missing = 100 - TA.state.carHp;
-    return Math.max(20, Math.round(missing * 1.5 * (1 - bonus.discount)));
-  };
-
-  P.repairCar = function () {
-    var s = TA.state;
-    if (!s.car) return false;
-    var cost = P.repairCost();
-    if (s.money < cost) { TA.ui.flashWeapon('Uang tidak cukup untuk perbaikan'); return false; }
-    s.money -= cost;
-    s.carHp = 100; s.car.hp = 100;
-    TA.audio.repairSound();
-    return true;
-  };
-
-  P.buyWeapon = function (index) {
-    var s = TA.state;
-    var w = TA.WEAPONS[index];
-    if (!w || s.weaponsOwned[index]) return false;
-    var bonus = TA.crew.getCrewBonus();
-    var price = Math.round(w.price * (1 - bonus.discount));
-    if (s.money < price) return false;
-    s.money -= price;
-    s.weaponsOwned[index] = true;
-    s.weapon = index;
-    TA.audio.buySound();
-    return true;
-  };
-
-  P.buyArmor = function () {
-    var s = TA.state;
-    var bonus = TA.crew.getCrewBonus();
-    var price = Math.round(200 * (1 - bonus.discount));
-    if (s.money < price || s.armor >= s.maxArmor) return false;
-    s.money -= price;
-    s.armor = Math.min(s.maxArmor, s.armor + 50);
-    TA.audio.buySound();
-    return true;
-  };
-
-  /* ---------- Side jobs ---------- */
-  P.tryTaxiJob = function () {
-    var s = TA.state;
-    if (!s.inCar || !s.car || s.car.model.id !== 'taxi') { TA.ui.flashWeapon('Butuh TAKSI KUNING untuk side job taksi'); return; }
-    if (s.taxiJob) return;
-    var d = TA.world.districtAt(P.x, P.z);
-    var dest = TA.pick(TA.DISTRICTS);
-    var job = {
-      from: d.name, to: dest.name, state: 'pickup',
-      px: TA.rand(-120, 120), pz: TA.rand(-120, 120),
-      tx: TA.rand(-120, 120), tz: TA.rand(-120, 120),
-      pay: 0
-    };
-    job.pay = Math.round(60 * TA.world.taxiPayMultiplier(d.id));
-    s.taxiJob = job;
-    TA.crew.showCrewChatter('SARI', 'Penumpang di ' + d.name + '. Jemput, jangan ngebut di depan polisi!');
-  };
-
-  P.tryPackageJob = function () {
-    var s = TA.state;
-    if (s.packageJob) return;
-    var dest = TA.pick(TA.DISTRICTS);
-    s.packageJob = { to: dest.name, tx: TA.rand(-140, 140), tz: TA.rand(-140, 140), state: 'deliver', pay: 45 };
-    TA.ui.flashWeapon('Paket diterima — antar ke ' + dest.name);
-  };
-
-  P.updateJobs = function () {
-    var s = TA.state;
-    if (s.taxiJob) {
-      var j = s.taxiJob;
-      var tx = j.state === 'pickup' ? j.px : j.tx;
-      var tz = j.state === 'pickup' ? j.pz : j.tz;
-      if (TA.dist2d(P.x, P.z, tx, tz) < 8) {
-        if (j.state === 'pickup') { j.state = 'dropoff'; TA.ui.flashWeapon('Penumpang naik — antar ke ' + j.to); }
-        else {
-          s.money += j.pay;
-          s.stats.taxisDone++;
-          TA.career.addXP(15, 'side job taksi');
-          TA.world.updateDistrictStanding(TA.world.districtAt(P.x, P.z).id, 2);
-          TA.ui.flashWeapon('Taksi selesai: +$' + j.pay);
-          s.taxiJob = null;
-        }
+    // expire tracers
+    for (var i = tracers.length - 1; i >= 0; i--) {
+      if (TA.state.elapsed > tracers[i].until) {
+        TA.scene.remove(tracers[i].line);
+        tracers.splice(i, 1);
       }
     }
-    if (s.packageJob) {
-      var pj = s.packageJob;
-      if (TA.dist2d(P.x, P.z, pj.tx, pj.tz) < 8) {
-        s.money += pj.pay;
-        s.stats.packagesDone++;
-        TA.career.addXP(10, 'antar paket');
-        TA.world.updateDistrictStanding(TA.world.districtAt(P.x, P.z).id, 1);
-        TA.ui.flashWeapon('Paket terkirim: +$' + pj.pay);
-        s.packageJob = null;
+    updateDistrictFromPosition(); // district always follows position (incl. teleports)
+  }
+
+  function updateDriving(dt) {
+    var s = TA.state;
+    var car = cars[s.carIndex];
+    if (!car) return;
+    var k = TA.keys;
+    var bonus = TA.crew.getCrewBonus();
+    var top = car.model.topSpeed * bonus.speedMult;
+    var accel = car.model.accel;
+    if (k['KeyW'] || k['ArrowUp']) car.speed += accel * dt;
+    if (k['KeyS'] || k['ArrowDown']) car.speed -= accel * 1.4 * dt;
+    if (!k['KeyW'] && !k['KeyS']) car.speed *= (1 - 0.6 * dt);
+    // Sari Gaspol boost
+    if (bonus.boostActive) car.speed += 60 * dt;
+    car.speed = Math.max(-40, Math.min(top / 3.6, car.speed));
+    var steer = 0;
+    if (k['KeyA'] || k['ArrowLeft']) steer = 1;
+    if (k['KeyD'] || k['ArrowRight']) steer = -1;
+    var spdFactor = Math.min(1, Math.abs(car.speed) / 12);
+    car.mesh.rotation.y += steer * 1.6 * spdFactor * dt * Math.sign(car.speed || 1);
+    var fwd = car.speed * dt;
+    car.mesh.position.x -= Math.sin(car.mesh.rotation.y) * fwd;
+    car.mesh.position.z -= Math.cos(car.mesh.rotation.y) * fwd;
+    car.mesh.position.x = Math.max(-245, Math.min(305, car.mesh.position.x));
+    car.mesh.position.z = Math.max(-245, Math.min(245, car.mesh.position.z));
+    s.carSpeed = Math.abs(car.speed) * 3.6;
+    TA.playerObj.position.copy(car.mesh.position);
+    TA.playerPos.x = car.mesh.position.x;
+    TA.playerPos.z = car.mesh.position.z;
+    TA.camYaw = car.mesh.rotation.y + Math.PI;
+    updateDistrictFromPosition();
+    // collisions with traffic = damage + condition loss
+    TA.world.getTraffic().forEach(function (t) {
+      var dx = t.position.x - car.mesh.position.x;
+      var dz = t.position.z - car.mesh.position.z;
+      if (dx * dx + dz * dz < 12) {
+        car.speed *= 0.4;
+        damageCar(1.5);
+        t.position.x += dx * 0.5;
+        t.position.z += dz * 0.5;
       }
+    });
+    // Budi passive: car slowly repairs
+    if (bonus.carRepair > 0) car.condition = Math.min(100, car.condition + bonus.carRepair * dt);
+  }
+
+  function updateDistrictFromPosition() {
+    var x = TA.playerPos.x, z = TA.playerPos.z;
+    var d = 'PELABUHAN', street = 'Dermaga Senja';
+    if (x > 170) { d = 'PULAU ABU'; street = 'Jalan Bara'; }
+    else if (z > 150) { d = 'PELABUHAN'; street = 'Dermaga Senja'; }
+    else if (z > 220) { d = 'PANTAI'; street = 'Pantai Arunika'; }
+    else if (x < -100 && z > -80 && z < 40) { d = 'GANG NEON'; street = 'Lorong Lampion'; }
+    else if (x > 30 && z > 40) { d = 'PASAR'; street = 'Jalan Ikan Bakar'; }
+    else if (z < -100) { d = 'TOL LAYANG'; street = 'Tol Layang'; }
+    if (d !== TA.state.district) {
+      TA.state.district = d;
+      TA.state.street = street;
+      TA.ui.showLocationBanner();
     }
+  }
+
+  function movePlayer(dx, dz) {
+    TA.playerPos.x += dx; TA.playerPos.z += dz;
+    if (TA.playerObj) TA.playerObj.position.set(TA.playerPos.x, 0, TA.playerPos.z);
+  }
+
+  TA.player = {
+    CAR_MODELS: CAR_MODELS,
+    WEAPONS: WEAPONS,
+    AMMO: AMMO,
+    buildPlayer: buildPlayer,
+    spawnCars: spawnCars,
+    placePlayerAt: placePlayerAt,
+    movePlayer: movePlayer,
+    tryEnterExitCar: tryEnterExitCar,
+    enterCar: enterCar,
+    enterCarByIndex: enterCarByIndex,
+    exitCar: exitCar,
+    jackCar: jackCar,
+    getCarCondition: getCarCondition,
+    getCurrentCarName: getCurrentCarName,
+    damageCar: damageCar,
+    repairCar: repairCar,
+    switchWeapon: switchWeapon,
+    shoot: shoot,
+    driveBy: driveBy,
+    takeDamage: takeDamage,
+    heal: heal,
+    buyWeapon: buyWeapon,
+    buyArmor: buyArmor,
+    buyAmmo: buyAmmo,
+    getAmmoDisplay: getAmmoDisplay,
+    getOwnedWeapons: function () { return ownedWeapons; },
+    getCars: function () { return cars; },
+    update: update,
   };
 })();
