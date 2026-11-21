@@ -3,148 +3,137 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>TELUK ARUNIKA: 7 Hari Utang — 10 narrative operations, crew abilities &amp; career progression, staged missions, police dispatch, roadblocks + ELANG-1 tactical air unit, car theft, 4-weapon combat</title>
-<link rel="icon" href="data:,">
+<title>TELUK ARUNIKA: 7 Hari Utang</title>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<div id="app"></div>
+<div id="game-root">
+  <canvas id="game-canvas"></canvas>
+  <div id="rain-overlay"></div>
+  <div id="vignette"></div>
 
-<!-- ===================== HUD ===================== -->
-<div id="hud">
-  <div id="hud-top-left">
-    <div id="wanted-stars" class="wanted">☆☆☆☆☆</div>
-    <div id="money">$250</div>
-    <div id="day-debt">HARI 1/7 · UTANG $5.000</div>
-    <div id="rank-row"><span id="rank-name">TINGKAT 1 · ANAK BARU</span> — <span id="xp-text">0 / 150 XP</span></div>
-    <div id="xp-bar"><div id="xp-fill"></div></div>
-    <div id="crew-row">KRU: — (rekrut di bengkel, V)</div>
-  </div>
-  <div id="hud-top-right">
-    <div id="clock-weather">08:20 🌧 Siang</div>
-    <div id="compass">N 0°</div>
+  <!-- HUD -->
+  <div id="hud" class="hidden">
+    <div id="top-left">
+      <div id="wanted-stars" title="Wanted level">☆☆☆☆☆</div>
+      <div id="money-row">$<span id="money">2.400</span> &nbsp;·&nbsp; HARI <span id="day">1</span>/7 &nbsp;·&nbsp; UTANG $<span id="debt">7.000</span></div>
+      <div id="rank-row">TINGKAT 1 · Anak Baru — <span id="xp-text">0 / 150 XP</span></div>
+      <div id="xp-bar"><div id="xp-fill"></div></div>
+      <div id="crew-row">KRU: —</div>
+      <div id="clock-row"><span id="clock">14:32</span> · <span id="weather">HUJAN DERAS</span> · <span id="radio">RADIO: Dangdut Neon</span></div>
+    </div>
+
+    <div id="mission-banner" class="hidden">
+      <div id="mission-title">MISI 1 DARI 10 · TAHAP 1/3</div>
+      <div id="mission-stage">Antar Paket Pertama</div>
+      <div id="mission-objective">Ambil paket di Pasar Senja</div>
+      <div id="mission-dist">JARAK: 120 m</div>
+      <div id="mission-next">NEXT: Antar ke Dermaga Senja</div>
+    </div>
+
+    <div id="dispatch-panel" class="hidden">
+      <div id="dispatch-title">DISPATCH POLISI — 0 UNIT</div>
+      <div id="dispatch-list"></div>
+      <div id="dispatch-heli" class="hidden">⚠ ELANG-1 DITERJUNKAN</div>
+    </div>
+
+    <div id="crew-cards"></div>
+
+    <div id="bottom-left">
+      <div id="health-row">❤ HP <span id="hp">100</span> &nbsp; 🛡 ARMOR <span id="armor">0</span></div>
+      <div id="weapon-row"><span id="weapon-name">PISTOL</span> <span id="ammo">12 / ∞</span></div>
+      <div id="car-row" class="hidden"><span id="car-name">ARUNIKA SEDAN</span> · <span id="car-condition">100% BAIK</span> · <span id="speed">0</span> km/j</div>
+    </div>
+
+    <div id="location-banner">
+      <div id="district-name">PELABUHAN — Dermaga Senja</div>
+      <div id="district-mood">NETRAL · 58</div>
+    </div>
+
     <canvas id="minimap" width="180" height="180"></canvas>
-    <div id="radio">♪ DANGDUT NEON FM — Goyang Pelabuhan</div>
-    <div id="crew-cards" style="display:none"></div>
-    <div id="dispatch-panel" style="display:none"></div>
+    <div id="compass">N ↑</div>
+    <div id="toast"></div>
+    <div id="chatter" class="hidden"><span id="chatter-name">SARI</span>: <span id="chatter-text"></span></div>
+    <div id="interact-prompt" class="hidden">Tahan E untuk jack mobil</div>
+    <div id="rankup-banner" class="hidden"></div>
+    <div id="saving" class="hidden">Saving…</div>
   </div>
-  <div id="hud-bottom-left">
-    <div id="location-banner" style="display:none"></div>
-    <div id="hp-row"><span class="bar-label">HP</span><div class="bar"><div id="hp-fill"></div></div><span id="hp-text">100 / 100</span></div>
-    <div id="armor-row"><span class="bar-label">ARMOR</span><div class="bar"><div id="armor-fill"></div></div><span id="armor-text">0 / 100</span></div>
-    <div id="weapon-row"><span id="weapon-name">PISTOL</span> <span id="ammo">12 / 72</span> <span id="reload-indicator" style="display:none">MEMUAT…</span></div>
-    <div id="ability-cd"></div>
-  </div>
-  <div id="hud-bottom-right">
-    <div id="speedo" style="display:none"><div id="car-name"></div><span id="speed-num">0</span> <span class="speed-unit">km/jam</span></div>
-  </div>
-  <div id="objective">Misi 1 — Taksi Pertama</div>
-  <div id="crosshair">+</div>
-  <div id="interact-prompt" style="display:none">TAHAN E — CURI MOBIL</div>
-  <div id="jack-prompt" style="display:none">MENCURI MOBIL…<div id="jack-bar"><div id="jack-fill"></div></div></div>
-  <div id="ability-indicator" style="display:none">⚡ GASPOL — wanted beku</div>
-  <div id="ability-flash" style="opacity:0"></div>
-</div>
-<div id="toast" style="opacity:0"></div>
-<div id="crew-chatter" style="display:none"></div>
-<div id="banner" style="display:none"></div>
-<div id="damage-flash" style="opacity:0"></div>
-<div id="saving" style="display:none">Saving…</div>
 
-<!-- ===================== Dialog & pilihan ===================== -->
-<div id="dialogue" style="display:none">
-  <div id="dialogue-who">Raka</div>
-  <div id="dialogue-text"></div>
-  <div id="dialogue-hint"></div>
-</div>
-<div id="choice" style="display:none">
-  <div id="choice-question"></div>
-  <div id="choice-options"></div>
-</div>
-<div id="wheel" style="display:none"></div>
-
-<!-- ===================== Panel kru (tombol V) ===================== -->
-<div id="crew-panel-wrap" style="display:none">
-  <div class="panel-title">KRU — Bengkel Pak Amir</div>
-  <div class="crew-panel-list"></div>
-  <div class="panel-hint">Tekan V untuk menutup. Rekrut dengan uang — kemampuan pasif langsung aktif.</div>
-</div>
-
-<!-- ===================== Layar start ===================== -->
-<div id="start-screen" class="screen">
-  <div class="screen-inner">
-    <div class="game-title">TELUK ARUNIKA</div>
-    <div class="game-subtitle">7 Hari Utang</div>
-    <div id="start-subtitle" class="screen-text">Raka berutang $5.000 ke Darma Wijaya. 7 hari. 10 misi. Satu bengkel yang harus diselamatkan.</div>
-    <div class="feature-list">
-      <span>10 MISI CERITA</span><span>3 KRU · KEMAMPUAN AKTIF</span><span>5 TINGKAT KARIER</span>
-      <span>MISI BERTAHAP</span><span>DISPATCH POLISI</span>
-      <span>WANTED 1–5 · ELANG-1</span><span>CARJACKING · 4 SENJATA</span><span>RADIO 3 STASIUN</span>
+  <!-- Weapon wheel -->
+  <div id="weapon-wheel" class="hidden">
+    <div class="wheel-title">SENJATA — 1 Pistol · 2 SMG · 3 Shotgun · 4 Rifle</div>
+    <div class="wheel-slots">
+      <div class="wheel-slot" data-w="1">1 · PISTOL</div>
+      <div class="wheel-slot" data-w="2">2 · SMG</div>
+      <div class="wheel-slot" data-w="3">3 · SHOTGUN</div>
+      <div class="wheel-slot" data-w="4">4 · RIFLE</div>
     </div>
-    <button id="btn-new-game" class="btn">▶ NEW GAME</button>
-    <button id="btn-continue" class="btn secondary" style="display:none">↻ CONTINUE</button>
-    <div class="controls">WASD jalan · E masuk/curi mobil (tahan) · Mouse aim · Klik tembak · 1–4 senjata · Tab weapon wheel<br>
-    Z/X/C kemampuan kru (Sari/Budi/Agus) · V panel kru · R radio · M minimap zoom · Shift lari · Esc pause</div>
-    <div class="screen-foot">Kota pelabuhan hujan tropis · Three.js · Semua art prosedural · Suara WebAudio sintetis · Offline total</div>
   </div>
-</div>
 
-<!-- ===================== Layar pause ===================== -->
-<div id="pause-screen" class="screen hidden">
-  <div class="screen-inner wide">
-    <div class="game-title small">JEDA — TELUK ARUNIKA</div>
-    <div class="pause-grid">
-      <div class="pause-col">
-        <div class="panel-title">STATUS</div>
-        <div class="pause-line">Uang: <b id="pause-money">$250</b></div>
-        <div class="pause-line" id="pause-day">Hari 1/7 · Utang $5.000</div>
-        <div class="pause-line" id="pause-clock">08:20 · Hujan · Siang</div>
-        <div class="pause-line" id="pause-mission">Misi 1 — Taksi Pertama</div>
-        <div class="pause-line">Wanted: <b id="pause-wanted">0 bintang</b></div>
-        <div class="panel-title">SAVE</div>
-        <button class="btn-small" data-save="1">Simpan Slot 1</button>
-        <button class="btn-small" data-save="2">Simpan Slot 2</button>
-        <button class="btn-small" data-save="3">Simpan Slot 3</button>
-        <button class="btn-small" data-load="1">Muat Slot 1</button>
-        <button class="btn-small" data-load="2">Muat Slot 2</button>
-        <button class="btn-small" data-load="3">Muat Slot 3</button>
-        <div id="autosave-info" class="panel-hint">Autosave aktif — terakhir setelah misi selesai.</div>
-        <div class="panel-title">TOKO SENJATA</div>
-        <button class="btn-small" data-buy-weapon="1">Beli SMG</button>
-        <button class="btn-small" data-buy-weapon="2">Beli Shotgun</button>
-        <button class="btn-small" data-buy-weapon="3">Beli Rifle</button>
-        <button class="btn-small" id="btn-buy-armor">Beli Armor — $200</button>
+  <!-- Crew panel (V) -->
+  <div id="crew-panel" class="hidden panel">
+    <h2>KRU — BENGKEL PAK AMIR</h2>
+    <div id="crew-list"></div>
+    <p class="panel-hint">Z Gaspol · X Perbaiki Cepat · C Ghost · V tutup panel</p>
+  </div>
+
+  <!-- Dialogue / cutscene -->
+  <div id="dialogue" class="hidden">
+    <div id="dialogue-speaker">DARMA</div>
+    <div id="dialogue-text"></div>
+    <div id="dialogue-hint">Klik / Enter untuk lanjut</div>
+  </div>
+
+  <!-- Start screen -->
+  <div id="start-screen">
+    <div class="start-inner">
+      <div class="start-kicker">KOTA PELABUHAN · HUJAN MONSUN · 7 HARI</div>
+      <h1>TELUK<br>ARUNIKA</h1>
+      <div class="start-sub">7 HARI UTANG</div>
+      <p class="start-story">Raka, sopir taksi, berutang $7.000 pada Darma Wijaya. Tujuh hari untuk melunasi — atau bengkel ayahnya disita. Sepuluh misi. Tiga kru. Satu pelabuhan yang tak pernah tidur.</p>
+      <div class="start-buttons">
+        <button id="btn-continue">▶ LANJUTKAN (Save)</button>
+        <button id="btn-new">＋ GAME BARU</button>
       </div>
-      <div class="pause-col">
-        <div class="panel-title">KARIER &amp; REPUTASI</div>
-        <div id="career-panel"></div>
-      </div>
-      <div class="pause-col">
-        <div class="panel-title">KRU</div>
-        <div class="crew-panel-list"></div>
-      </div>
+      <div class="start-controls">WASD jalan · E masuk/curi mobil · Mouse aim + klik tembak · 1-4 senjata · Z/X/C kemampuan kru · V panel kru · R radio · Esc jeda · M minimap</div>
+      <div class="start-foot">10 misi naratif · 3 kru · 5 tingkat karier · 5 distrik · Wanted 1-5 · ELANG-1 · Offline total</div>
     </div>
-    <button id="btn-resume" class="btn">▶ LANJUTKAN (Esc)</button>
-    <button id="btn-quit-menu" class="btn secondary">MENU UTAMA</button>
   </div>
-</div>
 
-<!-- ===================== Layar akhir ===================== -->
-<div id="ending-screen" class="screen hidden">
-  <div class="screen-inner">
-    <div class="game-title">UTANG LUNAS</div>
-    <div class="game-subtitle">Bengkel Selamat</div>
-    <div id="ending-stats" class="screen-text"></div>
-    <button id="btn-restart" class="btn">↻ MAIN LAGI</button>
+  <!-- Pause screen -->
+  <div id="pause-screen" class="hidden">
+    <div class="pause-inner">
+      <h2>JEDA</h2>
+      <div id="pause-stats"></div>
+      <div id="career-panel">
+        <h3>KARIER</h3>
+        <div id="career-detail"></div>
+      </div>
+      <div id="pause-crew"><h3>KRU</h3><div id="pause-crew-list"></div></div>
+      <h3>SAVE — 3 SLOT + AUTOSAVE</h3>
+      <div class="save-slots">
+        <button class="save-slot" data-slot="1">SLOT 1</button>
+        <button class="save-slot" data-slot="2">SLOT 2</button>
+        <button class="save-slot" data-slot="3">SLOT 3</button>
+        <button id="btn-load-auto">MUAT AUTOSAVE</button>
+      </div>
+      <div class="pause-buttons">
+        <button id="btn-resume">▶ LANJUT</button>
+        <button id="btn-restart">↻ ULANG MISI</button>
+        <button id="btn-quit">■ MENU UTAMA</button>
+      </div>
+      <p class="pause-hint">Esc untuk lanjut · Uang, hari, misi, XP, tingkat &amp; kru tersimpan otomatis</p>
+    </div>
   </div>
-</div>
 
-<!-- ===================== Game over ===================== -->
-<div id="gameover-screen" class="screen hidden">
-  <div class="screen-inner">
-    <div class="game-title">RAKA TERTANGKAP</div>
-    <div class="screen-text">Darma menyita bengkel ayahmu. Tapi cerita belum selesai — coba lagi.</div>
-    <button id="btn-restart2" class="btn" onclick="TA.startNewGame()">↻ COBA LAGI</button>
+  <!-- End screen -->
+  <div id="end-screen" class="hidden">
+    <div class="end-inner">
+      <h1 id="end-title">UTANG LUNAS — BENGKEL SELAMAT</h1>
+      <p id="end-text"></p>
+      <div id="end-stats"></div>
+      <button id="btn-again">↻ MAIN LAGI</button>
+    </div>
   </div>
 </div>
 
@@ -158,6 +147,5 @@
 <script src="career.js"></script>
 <script src="audio.js"></script>
 <script src="ui.js"></script>
-<script>TA.bootGame();</script>
 </body>
 </html>

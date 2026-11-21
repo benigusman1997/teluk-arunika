@@ -1,97 +1,57 @@
-// TELUK ARUNIKA v3 — career.js
-// Progresi karier / reputasi: 5 tingkat, XP dari misi / side job / curi mobil /
-// selamat dari wanted 4+ / tangkap Darma. Perk terbuka per tingkat.
+// career.js — 5 career ranks with XP thresholds + perks, rank-up banner, save/load of XP + rank.
 (function () {
   'use strict';
+  var TA = window.TA;
 
-  var CR = TA.career = {};
-
-  CR.RANKS = [
-    { name: 'Anak Baru', xp: 0, perk: 'Tanpa perk — buktikan dirimu di jalanan Teluk Arunika.' },
-    { name: 'Sopir Andal', xp: 150, perk: 'Buka rekrutmen kru: Sari (sopir) & Budi (montir) bisa direkrut.' },
-    { name: 'Penguasa Jalanan', xp: 400, perk: 'Diskon 15% di semua toko + buka rekrut Agus (peretas).' },
-    { name: 'Raja Teluk', xp: 800, perk: 'Kapasitas armor +50, HP maksimum +25.' },
-    { name: 'Legenda Arunika', xp: 1500, perk: 'Wanted cooldown 20% lebih cepat + gelar tampil di layar akhir.' }
+  var RANKS = [
+    { level: 1, name: 'Anak Baru', xp: 0, perk: 'Tanpa perk — buktikan dirimu di jalanan.' },
+    { level: 2, name: 'Sopir Andal', xp: 150, perk: 'Buka rekrutmen kru: Sari & Budi bisa direkrut.' },
+    { level: 3, name: 'Penguasa Jalanan', xp: 400, perk: 'Diskon 15% di semua toko + buka rekrut Agus.' },
+    { level: 4, name: 'Raja Teluk', xp: 800, perk: 'Kapasitas armor +50, HP maksimum +25.', armorBonus: 50, hpBonus: 25 },
+    { level: 5, name: 'Legenda Arunika', xp: 1500, perk: 'Wanted cooldown 20% lebih cepat + gelar di layar akhir.', wantedCooldownMul: 1.2 },
   ];
 
-  CR.initCareer = function () {
-    CR.applyRankPerks();
-  };
-
-  // Tingkat saat ini dari XP (index 0..4).
-  CR.getRank = function () {
+  function getRank() {
     var xp = TA.state.xp;
-    var idx = 0;
-    for (var i = 0; i < CR.RANKS.length; i++) {
-      if (xp >= CR.RANKS[i].xp) idx = i;
+    var r = RANKS[0];
+    RANKS.forEach(function (rank) { if (xp >= rank.xp) r = rank; });
+    return r;
+  }
+  function getNextRank() {
+    var r = getRank();
+    return RANKS[r.level] || null; // RANKS indexed 0..4; next is level (1-based) -> index
+  }
+
+  function addXP(amount) {
+    var s = TA.state;
+    var before = getRank();
+    s.xp += amount;
+    checkRankUp(before);
+    TA.ui.renderHUD();
+  }
+
+  function checkRankUp(before) {
+    var after = getRank();
+    if (after.level > (before ? before.level : 1)) {
+      TA.state.rank = after.level;
+      applyRankPerks(after);
+      TA.ui.showRankUpBanner('NAIK TINGKAT: ' + after.name + '!');
+      TA.ui.toast('NAIK TINGKAT: ' + after.name + ' — ' + after.perk);
     }
-    var r = CR.RANKS[idx];
-    return {
-      index: idx, name: r.name, xp: r.xp, perk: r.perk,
-      next: idx + 1 < CR.RANKS.length ? CR.RANKS[idx + 1] : null,
-      xpInto: xp - r.xp,
-      xpNeeded: idx + 1 < CR.RANKS.length ? CR.RANKS[idx + 1].xp - r.xp : 0
-    };
-  };
+    TA.state.rank = after.level;
+  }
 
-  CR.addXP = function (n) {
-    if (!n) return;
-    TA.state.xp += n;
-    CR.checkRankUp();
-    TA.ui.renderHUD(true);
-  };
-
-  CR.checkRankUp = function () {
+  function applyRankPerks(rank) {
     var s = TA.state;
-    var rank = CR.getRank();
-    if (rank.index > s.rankIndex) {
-      s.rankIndex = rank.index;
-      CR.applyRankPerks();
-      TA.ui.showRankUpBanner(rank.name);
-      TA.audio.rankUpSound();
-      TA.ui.toast('NAIK TINGKAT: ' + rank.name + '! Perk baru: ' + rank.perk);
-    }
-  };
+    if (rank.hpBonus) s.hp = Math.min(100 + rank.hpBonus, s.hp + rank.hpBonus);
+    // shop discount + wanted cooldown are read live from getRank() by player/police
+  }
 
-  // Terapkan perk tingkat ke stat pemain (idempotent: hitung dari dasar).
-  CR.applyRankPerks = function () {
-    var s = TA.state;
-    var rank = CR.getRank();
-    s.maxArmor = 100 + (rank.index >= 3 ? 50 : 0);
-    s.maxHp = 100 + (rank.index >= 3 ? 25 : 0);
-    if (s.armor > s.maxArmor) s.armor = s.maxArmor;
-    if (s.hp > s.maxHp) s.hp = s.maxHp;
-    s.rankIndex = rank.index;
-  };
+  function update(dt) { /* rank state is event-driven; nothing per-frame */ }
 
-  CR.update = function (dt) {
-    // Tidak ada logika per-frame; XP & rank dihitung saat kejadian.
-  };
-
-  // Panel karier untuk layar pause.
-  CR.renderCareerPanel = function () {
-    var panel = TA.el('career-panel');
-    if (!panel) return;
-    var s = TA.state;
-    var rank = CR.getRank();
-    var html = '<div class="career-current">Tingkat: <b>' + rank.name + '</b> · ' + s.xp + ' XP</div>';
-    html += '<div class="xp-bar big"><div id="career-xp-fill" style="width:' +
-      (rank.next ? Math.round(100 * rank.xpInto / rank.xpNeeded) : 100) + '%"></div></div>';
-    html += '<div class="career-next">' + (rank.next ?
-      'Berikutnya: <b>' + rank.next.name + '</b> (' + rank.next.xp + ' XP) — ' + rank.next.perk :
-      'Tingkat maksimum tercapai — Legenda Arunika!') + '</div>';
-    html += '<div class="career-list">';
-    CR.RANKS.forEach(function (r, i) {
-      var unlocked = i <= rank.index;
-      html += '<div class="career-row' + (unlocked ? ' unlocked' : '') + '">' +
-        '<span class="career-check">' + (unlocked ? '&#10003;' : '&#9675;') + '</span> ' +
-        '<b>' + r.name + '</b> <span class="career-xp">' + r.xp + ' XP</span>' +
-        '<div class="career-perk">' + r.perk + '</div></div>';
-    });
-    html += '</div>';
-    html += '<div class="career-stats">Misi selesai: ' + s.missionsDone +
-      ' · Mobil dicuri: ' + s.carsStolen + ' · Musuh dikalahkan: ' + s.kills +
-      ' · Side job: ' + s.jobsDone + '</div>';
-    panel.innerHTML = html;
+  TA.career = {
+    RANKS: RANKS,
+    addXP: addXP, getRank: getRank, getNextRank: getNextRank,
+    checkRankUp: checkRankUp, applyRankPerks: applyRankPerks, update: update,
   };
 })();

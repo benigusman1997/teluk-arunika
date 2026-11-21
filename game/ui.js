@@ -1,554 +1,282 @@
-// TELUK ARUNIKA v3 — ui.js
-// HUD + minimap + menu: start, pause (3 slot save + autosave + karier + kru),
-// banner naik tingkat, dialog, weapon wheel, layar akhir, toast.
+// ui.js — HUD, minimap, start/pause/end screens, dispatch panel, crew cards, location banner,
+// weapon wheel, dialogue, rank-up banner, toasts, crew chatter, save slots.
 (function () {
   'use strict';
+  var TA = window.TA;
 
-  var U = TA.ui = {};
+  function $(id) { return document.getElementById(id); }
+  var minimapZoom = 1;
+  var toastTimer = null;
+  var chatterTimer = null;
 
-  U.minimapZoom = 1;
-  U.minimapCtx = null;
-  U.toastTimer = null;
-  U.bannerTimer = null;
-  U.hudThrottle = 0;
-  U.minimapThrottle = 0;
-  U.dialogueStatic = false;
-
-  U.initUI = function () {
-    var mm = TA.el('minimap');
-    if (mm) U.minimapCtx = mm.getContext('2d');
-    // Tombol layar start.
-    var btnNew = TA.el('btn-new-game');
-    if (btnNew) btnNew.addEventListener('click', function () { TA.startNewGame(); });
-    var btnContinue = TA.el('btn-continue');
-    if (btnContinue) btnContinue.addEventListener('click', function () {
-      if (!TA.loadGame('auto') && !TA.loadGame('1')) {
-        TA.ui.toast('Tidak ada save — mulai permainan baru.');
-        TA.startNewGame();
-      }
-    });
-    if (btnContinue) btnContinue.style.display = TA.hasSave('auto') || TA.hasSave('1') ? '' : 'none';
-    var btnResume = TA.el('btn-resume');
-    if (btnResume) btnResume.addEventListener('click', function () { TA.resumeGame(); });
-    var btnQuit = TA.el('btn-quit-menu');
-    if (btnQuit) btnQuit.addEventListener('click', function () {
-      TA.state.mode = 'menu';
-      TA.ui.hideAllScreens();
-      TA.ui.showStartScreen();
-    });
-    var btnRestart = TA.el('btn-restart');
-    if (btnRestart) btnRestart.addEventListener('click', function () { TA.startNewGame(); });
-    // Slot save di pause.
-    document.querySelectorAll('[data-save]').forEach(function (btn) {
-      btn.addEventListener('click', function () {
-        TA.saveGame(btn.getAttribute('data-save'));
-        TA.ui.toast('Disimpan ke slot ' + btn.getAttribute('data-save') + '.');
-        U.refreshSaveSlots();
-      });
-    });
-    document.querySelectorAll('[data-load]').forEach(function (btn) {
-      btn.addEventListener('click', function () {
-        if (TA.loadGame(btn.getAttribute('data-load'))) {
-          TA.ui.toast('Save slot ' + btn.getAttribute('data-load') + ' dimuat.');
-        } else {
-          TA.ui.toast('Slot ' + btn.getAttribute('data-load') + ' kosong.');
-        }
-      });
-    });
-    // Toko senjata & armor (di pause).
-    document.querySelectorAll('[data-buy-weapon]').forEach(function (btn) {
-      btn.addEventListener('click', function () {
-        TA.player.buyWeapon(parseInt(btn.getAttribute('data-buy-weapon'), 10));
-        U.refreshShop();
-      });
-    });
-    var btnArmor = TA.el('btn-buy-armor');
-    if (btnArmor) btnArmor.addEventListener('click', function () {
-      TA.player.buyArmor();
-      U.refreshShop();
-    });
-    // Dialog: klik untuk lanjut.
-    var dlg = TA.el('dialogue');
-    if (dlg) dlg.addEventListener('click', function () {
-      if (!U.dialogueStatic) TA.missions.advanceDialogue();
-    });
-    // Pilihan cabang.
-    var choice = TA.el('choice');
-    if (choice) choice.addEventListener('click', function (e) {
-      var btn = e.target.closest('[data-choice]');
-      if (!btn) return;
-      var idx = parseInt(btn.getAttribute('data-choice'), 10);
-      var opts = U._choiceOpts || [];
-      U.hideChoice();
-      TA.state.mode = 'playing';
-      if (opts[idx]) opts[idx].run();
-    });
-    U.refreshSaveSlots();
-    U.refreshShop();
-    U.renderHUD(true);
-  };
-
-  U.hideAllScreens = function () {
-    ['start-screen', 'pause-screen', 'ending-screen', 'gameover-screen'].forEach(function (id) {
-      var e = TA.el(id);
-      if (e) e.classList.add('hidden');
-    });
-    U.hideDialogue();
-  };
-
-  // ---------------------------------------------------------------- HUD
-  U.renderHUD = function (force) {
+  function renderHUD() {
     var s = TA.state;
-    var now = performance.now();
-    if (!force && now - U.hudThrottle < 120) return;
-    U.hudThrottle = now;
-    var set = function (id, v) { var e = TA.el(id); if (e) e.textContent = v; };
+    // wanted stars
     var stars = '';
     for (var i = 0; i < 5; i++) stars += i < s.wanted ? '★' : '☆';
-    set('wanted-stars', stars);
-    var wEl = TA.el('wanted-stars');
-    if (wEl) wEl.className = 'wanted' + (s.wanted >= 4 ? ' hot' : (s.wanted > 0 ? ' warm' : ''));
-    set('money', TA.fmtMoney(s.money));
-    set('day-debt', 'HARI ' + s.day + '/7 · UTANG ' + TA.fmtMoney(s.debt));
-    var weatherIcon = s.weather === 'rain' ? '🌧' : (s.weather === 'storm' ? '⛈' : '☀');
-    set('clock-weather', TA.fmtClock(s.timeMinutes) + ' ' + weatherIcon + ' ' +
-      (s.timeOfDay === 'dawn' ? 'Fajar' : s.timeOfDay === 'day' ? 'Siang' : s.timeOfDay === 'dusk' ? 'Senja' : 'Malam'));
-    var hpFill = TA.el('hp-fill');
-    if (hpFill) hpFill.style.width = Math.max(0, Math.round(100 * s.hp / s.maxHp)) + '%';
-    var arFill = TA.el('armor-fill');
-    if (arFill) arFill.style.width = Math.max(0, Math.round(100 * s.armor / s.maxArmor)) + '%';
-    set('hp-text', Math.round(s.hp) + ' / ' + s.maxHp);
-    set('armor-text', Math.round(s.armor) + ' / ' + s.maxArmor);
-    var w = TA.player.currentWeapon();
-    var wi = s.weaponIndex;
-    set('weapon-name', w.name.toUpperCase());
-    set('ammo', TA.player.mag[wi] + ' / ' + TA.player.ammo[wi]);
-    // Baris kru.
-    var crewNames = [];
-    if (s.crew.sari) crewNames.push('Sari ✓');
-    if (s.crew.budi) crewNames.push('Budi ✓');
-    if (s.crew.agus) crewNames.push('Agus ✓');
-    set('crew-row', 'KRU: ' + (crewNames.length ? crewNames.join('  ') : '— (rekrut di bengkel, V)'));
-    // Tingkat karier berangka (v3.5): "TINGKAT 3 · Penguasa Jalanan — 450 / 800 XP".
+    $('wanted-stars').innerHTML = '<span class="' + (s.wanted >= 3 ? 'hot' : '') + '">' + stars + '</span>';
+    $('money').textContent = s.money.toLocaleString('en-US');
+    $('day').textContent = s.day;
+    $('debt').textContent = s.debt.toLocaleString('en-US');
     var rank = TA.career.getRank();
-    set('rank-name', 'TINGKAT ' + (rank.index + 1) + ' · ' + rank.name.toUpperCase());
-    set('xp-text', rank.next ? (s.xp + ' / ' + rank.next.xp + ' XP') : (s.xp + ' XP · MAKS'));
-    var xpFill = TA.el('xp-fill');
-    if (xpFill) xpFill.style.width = (rank.next ? Math.round(100 * rank.xpInto / rank.xpNeeded) : 100) + '%';
-    // Speedometer + nama/kondisi mobil (hanya saat di mobil).
-    var sp = TA.el('speedo');
-    if (sp) {
-      sp.style.display = s.inCar ? '' : 'none';
-      set('speed-num', Math.round(s.speedKmh));
-      var cond = TA.player.getCarCondition();
-      set('car-name', cond ? (cond.name + ' — ' + cond.pct + '% ' + cond.label) : '');
-    }
-    // Crosshair hanya saat jalan kaki.
-    var ch = TA.el('crosshair');
-    if (ch) ch.style.display = s.inCar ? 'none' : '';
-    // Indikator Gaspol aktif.
-    var ab = TA.el('ability-indicator');
-    if (ab) {
-      var gaspol = performance.now() < s.gaspolUntil;
-      ab.style.display = gaspol ? '' : 'none';
-      if (gaspol) ab.textContent = '⚡ GASPOL — wanted beku';
-    }
-    // Panel-panel v3.5 (dirender tiap HUD refresh).
-    U.renderMissionBanner();
-    U.renderDispatchPanel();
-    TA.crew.renderCrewCards();
-    U.renderLocationBanner();
-  };
+    var next = TA.career.getNextRank();
+    var nextXp = next ? next.xp : rank.xp;
+    var baseXp = rank.xp;
+    var pct = next ? Math.min(100, (s.xp - baseXp) / (nextXp - baseXp) * 100) : 100;
+    $('rank-row').innerHTML = 'TINGKAT ' + rank.level + ' · ' + rank.name + ' — <span id="xp-text">' + s.xp + ' / ' + nextXp + ' XP</span>';
+    $('xp-fill').style.width = pct + '%';
+    var crewBits = [];
+    if (s.crew.sari) crewBits.push('Sari ✓');
+    if (s.crew.budi) crewBits.push('Budi ✓');
+    if (s.crew.agus) crewBits.push('Agus ✓');
+    $('crew-row').textContent = 'KRU: ' + (crewBits.length ? crewBits.join(' · ') : '—');
+    var hh = Math.floor(s.timeMinutes / 60), mm = Math.floor(s.timeMinutes % 60);
+    $('clock').textContent = String(hh).padStart(2, '0') + ':' + String(mm).padStart(2, '0');
+    $('weather').textContent = s.weather;
+    var st = TA.audio.STATIONS[s.radioStation];
+    $('radio').textContent = 'RADIO: ' + st.name + ' — ' + st.song;
+    $('hp').textContent = Math.max(0, Math.round(s.hp));
+    $('armor').textContent = Math.round(s.armor);
+    var w = TA.player.WEAPONS[s.weapon];
+    $('weapon-name').textContent = w.name;
+    $('ammo').textContent = (s.ammo[s.weapon] || 0) + ' / ∞';
+    var carRow = $('car-row');
+    if (s.inCar && s.carId) {
+      var model = TA.player.CAR_MODELS[s.carId];
+      var cond = TA.player.getCarCondition(s.carId);
+      var condLabel = cond >= 80 ? 'BAIK' : (cond >= 40 ? 'RUSAK' : 'PARAH');
+      $('car-name').textContent = model.name;
+      $('car-condition').textContent = cond + '% ' + condLabel;
+      $('speed').textContent = s.speedKmh;
+      carRow.classList.remove('hidden');
+    } else carRow.classList.add('hidden');
+    renderMissionBanner();
+    renderCrewCards();
+    renderLocationBanner();
+    renderDispatchPanel();
+  }
 
-  // Banner misi bertahap (v3.5): "MISI 6 DARI 10 · TAHAP 2/3" + judul tahap +
-  // objektif + jarak (meter) + "NEXT: ...". Menggantikan teks objektif lama
-  // selama ada misi aktif; bila tidak ada misi, #objective dibiarkan apa adanya.
-  U.renderMissionBanner = function () {
-    var e = TA.el('objective');
-    if (!e) return;
-    var m = TA.missions.current();
-    var st = TA.missions.currentStage();
-    if (!m || !TA.state.missionActive || !st) return;
-    var dist = TA.missions.getObjectiveDistance();
-    var next = TA.state.missionStage + 1 < m.stages.length
-      ? m.stages[TA.state.missionStage + 1].title : 'Selesaikan misi';
-    e.innerHTML =
-      '<div class="obj-line1">MISI ' + m.id + ' DARI 10 · TAHAP ' + (TA.state.missionStage + 1) + '/' + m.stages.length + '</div>' +
-      '<div class="obj-line2">' + st.title.toUpperCase() + '</div>' +
-      '<div class="obj-line3">' + st.objective + ' · ' + dist + ' m</div>' +
-      '<div class="obj-line4">NEXT: ' + next + '</div>';
-  };
+  function renderMissionBanner() {
+    var s = TA.state;
+    var el = $('mission-banner');
+    if (!s.missionActive) { el.classList.add('hidden'); return; }
+    var m = TA.missions.MISSIONS[s.missionIndex];
+    if (!m) { el.classList.add('hidden'); return; }
+    var st = m.stages[s.missionStage];
+    el.classList.remove('hidden');
+    $('mission-title').textContent = 'MISI ' + (s.missionIndex + 1) + ' DARI 10 · TAHAP ' + (s.missionStage + 1) + '/' + m.stages.length;
+    $('mission-stage').textContent = st.title;
+    $('mission-objective').textContent = st.objective;
+    $('mission-dist').textContent = 'JARAK: ' + TA.missions.getObjectiveDistance() + ' m';
+    $('mission-next').textContent = 'NEXT: ' + st.next;
+  }
 
-  // Panel dispatch polisi (v3.5): unit bernama + taktik + jarak meter.
-  U.renderDispatchPanel = function () {
-    var e = TA.el('dispatch-panel');
-    if (!e) return;
+  function renderDispatchPanel() {
+    var s = TA.state;
+    var el = $('dispatch-panel');
     var units = TA.police.getDispatchUnits();
-    if (!units.length || TA.state.wanted <= 0) {
-      e.style.display = 'none';
-      e.innerHTML = '';
-      return;
-    }
-    var html = '<div class="dispatch-title">DISPATCH POLISI — ' + units.length + ' UNIT</div>';
-    if (TA.police.heli) html += '<div class="dispatch-heli">ELANG-1 DITERJUNKAN</div>';
+    if (s.wanted <= 0 || units.length === 0) { el.classList.add('hidden'); return; }
+    el.classList.remove('hidden');
+    $('dispatch-title').textContent = 'DISPATCH POLISI — ' + units.length + ' UNIT';
+    var html = '';
     units.forEach(function (u) {
-      html += '<div class="dispatch-row"><span class="dispatch-name">' + u.name + '</span> ' +
-        '<span class="dispatch-kind">' + u.kind + '</span> — ' +
-        '<span class="dispatch-tactic">' + u.tactic + '</span> ' +
-        '<span class="dispatch-dist">' + u.dist + ' m</span></div>';
+      html += '<div class="dispatch-unit"><span>' + u.id + '</span><span class="tactic">' + u.tactic + '</span><span>' + u.dist + ' m</span></div>';
     });
-    e.innerHTML = html;
-    e.style.display = '';
-  };
+    $('dispatch-list').innerHTML = html;
+    $('dispatch-heli').classList.toggle('hidden', s.wanted < 5);
+  }
 
-  // Banner lokasi + suasana distrik (v3.5): "PELABUHAN — Dermaga Senja" + "NETRAL · 58".
-  U.renderLocationBanner = function () {
-    var e = TA.el('location-banner');
-    if (!e) return;
-    var p = TA.world.playerPos();
-    var d = TA.world.getDistrictAt(p.x, p.z);
-    if (!d) { e.style.display = 'none'; return; }
-    var label = d.standing >= 70 ? 'DIHORMATI' : d.standing >= 30 ? 'NETRAL' : 'BURUK';
-    e.innerHTML = '<div class="loc-name">' + d.name + ' — ' + d.street + '</div>' +
-      '<div class="loc-standing">' + label + ' · ' + d.standing + '</div>';
-    e.style.display = '';
-  };
-
-  // Obrolan radio kru (v3.5): kotak dialog kecil berisi tips taktis kru.
-  // Di mode screenshot, kotak tetap tampil sampai capture (tanpa timer).
-  U.chatterTimer = null;
-  U.showCrewChatter = function (name, text) {
-    var e = TA.el('crew-chatter');
-    if (!e) return;
-    e.innerHTML = '<b>' + name.toUpperCase() + ':</b> ' + text;
-    e.style.display = '';
-    if (U.chatterTimer) clearTimeout(U.chatterTimer);
-    if (TA.shot > 0) return;
-    U.chatterTimer = setTimeout(function () { e.style.display = 'none'; }, 4500);
-  };
-
-  U.setObjective = function (text) {
-    var e = TA.el('objective');
-    if (e) e.textContent = text;
-  };
-
-  U.setRadioText = function (text) {
-    var e = TA.el('radio');
-    if (e) e.textContent = '♪ ' + text;
-  };
-
-  U.setReloading = function (on) {
-    var e = TA.el('reload-indicator');
-    if (e) e.style.display = on ? '' : 'none';
-  };
-
-  U.showJackPrompt = function (show) {
-    var e = TA.el('jack-prompt');
-    if (e) e.style.display = show ? '' : 'none';
-    if (!show) U.setJackProgress(0);
-  };
-
-  U.setJackProgress = function (p) {
-    var e = TA.el('jack-fill');
-    if (e) e.style.width = Math.round(TA.clamp(p, 0, 1) * 100) + '%';
-  };
-
-  U.flashDamage = function () {
-    var e = TA.el('damage-flash');
-    if (!e) return;
-    e.style.opacity = '0.45';
-    setTimeout(function () { e.style.opacity = '0'; }, 120);
-  };
-
-  U.flashAbility = function (text) {
-    var e = TA.el('ability-flash');
-    if (!e) return;
-    e.textContent = text;
-    e.style.opacity = '1';
-    // Di mode screenshot, biarkan tetap menyala sampai capture.
-    if (TA.shot > 0) return;
-    setTimeout(function () { e.style.opacity = '0'; }, 1400);
-  };
-
-  U.flashSaving = function () {
-    var e = TA.el('saving');
-    if (!e) return;
-    e.style.display = '';
-    setTimeout(function () { e.style.display = 'none'; }, 900);
-  };
-
-  U.toast = function (msg) {
-    var e = TA.el('toast');
-    if (!e) return;
-    e.textContent = msg;
-    e.style.opacity = '1';
-    if (U.toastTimer) clearTimeout(U.toastTimer);
-    // Di mode screenshot, toast tidak boleh memudar sebelum capture.
-    if (TA.shot > 0) return;
-    U.toastTimer = setTimeout(function () { e.style.opacity = '0'; }, 4200);
-  };
-
-  U.showRankUpBanner = function (rankName) {
-    var e = TA.el('banner');
-    if (!e) return;
-    e.innerHTML = '★ NAIK TINGKAT: ' + rankName.toUpperCase() + ' ★';
-    e.style.display = '';
-    if (U.bannerTimer) clearTimeout(U.bannerTimer);
-    U.bannerTimer = setTimeout(function () { e.style.display = 'none'; }, 4000);
-  };
-
-  // ---------------------------------------------------------------- minimap
-  U.toggleMinimapZoom = function () {
-    U.minimapZoom = U.minimapZoom === 1 ? 2 : 1;
-    var mm = TA.el('minimap');
-    if (mm) mm.style.width = (180 * U.minimapZoom) + 'px';
-  };
-
-  U.renderMinimap = function () {
-    var ctx = U.minimapCtx;
-    if (!ctx) return;
-    var S = 180;
-    var scale = S / 470;
-    var cx = TA.state.inCar && TA.car ? TA.car.x : TA.px;
-    var cz = TA.state.inCar && TA.car ? TA.car.z : TA.pz;
-    ctx.clearRect(0, 0, S, S);
-    ctx.fillStyle = 'rgba(10, 16, 24, 0.85)';
-    ctx.fillRect(0, 0, S, S);
-    var toX = function (x) { return (x + 235) * scale; };
-    var toY = function (z) { return (z + 235) * scale; };
-    // Jalan.
-    ctx.strokeStyle = '#5a6a7a';
-    ctx.lineWidth = 5;
-    TA.world.STREETS.forEach(function (st) {
-      ctx.beginPath(); ctx.moveTo(toX(st), 0); ctx.lineTo(toX(st), S); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(0, toY(st)); ctx.lineTo(S, toY(st)); ctx.stroke();
+  function renderCrewCards() {
+    var s = TA.state;
+    var el = $('crew-cards');
+    var html = '';
+    TA.crew.CREW.forEach(function (c) {
+      if (!s.crew[c.id]) return;
+      var cd = Math.ceil(s.crewCooldown[c.id] || 0);
+      var ready = TA.crew.crewAbilityReady(c.id);
+      var status = ready ? '<span class="cc-status ready">READY</span>' : '<span class="cc-status cd">' + cd + ' dtk</span>';
+      html += '<div class="crew-card"><span class="cc-name">' + c.name + '</span> <span class="cc-nick">"' + c.nick + '"</span>' + status +
+        '<div class="cc-ability">[' + c.key + '] ' + c.ability + '</div></div>';
     });
-    // Laut / pelabuhan.
-    ctx.fillStyle = '#0e3a4d';
-    ctx.fillRect(0, toY(215), S, S - toY(215));
-    // Safehouse (biru), misi (kuning), taksi (hijau).
-    var blip = function (x, z, color, r) {
-      ctx.fillStyle = color;
-      ctx.beginPath(); ctx.arc(toX(x), toY(z), r || 5, 0, Math.PI * 2); ctx.fill();
-      ctx.strokeStyle = '#fff'; ctx.lineWidth = 1; ctx.stroke();
-    };
-    var mk = TA.world.markers;
-    if (mk.safehouse) blip(mk.safehouse.x, mk.safehouse.z, '#4ade80', 5);
-    if (mk.taxiStand) blip(mk.taxiStand.x, mk.taxiStand.z, '#22ff88', 4);
-    var m = TA.missions.current();
-    if (m && m.target && TA.state.missionActive) {
-      var pulse = 5 + Math.sin(performance.now() / 300) * 2;
-      blip(m.target.x, m.target.z, '#facc15', pulse);
+    el.innerHTML = html;
+  }
+
+  function renderLocationBanner() {
+    var s = TA.state;
+    var d = TA.world.DISTRICTS[s.currentDistrict];
+    if (!d) return;
+    $('district-name').textContent = d.name + ' — ' + d.street;
+    var mood = s.districts[s.currentDistrict];
+    var label = mood >= 70 ? 'DIHORMATI' : (mood >= 45 ? 'NETRAL' : 'DITAKUTI');
+    $('district-mood').textContent = label + ' · ' + mood;
+  }
+
+  function renderMinimap() {
+    var cv = $('minimap');
+    if (!cv) return;
+    var c = cv.getContext('2d');
+    var W = cv.width, H = cv.height;
+    c.clearRect(0, 0, W, H);
+    c.fillStyle = '#0a1428'; c.fillRect(0, 0, W, H);
+    // roads grid
+    c.strokeStyle = '#3a4a66'; c.lineWidth = 3;
+    for (var i = 0; i < 7; i++) {
+      c.beginPath(); c.moveTo(15 + i * 25, 0); c.lineTo(15 + i * 25, H); c.stroke();
+      c.beginPath(); c.moveTo(0, 15 + i * 25); c.lineTo(W, 15 + i * 25); c.stroke();
     }
-    // Polisi (merah).
-    TA.police.patrols.forEach(function (c) { blip(c.x, c.z, '#ff3333', 4); });
-    TA.police.footPatrols.forEach(function (f) { blip(f.x, f.z, '#ff7777', 3); });
-    if (TA.police.heli) {
-      blip(TA.police.heli.group.position.x, TA.police.heli.group.position.z, '#ff0000', 6);
+    // sea
+    c.fillStyle = '#0a3550'; c.fillRect(0, H - 22, W, 22);
+    // port containers
+    c.fillStyle = '#b03030'; c.fillRect(8, 8, 30, 10);
+    // mission marker (yellow)
+    var s = TA.state;
+    if (s.missionActive) {
+      c.fillStyle = '#ffd23e';
+      c.beginPath(); c.arc(120, 40, 6, 0, Math.PI * 2); c.fill();
     }
-    // Musuh (oranye).
-    TA.enemies.forEach(function (e) { blip(e.x, e.z, '#ff8800', 3); });
-    // Pemain: panah putih searah hadap.
-    var yaw = TA.state.inCar && TA.car ? TA.car.heading : -TA.pyaw;
-    ctx.save();
-    ctx.translate(toX(cx), toY(cz));
-    ctx.rotate(Math.PI - yaw);
-    ctx.fillStyle = '#ffffff';
-    ctx.beginPath();
-    ctx.moveTo(0, -7); ctx.lineTo(5, 6); ctx.lineTo(-5, 6); ctx.closePath();
-    ctx.fill();
-    ctx.restore();
-    // Kompas.
-    var comp = TA.el('compass');
-    if (comp) {
-      var deg = ((-TA.pyaw * 180 / Math.PI) % 360 + 360) % 360;
-      var dir = deg < 22.5 || deg >= 337.5 ? 'N' : deg < 67.5 ? 'NE' : deg < 112.5 ? 'E' :
-        deg < 157.5 ? 'SE' : deg < 202.5 ? 'S' : deg < 247.5 ? 'SW' : deg < 292.5 ? 'W' : 'NW';
-      comp.textContent = dir + ' ' + Math.round(deg) + '°';
+    // taxi (green), safehouse (blue)
+    c.fillStyle = '#7dff5e'; c.beginPath(); c.arc(50, 120, 5, 0, Math.PI * 2); c.fill();
+    c.fillStyle = '#3fa7ff'; c.beginPath(); c.arc(140, 130, 5, 0, Math.PI * 2); c.fill();
+    // police blips (red)
+    c.fillStyle = '#ff3b30';
+    TA.police.getDispatchUnits().forEach(function (u, i) {
+      c.beginPath(); c.arc(30 + i * 22, 60 + (i % 2) * 18, 4, 0, Math.PI * 2); c.fill();
+    });
+    // player arrow (white)
+    var px = 90 + (TA.playerPos.x / 150) * 80;
+    var pz = 90 + (TA.playerPos.z / 150) * 80;
+    c.fillStyle = '#ffffff';
+    c.beginPath(); c.moveTo(px, pz - 7); c.lineTo(px - 5, pz + 6); c.lineTo(px + 5, pz + 6); c.closePath(); c.fill();
+  }
+
+  function showStartScreen() {
+    $('start-screen').classList.remove('hidden');
+    $('pause-screen').classList.add('hidden');
+    $('end-screen').classList.add('hidden');
+  }
+  function showPauseScreen() {
+    var s = TA.state;
+    var rank = TA.career.getRank();
+    var next = TA.career.getNextRank();
+    $('pause-stats').innerHTML = 'Uang $' + s.money.toLocaleString('en-US') + ' · Hari ' + s.day + '/7 · Utang $' + s.debt.toLocaleString('en-US') +
+      ' · Misi selesai ' + s.missionsDone + '/10 · Mobil dicuri ' + s.carsStolen + ' · Jam ' + $('clock').textContent + ' · ' + s.weather;
+    $('career-detail').innerHTML = 'Tingkat ' + rank.level + ' · ' + rank.name + ' — ' + s.xp + ' / ' + (next ? next.xp : rank.xp) + ' XP<br>' +
+      'Perk terbuka: ' + rank.perk + '<br>Perk berikutnya: ' + (next ? next.name + ' (' + next.xp + ' XP) — ' + next.perk : 'Maksimal — Legenda Arunika');
+    var crewHtml = '';
+    TA.crew.CREW.forEach(function (c) {
+      crewHtml += '<div>' + c.name + ' "' + c.nick + '" — ' + (s.crew[c.id] ? 'DIREKRUT ✓ [' + c.key + '] ' + c.ability : 'Belum direkrut — $' + c.price) + '</div>';
+    });
+    $('pause-crew-list').innerHTML = crewHtml;
+    $('pause-screen').classList.remove('hidden');
+    renderCrewPanel();
+  }
+  function showEndScreen(won) {
+    var s = TA.state;
+    var rank = TA.career.getRank();
+    $('end-title').textContent = won ? 'UTANG LUNAS — BENGKEL SELAMAT' : 'RAKA TERTANGKAP — UTANG TETAP BERJALAN';
+    $('end-text').textContent = won
+      ? 'Fajar naik di pelabuhan. Darma ditangkap hidup-hidup, bukti utang ayahmu kembali, dan bengkel Pak Amir selamat. Teluk Arunika akhirnya tenang — untuk hari ini.'
+      : 'Raka tertangkap. Bengkel ayahnya disita, tapi cerita belum berakhir — coba lagi.';
+    $('end-stats').innerHTML = 'Misi selesai: ' + s.missionsDone + '/10 · XP: ' + s.xp + ' · Peringkat akhir: ' + rank.name + ' · Uang: $' + s.money.toLocaleString('en-US') + ' · Mobil dicuri: ' + s.carsStolen;
+    $('end-screen').classList.remove('hidden');
+    $('hud').classList.add('hidden');
+  }
+  function showRankUpBanner(text) {
+    var el = $('rankup-banner');
+    el.textContent = text;
+    el.classList.remove('hidden');
+    setTimeout(function () { el.classList.add('hidden'); }, 3500);
+  }
+  function toast(text) {
+    var el = $('toast');
+    el.textContent = text;
+    if (toastTimer) clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { el.textContent = ''; }, 4000);
+  }
+  function showSaving() {
+    var el = $('saving');
+    el.classList.remove('hidden');
+    setTimeout(function () { el.classList.add('hidden'); }, 1200);
+  }
+  function showCrewChatter(name, text) {
+    var el = $('chatter');
+    $('chatter-name').textContent = name.toUpperCase();
+    $('chatter-text').textContent = text;
+    el.classList.remove('hidden');
+    if (chatterTimer) clearTimeout(chatterTimer);
+    // In shot mode (?shot=) keep chatter visible for the screenshot.
+    if (!new URLSearchParams(window.location.search).get('shot')) {
+      chatterTimer = setTimeout(function () { el.classList.add('hidden'); }, 5000);
     }
-  };
+  }
+  function showInteract(text) {
+    var el = $('interact-prompt');
+    el.textContent = text;
+    el.classList.remove('hidden');
+    setTimeout(function () { el.classList.add('hidden'); }, 1500);
+  }
+  function showHeliLabel(on) { $('dispatch-heli').classList.toggle('hidden', !on); }
 
-  // ---------------------------------------------------------------- dialog
-  U.showDialogue = function (line, idx, total) {
-    var box = TA.el('dialogue');
-    if (!box) return;
-    box.style.display = '';
-    var who = TA.el('dialogue-who');
-    var text = TA.el('dialogue-text');
-    var hint = TA.el('dialogue-hint');
-    if (who) who.textContent = line.who;
-    if (text) text.textContent = line.text;
-    if (hint) hint.textContent = U.dialogueStatic ? '' : ('[' + (idx + 1) + '/' + total + '] Klik / Enter untuk lanjut');
-  };
-
-  U.hideDialogue = function () {
-    var box = TA.el('dialogue');
-    if (box) box.style.display = 'none';
-  };
-
-  U.advanceDialogue = function () {
-    TA.missions.advanceDialogue();
-  };
-
-  U.showChoice = function (question, options) {
-    var box = TA.el('choice');
-    if (!box) return;
-    U._choiceOpts = options;
-    var q = TA.el('choice-question');
-    var list = TA.el('choice-options');
-    if (q) q.textContent = question;
-    if (list) {
-      list.innerHTML = '';
-      options.forEach(function (opt, i) {
-        var b = document.createElement('button');
-        b.className = 'choice-btn';
-        b.setAttribute('data-choice', String(i));
-        b.textContent = opt.label;
-        list.appendChild(b);
+  function renderCrewPanel() {
+    var s = TA.state;
+    var html = '';
+    TA.crew.CREW.forEach(function (c) {
+      var owned = !!s.crew[c.id];
+      var ready = TA.crew.crewAbilityReady(c.id);
+      html += '<div class="crew-entry"><div class="crew-avatar">' + c.name[0] + '</div>' +
+        '<div><div class="ce-name">' + c.name + ' "' + c.nick + '"</div><div class="ce-role">' + c.role + ' · ' + c.passive + '</div>' +
+        '<div class="ce-ability">[' + c.key + '] ' + c.ability + ' — ' + c.desc + '</div></div>' +
+        '<div class="ce-status">' + (owned ? (ready ? 'READY ✓' : 'COOLDOWN') : '$' + c.price) +
+        (owned ? '' : '<br><button data-recruit="' + c.id + '">REKRUT $' + c.price + '</button>') + '</div></div>';
+    });
+    $('crew-list').innerHTML = html;
+    var btns = document.querySelectorAll('[data-recruit]');
+    btns.forEach(function (b) {
+      b.addEventListener('click', function () { TA.crew.recruitCrewMember(b.getAttribute('data-recruit')); });
+    });
+  }
+  function toggleCrewPanel() {
+    var el = $('crew-panel');
+    el.classList.toggle('hidden');
+    if (!el.classList.contains('hidden')) renderCrewPanel();
+  }
+  function toggleWeaponWheel(show) {
+    var el = $('weapon-wheel');
+    el.classList.toggle('hidden', !show);
+    if (show) {
+      var slots = document.querySelectorAll('.wheel-slot');
+      slots.forEach(function (sl) {
+        sl.classList.toggle('active', Number(sl.getAttribute('data-w')) === TA.state.weapon);
       });
     }
-    box.style.display = '';
-  };
+  }
+  function toggleMinimapZoom() {
+    minimapZoom = minimapZoom === 1 ? 1.6 : 1;
+    var cv = $('minimap');
+    cv.style.width = (180 * minimapZoom) + 'px';
+    cv.style.height = (180 * minimapZoom) + 'px';
+  }
+  function showDialogue(speaker, text) {
+    $('dialogue-speaker').textContent = speaker;
+    $('dialogue-text').textContent = text;
+    $('dialogue').classList.remove('hidden');
+  }
+  function hideDialogue() { $('dialogue').classList.add('hidden'); }
 
-  U.hideChoice = function () {
-    var box = TA.el('choice');
-    if (box) box.style.display = 'none';
-    U._choiceOpts = null;
-  };
+  function update(dt) {
+    if (TA.state.mode === 'playing') renderMinimap();
+  }
 
-  // ---------------------------------------------------------------- wheel
-  U.showWeaponWheel = function (show) {
-    var wheel = TA.el('wheel');
-    if (!wheel) return;
-    if (!show) { wheel.style.display = 'none'; return; }
-    var html = '';
-    TA.player.WEAPONS.forEach(function (w, i) {
-      var owned = w.owned;
-      html += '<div class="wheel-slot' + (TA.state.weaponIndex === i ? ' active' : '') + (owned ? '' : ' locked') + '">' +
-        '<div class="wheel-key">' + (i + 1) + '</div><div class="wheel-name">' + w.name + '</div>' +
-        '<div class="wheel-sub">' + (owned ? 'DMG ' + w.damage + ' · ' + TA.player.mag[i] + '/' + TA.player.ammo[i] : TA.fmtMoney(w.price)) + '</div></div>';
-    });
-    wheel.innerHTML = html;
-    wheel.style.display = '';
-  };
-
-  // ---------------------------------------------------------------- layar
-  U.showStartScreen = function () {
-    U.hideAllScreens();
-    var e = TA.el('start-screen');
-    if (e) e.classList.remove('hidden');
-    var rank = TA.career.getRank();
-    var sub = TA.el('start-subtitle');
-    if (sub) sub.textContent = 'Raka berutang $5.000 ke Darma Wijaya. 7 hari. 10 misi. Satu bengkel yang harus diselamatkan.';
-    var cont = TA.el('btn-continue');
-    if (cont) cont.style.display = TA.hasSave('auto') || TA.hasSave('1') ? '' : 'none';
-  };
-
-  U.showPauseScreen = function () {
-    U.hideAllScreens();
-    var e = TA.el('pause-screen');
-    if (e) e.classList.remove('hidden');
-    var s = TA.state;
-    var set = function (id, v) { var el = TA.el(id); if (el) el.textContent = v; };
-    set('pause-money', TA.fmtMoney(s.money));
-    set('pause-day', 'Hari ' + s.day + '/7 · Utang ' + TA.fmtMoney(s.debt));
-    set('pause-clock', TA.fmtClock(s.timeMinutes) + ' · ' +
-      (s.weather === 'rain' ? 'Hujan' : 'Cerah') + ' · ' +
-      (s.timeOfDay === 'dawn' ? 'Fajar' : s.timeOfDay === 'day' ? 'Siang' : s.timeOfDay === 'dusk' ? 'Senja' : 'Malam'));
-    set('pause-mission', TA.missions.current() ? 'Misi ' + TA.missions.current().id + ' — ' + TA.missions.current().title : '—');
-    set('pause-wanted', s.wanted + ' bintang');
-    U.refreshSaveSlots();
-    U.refreshShop();
-    TA.career.renderCareerPanel();
-    TA.crew.renderCrewPanel();
-    U.renderHUD(true);
-  };
-
-  U.refreshSaveSlots = function () {
-    document.querySelectorAll('[data-load]').forEach(function (btn) {
-      var slot = btn.getAttribute('data-load');
-      btn.textContent = 'Muat Slot ' + slot + (TA.hasSave(slot) ? ' ✓' : ' (kosong)');
-    });
-    var auto = TA.el('autosave-info');
-    if (auto) auto.textContent = TA.hasSave('auto') ? 'Autosave aktif — terakhir setelah misi selesai.' : 'Autosave belum ada.';
-  };
-
-  U.refreshShop = function () {
-    document.querySelectorAll('[data-buy-weapon]').forEach(function (btn) {
-      var i = parseInt(btn.getAttribute('data-buy-weapon'), 10);
-      var w = TA.player.WEAPONS[i];
-      var discount = TA.crew.getCrewBonus().discount;
-      var price = Math.round(w.price * (1 - discount));
-      btn.textContent = w.owned ? w.name + ' — dimiliki ✓' : 'Beli ' + w.name + ' — ' + TA.fmtMoney(price);
-    });
-  };
-
-  U.showEnding = function () {
-    U.hideAllScreens();
-    var s = TA.state;
-    var rank = TA.career.getRank();
-    var e = TA.el('ending-screen');
-    if (e) e.classList.remove('hidden');
-    var stats = TA.el('ending-stats');
-    if (stats) {
-      stats.innerHTML =
-        '<div>UTANG LUNAS — Bengkel Selamat</div>' +
-        '<div class="ending-line">Misi selesai: ' + s.missionsDone + ' / 10</div>' +
-        '<div class="ending-line">XP akhir: ' + s.xp + ' · Tingkat: ' + rank.name + '</div>' +
-        '<div class="ending-line">Uang: ' + TA.fmtMoney(s.money) + ' · Mobil dicuri: ' + s.carsStolen +
-        ' · Musuh dikalahkan: ' + s.kills + ' · Side job: ' + s.jobsDone + '</div>' +
-        '<div class="ending-line">Kru: ' + (s.crew.sari ? 'Sari ✓ ' : '') + (s.crew.budi ? 'Budi ✓ ' : '') + (s.crew.agus ? 'Agus ✓' : '') + '</div>' +
-        '<div class="ending-line">Darma: ' + (TA.missions.finalChoice === 'capture' ? 'ditangkap hidup-hidup' : 'kabur — tapi uangnya tertinggal') + '</div>' +
-        '<div class="ending-line">Fajar naik di Teluk Arunika. Raka bebas.</div>';
-    }
-  };
-
-  U.showGameOver = function () {
-    U.hideAllScreens();
-    var e = TA.el('gameover-screen');
-    if (e) e.classList.remove('hidden');
-  };
-
-  U.toggleCrewPanel = function () {
-    var p = TA.el('crew-panel-wrap');
-    if (!p) return;
-    var open = p.style.display !== 'none';
-    if (open) { p.style.display = 'none'; return; }
-    TA.crew.renderCrewPanel();
-    p.style.display = '';
-  };
-
-  // ---------------------------------------------------------------- frame
-  U.update = function (dt) {
-    if (TA.state.mode === 'playing' || TA.state.mode === 'cutscene') {
-      U.renderHUD(false);
-      U.minimapThrottle += dt;
-      if (U.minimapThrottle > 0.12) {
-        U.minimapThrottle = 0;
-        U.renderMinimap();
-      }
-      // Prompt carjacking: tampilkan bila ada mobil lambat di dekat pemain.
-      // v3.5: prompt menyertakan nama + kondisi mobil. Mobil curian yang
-      // ditata (TA.jackTarget) didahulukan supaya prompt shot 1 deterministik.
-      if (TA.state.mode === 'playing' && !TA.state.inCar && !TA.player.jackHolding) {
-        var car = null;
-        if (TA.jackTarget) {
-          var jdx = TA.jackTarget.x - TA.px, jdz = TA.jackTarget.z - TA.pz;
-          if (Math.sqrt(jdx * jdx + jdz * jdz) < 10) car = TA.jackTarget;
-        }
-        if (!car) car = TA.player.nearestCar(10);
-        var prompt = TA.el('interact-prompt');
-        if (prompt) {
-          if (car && Math.abs(car.speed) < 1.5) {
-            var cond = TA.player.getCarCondition(car);
-            prompt.style.display = '';
-            prompt.textContent = 'TAHAN E — CURI MOBIL' +
-              (cond ? ' · ' + cond.name + ' — ' + cond.pct + '% ' + cond.label : '');
-          } else {
-            prompt.style.display = 'none';
-          }
-        }
-      }
-    }
+  TA.ui = {
+    renderHUD: renderHUD, renderMinimap: renderMinimap,
+    renderMissionBanner: renderMissionBanner, renderDispatchPanel: renderDispatchPanel,
+    renderCrewCards: renderCrewCards, renderLocationBanner: renderLocationBanner,
+    showStartScreen: showStartScreen, showPauseScreen: showPauseScreen,
+    showEndScreen: showEndScreen, showRankUpBanner: showRankUpBanner,
+    toast: toast, showSaving: showSaving, showCrewChatter: showCrewChatter,
+    showInteract: showInteract, showHeliLabel: showHeliLabel,
+    renderCrewPanel: renderCrewPanel, toggleCrewPanel: toggleCrewPanel,
+    toggleWeaponWheel: toggleWeaponWheel, toggleMinimapZoom: toggleMinimapZoom,
+    showDialogue: showDialogue, hideDialogue: hideDialogue, update: update,
   };
 })();
