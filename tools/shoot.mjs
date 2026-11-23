@@ -1,81 +1,89 @@
-/* shoot.mjs — render 4 screenshot 1280x720 JPEG dari kode game via headless Chromium.
-   Jalankan: node tools/shoot.mjs  (dari root repo). */
-import { spawn, spawnSync } from 'node:child_process';
+// Takes the four screenshots listed in shots.json: serves game/ locally, opens each showcase scene
+// in headless Chromium at 1280x720, waits for the scene-ready signal and saves the best JPEG under the cap.
+//
+//   node tools/shoot.mjs            all four
+//   node tools/shoot.mjs 1          only shot 1
+//
+// Needs playwright-core and a Chromium build from outside this repository:
+//   PLAYWRIGHT_CORE=/path/to/node_modules/playwright-core  CHROMIUM=/path/to/chrome  node tools/shoot.mjs
 import { createServer } from 'node:http';
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
-import { dirname, extname, join } from 'node:path';
+import { createRequire } from 'node:module';
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { extname, join } from 'node:path';
+import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 
-const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
-const GAME = join(ROOT, 'game');
-const OUT = join(ROOT, 'screenshots');
-const CHROME = process.env.CHROME || '/home/hatch/.cache/ms-playwright/chromium-1254/chrome-linux64/chrome';
-const TMP = '/tmp/ta-shots';
-mkdirSync(TMP, { recursive: true });
-mkdirSync(OUT, { recursive: true });
+export const repo = join(fileURLToPath(new URL('.', import.meta.url)), '..');
+const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json' };
+const CAP = 262144;
 
-const SHOTS = [
-  { n: 1, file: 'shot1-swat-deployed.jpg' },
-  { n: 2, file: 'shot2-wreck-contract.jpg' },
-  { n: 3, file: 'shot3-full-map.jpg' },
-  { n: 4, file: 'shot4-chase-night.jpg' },
-];
-
-const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css' };
-const server = createServer((req, res) => {
-  const rel = decodeURIComponent((req.url || '/').split('?')[0]).replace(/^\/+/, '') || 'index.html';
-  const file = join(GAME, rel);
-  if (!file.startsWith(GAME) || !existsSync(file) || !statSync(file).isFile()) {
-    res.writeHead(404); res.end('nf'); return;
-  }
-  res.writeHead(200, { 'content-type': MIME[extname(file)] || 'application/octet-stream' });
-  res.end(readFileSync(file));
-});
-await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
-const port = server.address().port;
-
-function toJpeg(pngPath, jpgPath) {
-  // konversi PNG -> JPEG via Python PIL, turunkan kualitas sampai <= 256 KiB
-  for (const q of [88, 82, 76, 68, 58]) {
-    const py = [
-      'from PIL import Image',
-      "im = Image.open('" + pngPath + "').convert('RGB')",
-      "im.save('" + jpgPath + "', 'JPEG', quality=" + q + ", optimize=True)",
-    ].join('; ');
-    const r = spawnSync('python3', ['-c', py], { encoding: 'utf8', timeout: 60000 });
-    if (r.status !== 0) throw new Error('PIL gagal: ' + r.stderr);
-    const size = statSync(jpgPath).size;
-    if (size <= 262144) return { quality: q, size };
-  }
-  const size = statSync(jpgPath).size;
-  return { quality: 58, size };
-}
-
-for (const s of SHOTS) {
-  const png = join(TMP, 'shot' + s.n + '.png');
-  const jpg = join(OUT, s.file);
-  const url = 'http://127.0.0.1:' + port + '/index.html?shot=' + s.n;
-  // async spawn: spawnSync memblokir event loop sehingga server HTTP di
-  // proses ini tidak bisa menjawab Chrome — pakai spawn async.
-  const code = await new Promise((resolve, reject) => {
-    const child = spawn(CHROME, [
-      '--headless=new', '--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage',
-      '--disable-extensions', '--hide-scrollbars', '--window-size=1280,720',
-      '--virtual-time-budget=6000', '--screenshot=' + png, url,
-    ], { timeout: 120000 });
-    let err = '';
-    child.stderr.on('data', (d) => { err += d; });
-    child.on('error', reject);
-    child.on('close', (c) => resolve(c));
+// A tiny static server for game/ on a free local port.
+export function serveGame() {
+  return new Promise((resolve) => {
+    const server = createServer((req, res) => {
+      const path = decodeURIComponent(req.url.split('?')[0]);
+      const file = join(repo, 'game', path === '/' ? 'index.html' : path);
+      if (path.includes('..') || !existsSync(file)) { res.writeHead(404); res.end(); return; }
+      res.writeHead(200, { 'Content-Type': TYPES[extname(file)] || 'application/octet-stream' });
+      res.end(readFileSync(file));
+    });
+    server.listen(0, '127.0.0.1', () => resolve({ server, base: 'http://127.0.0.1:' + server.address().port + '/' }));
   });
-  if (code !== 0 || !existsSync(png)) {
-    console.log('FAIL shot ' + s.n + ': chrome exit ' + code);
-    process.exit(1);
-  }
-  const info = toJpeg(png, jpg);
-  console.log('shot ' + s.n + ' -> ' + s.file + ' ' + info.size + ' bytes (q' + info.quality + ')' +
-    (info.size <= 262144 ? ' OK' : ' TERLALU BESAR'));
-  if (info.size > 262144) process.exit(1);
 }
-server.close();
-console.log('SHOOT: 4 screenshot selesai.');
+
+// Finds playwright-core and the full Chromium build (not the headless shell) outside the repository.
+export async function launchBrowser() {
+  const core = process.env.PLAYWRIGHT_CORE || join(homedir(), 'workspace/goals/make-gta6-bounty/pw/node_modules/playwright-core');
+  const { chromium } = createRequire(import.meta.url)(core);
+  let exe = process.env.CHROMIUM;
+  if (!exe) {
+    const cache = join(homedir(), '.cache/ms-playwright');
+    const build = readdirSync(cache).filter((d) => /^chromium-\d+$/.test(d)).sort().pop();
+    exe = join(cache, build, 'chrome-linux64', 'chrome');
+    if (!existsSync(exe)) exe = join(cache, build, 'chrome-linux', 'chrome');
+  }
+  return chromium.launch({ executablePath: exe, headless: true, args: ['--headless=new', '--no-sandbox', '--enable-unsafe-swiftshader', '--mute-audio'] });
+}
+
+export async function openPage(browser, url, errors) {
+  const page = await browser.newPage({ viewport: { width: 1280, height: 720 }, deviceScaleFactor: 1 });
+  page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
+  page.on('pageerror', (e) => errors.push(String(e && e.stack || e)));
+  await page.goto(url, { waitUntil: 'load' });
+  return page;
+}
+
+async function main() {
+  const spec = JSON.parse(readFileSync(join(repo, 'shots.json'), 'utf8'));
+  const only = process.argv[2] ? Number(process.argv[2]) : 0;
+  const { server, base } = await serveGame();
+  mkdirSync(join(repo, 'screenshots'), { recursive: true });
+  let failed = 0;
+  for (let i = 0; i < spec.shots.length; i++) {
+    if (only && only !== i + 1) continue;
+    const shot = spec.shots[i], errors = [];
+    const browser = await launchBrowser();            // one browser at a time: the build machine is small
+    try {
+      const page = await openPage(browser, base + shot.query, errors);
+      await page.waitForFunction('window.__sceneReady', null, { timeout: 180000 });
+      const info = await page.evaluate('window.__sceneReady');
+      await page.waitForTimeout(300);
+      let best = null, quality = 95;
+      for (; quality >= 40; quality -= 3) {
+        best = await page.screenshot({ type: 'jpeg', quality });
+        if (best.length <= CAP) break;
+      }
+      writeFileSync(join(repo, 'screenshots', shot.file), best);
+      console.log(shot.file + '  ' + best.length + ' bytes  q' + quality + '  ' + JSON.stringify(info) + (errors.length ? '  ERRORS: ' + errors.join(' | ') : ''));
+      if (errors.length || best.length > CAP) failed++;
+    } catch (e) {
+      failed++;
+      console.log(shot.file + '  FAILED  ' + e.message + '  ' + errors.join(' | '));
+    }
+    await browser.close();
+  }
+  server.close();
+  process.exit(failed ? 1 : 0);
+}
+
+if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) main();

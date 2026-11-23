@@ -1,1 +1,11 @@
-{"shots":[{"caption":"SWAT diterjunkan — siang, Pelabuhan: wanted 5, SWAT VAN + petugas taktis mengepung Raka, banner SWAT ARUNIKA DITERJUNKAN, panel dispatch dengan baris SWAT-01 PENGEPUNGAN + SWAT-02 PENEMBAK JITU, bar heat TERLIHAT, bar HEALTH/ARMOUR kiri bawah","file":"screenshots/shot1-swat-deployed.jpg"},{"caption":"Kontrak Hancur — senja, Pantai: target KOMET MERAH kabur, bar HP target + 0.32 km ke Pelabuhan, banner KONTRAK HANCUR — HANCURKAN KOMET MERAH + NEXT, minimap dengan garis merah ke destinasi, obrolan kru","file":"screenshots/shot2-wreck-contract.jpg"},{"caption":"Layar peta penuh — malam: tab CERITA dengan daftar kontrak hancur (DONE/NEXT/LOCKED) + 10 kontrak cerita, legenda dengan ikon Kontrak Hancur + SWAT, panel standing 6 distrik","file":"screenshots/shot3-full-map.jpg"},{"caption":"Kejar-kejaran malam — Tol Layang: wanted 5, SWAT + ELANG-1 (kerucut sorot) + roadblock, weapon wheel 6 slot dengan angka amunisi, kartu kru + toast obrolan kru, radio ARUNIKA 98.4 — Dangdut Neon","file":"screenshots/shot4-chase-night.jpg"}]}
+{
+  "note": "Each screenshot is the real game frozen in a deterministic showcase scene. Reproduce with: node tools/shoot.mjs",
+  "size": [1280, 720],
+  "seed": 20261123,
+  "shots": [
+    { "file": "shot1-coast-chase.jpg", "query": "?scene=1&seed=20261123", "shows": "Cover. Contract 7 stage 7/7: the Pelabuhan GT flat out on Pantai Boulevard with TAPD cruisers and ELANG-1 overhead." },
+    { "file": "shot2-market-onfoot.jpg", "query": "?scene=2&seed=20261123", "shows": "On foot in Pasar Senja with two stars, a foot patrol closing in and a sedan to steal." },
+    { "file": "shot3-bank-shootout.jpg", "query": "?scene=3&seed=20261123", "shows": "Contract 7 stage 3/7: the Bank Arunika shoot-out with the weapon wheel open as SWAT arrives." },
+    { "file": "shot4-map-saves.jpg", "query": "?scene=4&seed=20261123", "shows": "The full map screen: districts, route, the ten contracts, career, district standing, save slots." }
+  ]
+}

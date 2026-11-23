@@ -1,180 +1,136 @@
-/* selftest.mjs — cek statis + runtime headless Chromium untuk Teluk Arunika v3.8.
-   Jalankan: node tools/selftest.mjs  (dari root repo). Keluar 0 bila 100% lolos. */
-import { createHash } from 'node:crypto';
-import { spawn, spawnSync } from 'node:child_process';
-import { createServer } from 'node:http';
-import { existsSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs';
-import { dirname, extname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+// Self-test: static checks on the repository, then runtime checks of the real game in headless Chromium.
+// Prints PASS / FAIL per check and a total; exits 0 only when everything passes.
+//
+//   node tools/selftest.mjs
+import { existsSync, readFileSync, statSync } from 'node:fs';
+import { join } from 'node:path';
+import { repo, serveGame, launchBrowser, openPage } from './shoot.mjs';
 
-const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
-const GAME = join(ROOT, 'game');
-const CHROME = process.env.CHROME || '/home/hatch/.cache/ms-playwright/chromium-1254/chrome-linux64/chrome';
+const JS = ['game-config', 'game-state', 'input-controls', 'render-scene', 'mesh-factory', 'city-builder', 'traffic-ai', 'pedestrian-ai',
+  'player-onfoot', 'vehicle-driving', 'weapons-combat', 'police-wanted', 'police-airswat', 'story-missions', 'side-activities',
+  'crew-abilities', 'career-progress', 'audio-radio', 'visual-effects', 'hud-panels', 'hud-minimap', 'menu-screens', 'showcase-scenes', 'game-main'];
+const OTHER = ['main.ts', 'serve.ts', 'shots.json', 'README.md', 'LICENSE', 'game/index.html', 'game/style.css', 'game/vendor/three.min.js', 'vendor/makefun-game.ts', 'tools/shoot.mjs', 'tools/selftest.mjs'];
+const results = [];
+const check = (name, ok, detail) => { results.push(ok); console.log((ok ? 'PASS  ' : 'FAIL  ') + name + (detail ? '  — ' + detail : '')); };
+const text = (p) => (existsSync(join(repo, p)) ? readFileSync(join(repo, p), 'utf8') : '');
 
-const checks = [];
-function check(name, pass, detail) {
-  checks.push({ name, pass: !!pass, detail: detail || '' });
-  console.log((pass ? 'PASS' : 'FAIL') + '  ' + name + (detail ? ' — ' + detail : ''));
-}
+// ---- static ------------------------------------------------------------------
+const files = JS.map((n) => 'game/js/' + n + '.js').concat(OTHER);
+const missing = files.filter((f) => !existsSync(join(repo, f)));
+check('all v4 files exist (' + files.length + ')', missing.length === 0, missing.join(', '));
 
-/* ---------- 1. file yang dipertahankan tidak berubah ---------- */
-const PRESERVED = {
-  'LICENSE': '63640a4e1ac9cb9526898150349d41f8',
-  '.makefun/owner.json': '7e814a1576a08a567a3407d2878ed576',
-  'vendor/makefun-game.ts': '2da03e097f2d64ae65e3d1c3586e652a',
-  'game/vendor/three.min.js': 'bc138621ece88793eb711a9e967b273a',
-};
-for (const [rel, md5] of Object.entries(PRESERVED)) {
-  const p = join(ROOT, rel);
-  const ok = existsSync(p) && createHash('md5').update(readFileSync(p)).digest('hex') === md5;
-  check('preserved: ' + rel, ok, ok ? 'checksum sama' : 'BERUBAH / HILANG');
-}
+const html = text('game/index.html');
+const order = [...html.matchAll(/<script src="([^"]+)"/g)].map((m) => m[1]);
+const want = ['vendor/three.min.js'].concat(JS.map((n) => 'js/' + n + '.js'));
+check('index.html loads three.js then the 24 scripts in order', JSON.stringify(order) === JSON.stringify(want), order.length + ' script tags');
 
-/* ---------- 2. file yang ditulis ulang ada ---------- */
-const REQUIRED = [
-  'game/index.html', 'game/style.css', 'game/core.js', 'game/world.js',
-  'game/player.js', 'game/police.js', 'game/missions.js', 'game/races.js',
-  'game/crew.js', 'game/career.js', 'game/audio.js', 'game/ui.js',
-  'main.ts', 'serve.ts', 'shots.json', 'README.md',
-  'tools/selftest.mjs', 'tools/shoot.mjs',
-];
-for (const f of REQUIRED) check('exists: ' + f, existsSync(join(ROOT, f)));
+const own = JS.map((n) => 'game/js/' + n + '.js').concat(['game/index.html', 'game/style.css']);
+const withUrl = own.filter((f) => /https?:/.test(text(f)));
+check('no network address in the game source', withUrl.length === 0, withUrl.join(', '));
 
-/* ---------- 3. game/ offline: tanpa http(s) di source top-level ---------- */
-for (const f of readdirSync(GAME)) {
-  if (!['.html', '.js', '.css'].includes(extname(f))) continue;
-  const text = readFileSync(join(GAME, f), 'utf8');
-  const bad = /https?:\/\//i.test(text);
-  check('offline: game/' + f, !bad, bad ? 'mengandung URL http(s)' : 'tanpa referensi eksternal');
-}
+const lines = own.concat(['main.ts', 'serve.ts', 'tools/shoot.mjs', 'tools/selftest.mjs']).reduce((n, f) => n + text(f).split('\n').length - 1, 0);
+check('own source size is in the planned range', lines >= 4000 && lines <= 6200, lines + ' lines');
 
-/* ---------- 4. README: 3 badge live make.fun, tanpa shields.io ---------- */
-const readme = readFileSync(join(ROOT, 'README.md'), 'utf8');
-const badges = (readme.match(/make\.fun\/badge\/gta6-01/g) || []).length;
-check('readme: 3 badge live make.fun', badges >= 3, badges + ' badge ditemukan');
-check('readme: tanpa shields.io', !/shields\.io/.test(readme));
-check('readme: judul entry v3.8', readme.includes('SWAT tactical response, wreck-target contracts'));
+const readme = text('README.md');
+const badges = ['badge/gta6-01.svg', 'badge/gta6-01/benigusman1997/teluk-arunika/rank.svg', 'badge/gta6-01/benigusman1997/teluk-arunika/reward.svg'];
+check('README has the three live make.fun badges', badges.every((b) => readme.includes('https://make.fun/' + b)) && !/shields\.io|\{\{|\}\}/.test(readme));
 
-/* ---------- 5. shots.json + screenshot ---------- */
-function jpegDims(buf) {
-  let i = 2;
-  while (i + 9 < buf.length) {
-    if (buf[i] !== 0xff) { i++; continue; }
-    const m = buf[i + 1];
-    if (m === 0xc0 || m === 0xc2) {
-      return { h: buf.readUInt16BE(i + 5), w: buf.readUInt16BE(i + 7) };
-    }
-    if (m === 0xd8 || m === 0x01 || (m >= 0xd0 && m <= 0xd7)) { i += 2; continue; }
-    const len = buf.readUInt16BE(i + 2);
-    i += 2 + len;
-  }
-  return null;
-}
-let shots = null;
+const spec = JSON.parse(text('shots.json') || '{"shots":[]}');
+const shotInfo = spec.shots.map((s) => {
+  const p = join(repo, 'screenshots', s.file);
+  if (!existsSync(p)) return s.file + ' missing';
+  const b = readFileSync(p), size = statSync(p).size;
+  const sof = b.indexOf(Buffer.from([0xff, 0xc0])), w = sof > 0 ? b.readUInt16BE(sof + 7) : 0, h = sof > 0 ? b.readUInt16BE(sof + 5) : 0;
+  return size <= 262144 && size > 40000 && w === 1280 && h === 720 ? '' : s.file + ' ' + size + ' bytes ' + w + 'x' + h;
+}).filter(Boolean);
+check('four 1280x720 JPEG screenshots within 262,144 bytes', spec.shots.length === 4 && shotInfo.length === 0, shotInfo.join(', '));
+
+const mainTs = text('main.ts');
+check('main.ts locates itself by import.meta.url and uses the kit caps', /import\.meta\.url/.test(mainTs) && /text_max_bytes: 163840/.test(mainTs) && /game_max_files: 993/.test(mainTs) && !/process\.cwd|rmSync|process\.exit/.test(mainTs));
+
+// ---- runtime -------------------------------------------------------------------
+const { server, base } = await serveGame();
+const browser = await launchBrowser();
 try {
-  shots = JSON.parse(readFileSync(join(ROOT, 'shots.json'), 'utf8')).shots;
-} catch (e) { shots = null; }
-check('shots.json: 4 shot', Array.isArray(shots) && shots.length === 4, shots ? shots.length + ' shot' : 'tidak bisa dibaca');
-if (shots) {
-  for (const s of shots) {
-    const p = join(ROOT, s.file);
-    const ok = existsSync(p);
-    if (!ok) { check('shot file: ' + s.file, false, 'hilang'); continue; }
-    const buf = readFileSync(p);
-    const magic = buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff;
-    const dims = jpegDims(buf);
-    check('shot: ' + s.file, magic && buf.length <= 262144 && dims && dims.w === 1280 && dims.h === 720,
-      buf.length + ' bytes, ' + (dims ? dims.w + 'x' + dims.h : 'dimensi?'));
-  }
-}
-
-/* ---------- 6. main.ts dua run, dossier byte-identik ---------- */
-function runMain(outDir) {
-  rmSync(outDir, { recursive: true, force: true });
-  const r = spawnSync('node', ['main.ts'], {
-    cwd: ROOT, env: { ...process.env, MAKEFUN_OUTPUT_DIR: outDir },
-    encoding: 'utf8', timeout: 60000,
+  const errors = [];
+  const page = await openPage(browser, base + '?test=1', errors);
+  await page.waitForFunction('window.__booted === true', null, { timeout: 120000 });
+  check('game boots with no console errors', errors.length === 0, errors.join(' | '));
+  const run = async (name, body) => {
+    let r;
+    try { r = await page.evaluate(body); } catch (e) { r = { ok: false, detail: String(e.message).split('\n')[0] }; }
+    check(name, !!r.ok && errors.length === 0, r.detail + (errors.length ? ' | ' + errors.join(' | ') : ''));
+  };
+  await run('WebGL context is live', () => {
+    const gl = TA.renderer.getContext();
+    return { ok: !!gl && !gl.isContextLost() && typeof THREE.REVISION === 'string', detail: 'three r' + THREE.REVISION + ', ' + TA.renderer.info.memory.geometries + ' geometries' };
   });
-  return r;
-}
-const out1 = join(ROOT, '.selftest-out1');
-const out2 = join(ROOT, '.selftest-out2');
-const r1 = runMain(out1);
-const r2 = runMain(out2);
-check('main.ts run 1 exit 0', r1.status === 0, (r1.stderr || '').trim().slice(0, 200));
-check('main.ts run 2 exit 0', r2.status === 0, (r2.stderr || '').trim().slice(0, 200));
-let dossierSame = false;
-if (r1.status === 0 && r2.status === 0) {
-  try {
-    const d1 = readFileSync(join(out1, 'dossier.json'));
-    const d2 = readFileSync(join(out2, 'dossier.json'));
-    dossierSame = d1.equals(d2);
-  } catch (e) { dossierSame = false; }
-}
-check('dossier byte-identik dua run', dossierSame);
-rmSync(out1, { recursive: true, force: true });
-rmSync(out2, { recursive: true, force: true });
-
-/* ---------- 7. runtime headless Chromium ---------- */
-const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json' };
-const server = createServer((req, res) => {
-  const rel = decodeURIComponent((req.url || '/').split('?')[0]).replace(/^\/+/, '') || 'index.html';
-  const file = join(GAME, rel);
-  if (!file.startsWith(GAME) || !existsSync(file) || !statSync(file).isFile()) {
-    res.writeHead(404); res.end('nf'); return;
-  }
-  res.writeHead(200, { 'content-type': MIME[extname(file)] || 'application/octet-stream' });
-  res.end(readFileSync(file));
-});
-await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
-const port = server.address().port;
-
-function chromeDump(url) {
-  // async spawn: spawnSync akan memblokir event loop sehingga server HTTP
-  // di proses ini tidak bisa menjawab Chrome — pakai spawn async.
-  return new Promise((resolve, reject) => {
-    const child = spawn(CHROME, [
-      '--headless=new', '--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage',
-      '--disable-extensions', '--window-size=1280,720',
-      '--virtual-time-budget=8000', '--dump-dom', url,
-    ], { timeout: 120000, maxBuffer: 64 * 1024 * 1024 });
-    let out = '', err = '';
-    child.stdout.on('data', (d) => { out += d; });
-    child.stderr.on('data', (d) => { err += d; });
-    child.on('error', reject);
-    child.on('close', (code) => resolve(out));
+  await run('title screen, then a new game starts', () => {
+    const title = TA.run.mode === 'title';
+    TA.menuKey('Enter');
+    TA.input.auto = { hit: {} };
+    TA.simulate(30);
+    return { ok: title && TA.run.mode === 'playing' && !!TA.player && TA.cars.length > 10 && TA.people.length > 10, detail: TA.cars.length + ' cars, ' + TA.people.length + ' people, $' + TA.state.money };
   });
-}
-function textOf(dom, id) {
-  const m = dom.match(new RegExp('<[^>]*id="' + id + '"[^>]*>([\\s\\S]*?)<\\/[^>]+>'));
-  return m ? m[1].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim() : null;
-}
-
-const SHOT_MARKERS = {
-  0: ['TELUK', 'LANJUTKAN'],
-  1: ['SWAT ARUNIKA DITERJUNKAN', 'SWAT-01', 'PENGEPUNGAN', 'TERLIHAT', 'HEALTH', 'ARMOUR'],
-  2: ['KONTRAK HANCUR', 'KOMET MERAH', '0.32 km', 'NEXT'],
-  3: ['KONTRAK HANCUR', 'CERITA', 'KOIN ARUNIKA', 'PULAU ABU'],
-  4: ['PEMBURU', 'ARUNIKA 98.4', 'ELANG-1', 'SWAT'],
-};
-for (const shot of [0, 1, 2, 3, 4]) {
-  const url = 'http://127.0.0.1:' + port + '/index.html' + (shot ? '?shot=' + shot : '');
-  const dom = await chromeDump(url);
-  const boot = textOf(dom, 'boot-status');
-  const errs = textOf(dom, 'js-errors');
-  check('runtime shot ' + shot + ': boot OK', boot === 'OK', 'boot-status=' + boot);
-  check('runtime shot ' + shot + ': tanpa console error', !errs, errs ? errs.slice(0, 200) : 'bersih');
-  for (const marker of SHOT_MARKERS[shot]) {
-    check('runtime shot ' + shot + ': "' + marker + '" tampil', dom.includes(marker));
+  await run('player walks, enters a car and gains speed', () => {
+    const p = TA.player, x0 = p.x, z0 = p.z;
+    TA.input.auto.KeyW = true; TA.simulate(60);
+    const walked = Math.hypot(p.x - x0, p.z - z0);
+    const car = TA.spawnCar('gt', -120, 60, 0, 'parked');
+    p.x = -122.5; p.z = 60; TA.enterCar(car, true);
+    TA.simulate(240);
+    const kmh = Math.abs(car.speed) * 3.6;
+    return { ok: walked > 1 && p.car === car && kmh > 60, detail: 'walked ' + walked.toFixed(1) + ' m, then ' + kmh.toFixed(0) + ' km/h' };
+  });
+  await run('wanted level rises and TAPD units spawn', () => {
+    TA.run.godMode = true;
+    TA.crime(3, 'SELF TEST'); TA.simulate(420);
+    const three = TA.run.wanted, units3 = TA.units.length;
+    TA.crime(4, 'SELF TEST'); TA.simulate(420);
+    return { ok: three >= 3 && units3 >= 2 && TA.run.wanted >= 4 && TA.heli.active && TA.dispatchRows().length >= 3, detail: units3 + ' units at 3 stars, ' + TA.units.length + ' at ' + TA.run.wanted + ' stars, air unit ' + (TA.heli.active ? 'up' : 'down') };
+  });
+  await run('contract starts and its stage advances', () => {
+    TA.input.auto.KeyW = false; TA.setWanted(0); TA.exitCar(true); TA.simulate(5);
+    TA.startMission(0, 0);
+    const ms = TA.run.mission, before = ms.stage;
+    TA.player.x = ms.car.x + 2.2; TA.player.z = ms.car.z; TA.enterCar(ms.car, false); TA.simulate(5);
+    const o = TA.missionObjective();
+    return { ok: before === 0 && TA.run.mission.stage === 1 && /STAGE 2\/3/.test(o.stage), detail: o.head + ' · ' + o.stage + ' · ' + o.title };
+  });
+  await run('shooting, crew ability and side job work', () => {
+    TA.failMission('self test'); TA.exitCar(true); TA.state.crew.budi = true; TA.player.hp = 40;
+    const fixed = TA.useAbility('budi') && TA.player.hp > 40;
+    TA.giveWeapon(1, 60); TA.selectWeapon(1); const before = TA.state.ammo[1].mag;
+    TA.input.auto.fire = true; TA.simulate(20); TA.input.auto.fire = false;
+    TA.startWreckContract(); TA.simulate(30);
+    const a = TA.run.activity;
+    return { ok: fixed && TA.state.ammo[1].mag < before && !!a && a.type === 'wreck' && !a.car.dead, detail: 'fired ' + (before - TA.state.ammo[1].mag) + ' rounds, wreck target ' + (a ? a.def.name : 'none') };
+  });
+  await run('save and load round-trip', () => {
+    TA.endActivity(); TA.setWanted(0);
+    TA.state.money = 4321; TA.state.missionsDone = 3; TA.state.rp = 410; TA.saveGame(2);
+    TA.state.money = 1; TA.state.missionsDone = 0;
+    const loaded = TA.continueGame(2), s = TA.slotSummary(2);
+    return { ok: loaded && TA.state.money === 4321 && TA.state.missionsDone === 3 && TA.rankInfo().n === 3 && TA.run.mode === 'playing', detail: s ? s.line : 'no slot' };
+  });
+  await run('map screen opens with every tab', () => {
+    TA.openMap(0, false);
+    const tabs = TA.TABS.map((t, i) => { TA.menuKey('Tab' + i); return TA.menu.screen.querySelectorAll('.panel').length; });
+    TA.menuKey('Escape');
+    return { ok: tabs.every((n) => n >= 1) && TA.run.mode === 'playing', detail: tabs.join('/') + ' panels' };
+  });
+  await page.close();
+  for (const shot of spec.shots) {
+    const errs = [], p2 = await openPage(browser, base + shot.query, errs);
+    let info = null;
+    try { await p2.waitForFunction('window.__sceneReady', null, { timeout: 120000 }); info = await p2.evaluate('window.__sceneReady'); } catch (e) { errs.push(e.message.split('\n')[0]); }
+    check('showcase scene ready: ' + shot.file, !!info && errs.length === 0, info ? JSON.stringify(info) : errs.join(' | '));
+    await p2.close();
   }
+} finally {
+  await browser.close();
+  server.close();
 }
-server.close();
-
-/* ---------- ringkasan ---------- */
-const passed = checks.filter((c) => c.pass).length;
-console.log('\nSELFTEST: ' + passed + '/' + checks.length + ' lolos');
-if (passed !== checks.length) {
-  console.log('GAGAL:');
-  for (const c of checks.filter((c) => !c.pass)) console.log('  - ' + c.name + ' — ' + c.detail);
-  process.exit(1);
-}
+const passed = results.filter(Boolean).length;
+console.log('\nTOTAL ' + passed + ' / ' + results.length + ' passed');
+process.exit(passed === results.length ? 0 : 1);

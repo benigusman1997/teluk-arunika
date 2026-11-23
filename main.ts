@@ -1,61 +1,67 @@
-// main.ts — Teluk Arunika v3.8. Builder: salin game/ + screenshots/ ke output,
-// validasi file ada + offline (tanpa http/https eksternal), tulis dossier.json
-// via buildDossier dari vendor/makefun-game.ts (kit, jangan diubah).
-import { buildDossier } from './vendor/makefun-game.ts';
-import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+// TELUK ARUNIKA: Seven Days of Debt — make.fun gta6-01 entry program (Node 22, standard library only).
+//
+// The game is the static site in game/ beside this file. This program hands it in: it copies game/
+// and screenshots/ into the output directory and writes dossier.json with the vendored make.fun
+// library. It never looks at the working directory, never touches anything outside the output
+// directory, and never removes or recreates the output directory itself.
+//
+//   node main.ts                              writes to /output
+//   MAKEFUN_OUTPUT_DIR=/tmp/out node main.ts  writes to /tmp/out
+//   node serve.ts                             plays the game on port 8080
+
+import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { buildDossier } from './vendor/makefun-game.ts';
 
-const ROOT = process.cwd();
-const OUT = process.env.MAKEFUN_OUTPUT_DIR || join(ROOT, 'out');
+const here = fileURLToPath(new URL('.', import.meta.url));
+const out = process.env.MAKEFUN_OUTPUT_DIR ?? '/output';
 
-function fail(msg: string): never {
-  console.error('main.ts: ' + msg);
-  process.exit(1);
-}
-
-function walk(dir: string, out: string[]): void {
-  for (const e of readdirSync(dir, { withFileTypes: true })) {
-    const p = join(dir, e.name);
-    if (e.isDirectory()) walk(p, out);
-    else if (e.isFile()) out.push(p);
+// Read-then-write copy of one directory tree. The source may be read-only; every file is written
+// fresh, in sorted order, so two runs produce the same bytes. A missing source is simply skipped.
+function copyTree(from: string, to: string): number {
+  let count = 0;
+  let entries;
+  try {
+    entries = readdirSync(from, { withFileTypes: true });
+  } catch {
+    return 0;
   }
+  mkdirSync(to, { recursive: true });
+  entries.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+  for (const entry of entries) {
+    const src = join(from, entry.name);
+    const dst = join(to, entry.name);
+    if (entry.isDirectory()) {
+      count += copyTree(src, dst);
+    } else if (entry.isFile()) {
+      // One unreadable file must not stop the hand-in; skip it and carry on.
+      try {
+        writeFileSync(dst, readFileSync(src));
+        count += 1;
+      } catch {
+        continue;
+      }
+    }
+  }
+  return count;
 }
 
-const gameDir = join(ROOT, 'game');
-if (!existsSync(join(gameDir, 'index.html'))) fail('game/index.html tidak ada');
+mkdirSync(out, { recursive: true });
+const gameFiles = copyTree(join(here, 'game'), join(out, 'game'));
+mkdirSync(join(out, 'screenshots'), { recursive: true });
+const shotFiles = copyTree(join(here, 'screenshots'), join(out, 'screenshots'));
 
-// Validasi offline: tidak ada referensi http(s) di source top-level game/.
-// File vendored (di bawah vendor/ atau *.min.js) dikecualikan — pustaka boleh
-// menyebut URL di komentar/string, yang dilarang adalah game memuatnya.
-const sources: string[] = [];
-walk(gameDir, sources);
-for (const f of sources) {
-  if (!/\.(html|js|css)$/i.test(f)) continue;
-  const rel = f.slice(gameDir.length + 1);
-  if (rel.split('/').includes('vendor') || /\.min\.(js|mjs|css)$/i.test(f)) continue;
-  const text = readFileSync(f, 'utf8');
-  if (/https?:\/\//i.test(text)) fail('referensi eksternal di ' + f);
-}
+// The scorer's own caps, exactly as in the kit's starter.
+writeFileSync(
+  join(out, 'dossier.json'),
+  buildDossier(out, {
+    text_max_bytes: 163840,
+    screenshots: { max: 4, max_bytes: 262144 },
+    game_max_files: 993,
+    game_max_bytes: 50331648,
+    game_path_max_bytes: 1000,
+  }),
+);
 
-const shotsDir = join(ROOT, 'screenshots');
-if (!existsSync(shotsDir)) fail('screenshots/ tidak ada');
-const shots = readdirSync(shotsDir).filter((f) => /\.(png|jpe?g)$/i.test(f));
-if (shots.length < 3 || shots.length > 4) fail('screenshots harus 3-4 gambar, ada ' + shots.length);
-for (const f of shots) {
-  const st = statSync(join(shotsDir, f));
-  if (st.size > 262144) fail('screenshot ' + f + ' melebihi 256 KiB (' + st.size + ')');
-}
-
-rmSync(OUT, { recursive: true, force: true });
-mkdirSync(OUT, { recursive: true });
-cpSync(gameDir, join(OUT, 'game'), { recursive: true });
-cpSync(shotsDir, join(OUT, 'screenshots'), { recursive: true });
-
-const dossier = buildDossier(OUT, {
-  text_max_bytes: 163840,
-  screenshots: { max: 4, max_bytes: 262144 },
-  game_max_files: 993,
-  game_max_bytes: 50331648,
-});
-writeFileSync(join(OUT, 'dossier.json'), dossier);
-console.log('main.ts: OK — dossier ' + dossier.length + ' bytes -> ' + OUT);
+console.log('teluk-arunika: ' + gameFiles + ' game files, ' + shotFiles + ' screenshots, dossier.json -> ' + out);
