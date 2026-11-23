@@ -1,26 +1,22 @@
-// Contextual tutorial hints: each is shown until done or timed out, and remembered in the save.
-
+// tutorial-hints.js — first-minutes hint cards, each shown once per save.
+var TA = window.TA || (window.TA = {});
 function showTutorialHint(id) {
-  if (G.hintsDone[id] || (G.hint && G.hint.id === id)) return false;
-  const hint = TUTORIAL_HINTS.find((h) => h.id === id);
-  G.hint = { id: id, text: hint.text, t: 9 };
-  return true;
+  var S = TA.S, text = tutorialHintText(id); if (S.hints[id] || !text) return;
+  S.hints[id] = true; TA.hintT = 7; TA.setCard('hint', '<b>HINT</b> ' + text);
 }
-
-function completeTutorialHint(id) {
-  if (G.hintsDone[id]) return;
-  G.hintsDone[id] = true;
-  if (G.hint && G.hint.id === id) G.hint = null;
+function tutorialHintText(id) {
+  return {
+    start: 'Walk with WASD, look with the mouse. Follow the yellow beacon on the minimap to Pak Amir.',
+    drive: 'W/S accelerate and brake, A/D steer, SPACE handbrake to drift. V changes camera, R the radio.',
+    wanted: 'Stars mean TAPD is hunting you. Break line of sight until the stars blink out, or respray.',
+    combat: 'Hold RMB to aim, LMB to fire, Q for the weapon wheel. Use planters as cover.',
+    crew: 'Crew abilities: Z scramble radio, X cover fire, C field repair. Each has a cooldown.'
+  }[id];
 }
-
-function updateTutorialHints(dt) {
-  if (G.hint) {
-    G.hint.t -= dt;
-    if (G.hint.t <= 0) { G.hintsDone[G.hint.id] = true; G.hint = null; }
-    return;
-  }
-  // Nothing showing: offer the next lesson that fits what Raka is doing.
-  if (!G.player.car && G.playTime > 1) showTutorialHint('move');
-  if (G.player.car && G.hintsDone.drive && G.contract) showTutorialHint('map');
-  if (G.contractsDone >= 3 && !G.crew.sari.recruited) showTutorialHint('crew');
+function tickTutorialHints(dt) {
+  if (TA.hintT > 0) { TA.hintT -= dt; if (TA.hintT <= 0) TA.setCard('hint', ''); }
+  if (TA.S.time > 1) showTutorialHint('start');
+  if (TA.S.stage >= 0 && TA.CFG.CONTRACTS[TA.S.contract].stages[TA.S.stage].t === 'kill') showTutorialHint('combat');
+  if (TA.S.crew.length) showTutorialHint('crew');
 }
+TA.showTutorialHint = showTutorialHint; TA.tickTutorialHints = tickTutorialHints;

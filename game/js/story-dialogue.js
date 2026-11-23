@@ -1,43 +1,26 @@
-// Story dialogue panel with portraits, the mission intro card and short radio chatter from the crew.
-
-function playCutsceneDialogue(lines, onDone) {
-  G.dialogue = { lines: lines, index: 0, face: lines[0][0], text: lines[0][1], t: 0, onDone: onDone };
-  G.mode = 'cutscene';
-  playUiSound('talk');
+// story-dialogue.js — cutscene dialogue panels with drawn portraits, and the mission intro card.
+var TA = window.TA || (window.TA = {});
+function playCutsceneDialogue(lines, done) {
+  TA.cut = { lines: lines, i: 0, done: done }; TA.S.mode = 'cutscene'; showDialogueLine();
 }
-
-function showMissionIntroCard(contract, index) {
-  G.introCard = { head: 'CONTRACT ' + (index + 1) + '/' + CONTRACTS.length + ' - ' + ACTS[contract.act], title: contract.title, sub: 'Payout ' + formatMoney(contract.payout) + ' - from ' + faceById(contract.giver).name, t: 3.2 };
+function showMissionIntroCard(c, i) {
+  TA.bigWord = { text: 'ACT ' + c.act + ' · CONTRACT ' + (i + 1) + ' — ' + c.title, t: 3.5 };
 }
-
+function showDialogueLine() {
+  var C = TA.cut, l = C.lines[C.i];
+  TA.showScreen('<div class="dialogue"><canvas id="portrait" width="96" height="96"></canvas><div><b>' + l[0] + '</b><p>' + l[1] + '</p><i>ENTER / CLICK — continue (' + (C.i + 1) + '/' + C.lines.length + ')</i></div></div>', true);
+  drawPortrait(document.getElementById('portrait').getContext('2d'), l[0]);
+}
 function advanceDialogue() {
-  const d = G.dialogue;
-  d.index++;
-  if (d.index >= d.lines.length) {
-    G.dialogue = null;
-    G.mode = 'playing';
-    if (d.onDone) d.onDone();
-    return;
-  }
-  d.face = d.lines[d.index][0];
-  d.text = d.lines[d.index][1];
-  d.t = 0;
-  playUiSound('talk');
+  var C = TA.cut; if (!C) return;
+  if (++C.i < C.lines.length) { showDialogueLine(); return; }
+  TA.cut = null; TA.hideScreens(); TA.S.mode = 'playing'; if (C.done) C.done();
 }
-
-function updateDialogue(dt) {
-  const d = G.dialogue;
-  d.t += dt;
-  // Enter, E or a click moves on; lines also advance by themselves after a reading pause.
-  if (W.keysHit.Enter || W.keysHit.KeyE || W.keysHit.Space || W.mouse.leftHit || d.t > 2.5 + d.text.length * 0.06) advanceDialogue();
+function drawPortrait(g, name) {
+  var col = { RAKA: '#12b5a6', 'PAK AMIR': '#ffcc1a', SARI: '#f06aa8', BIMA: '#ffa94d', TONO: '#4fd0d6' }[name] || '#9aa4b2';
+  g.fillStyle = '#243046'; g.fillRect(0, 0, 96, 96); g.fillStyle = col; g.fillRect(14, 66, 68, 30);
+  g.fillStyle = '#d9a066'; g.fillRect(30, 22, 36, 44); g.fillStyle = '#2a1b12'; g.fillRect(28, 14, 40, 14);
+  if (name === 'RAKA') { g.fillStyle = '#f5f0e6'; g.fillRect(26, 12, 44, 12); g.fillRect(52, 22, 26, 5); }
+  g.fillStyle = '#1a1a1a'; g.fillRect(37, 38, 6, 5); g.fillRect(53, 38, 6, 5); g.fillRect(40, 54, 16, 3);
 }
-
-function sayChatter(face, text, seconds) {
-  G.chatter = { face: face, text: text, t: seconds || 4 };
-}
-
-function updateTimedMessages(dt) {
-  if (G.chatter) { G.chatter.t -= dt; if (G.chatter.t <= 0) G.chatter = null; }
-  if (G.banner) { G.banner.t -= dt; if (G.banner.t <= 0) G.banner = null; }
-  if (G.introCard) { G.introCard.t -= dt; if (G.introCard.t <= 0) G.introCard = null; }
-}
+TA.playCutsceneDialogue = playCutsceneDialogue; TA.showMissionIntroCard = showMissionIntroCard; TA.advanceDialogue = advanceDialogue;
