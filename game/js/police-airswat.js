@@ -1,40 +1,151 @@
-// police-airswat.js — helicopter ELANG-1 with its searchlight, armoured van BADAK-2 and the SWAT team.
-var TA = window.TA || (window.TA = {});
-function flyHelicopterWithSearchlight(dt, force) {
-  var S = TA.S, P = TA.player, T = P.car || P;
-  if (S.wanted >= 4 && !TA.heli) {
-    TA.heli = TA.makeHelicopterMesh(); TA.heli.position.set(T.x - 80, 60, T.z - 80);
-    TA.scene.add(TA.heli); TA.scene.add(TA.heli.userData.cone); TA.scene.add(TA.heli.userData.disc); TA.notify('ELANG-1 IS OVERHEAD');
+// Air and SWAT: the ELANG-1 helicopter with its searchlight, the
+// BADAK-2 SWAT van, breach officers and rooftop snipers.
+
+// Fly the helicopter above the player, rotor spinning, searchlight
+// cone tracking the car and a bright disc on the road below it.
+function flyHelicopterWithSearchlight(dt) {
+  const p = GAME.police;
+  if (!WORLD._heli) {
+    const heli = makeHelicopterMesh();
+    WORLD.scene.add(heli);
+    WORLD._heli = heli;
+    WORLD._heliPos = { x: GAME.player.x, z: GAME.player.z, y: 42 };
   }
-  var H = TA.heli; if (!H) return;
-  var u = H.userData, away = S.wanted < 4;
-  if (!force) {
-    var a = S.time * 0.35, tx = away ? H.position.x + 40 : T.x + Math.cos(a) * 16, tz = away ? H.position.z - 40 : T.z + Math.sin(a) * 16;
-    H.position.x += (tx - H.position.x) * Math.min(1, 1.5 * dt); H.position.z += (tz - H.position.z) * Math.min(1, 1.5 * dt);
-    H.position.y += ((away ? 90 : 20) - H.position.y) * Math.min(1, dt);
-    H.rotation.y = Math.atan2(T.x - H.position.x, T.z - H.position.z);
+  const heli = WORLD._heli;
+  const pos = WORLD._heliPos;
+  const tx = GAME.player.x + 8;
+  const tz = GAME.player.z - 6;
+  pos.x = lerpNumber(pos.x, tx, 0.02);
+  pos.z = lerpNumber(pos.z, tz, 0.02);
+  pos.y = 42 + Math.sin(performance.now() / 1400) * 1.5;
+  heli.position.set(pos.x, pos.y, pos.z);
+  heli.rotation.y = Math.atan2(GAME.player.x - pos.x, GAME.player.z - pos.z);
+  if (heli.userData.rotor) {
+    heli.userData.rotor.rotation.y += dt * 22;
   }
-  u.rotor.rotation.y += dt * 30; u.tail.rotation.x += dt * 40;
-  var g = new THREE.Vector3(T.x, 0.15, T.z), top = H.position.clone(); top.y -= 1; var dir = top.clone().sub(g), len = dir.length();
-  u.cone.position.copy(g).add(top).multiplyScalar(0.5); u.cone.scale.set(1, len, 1);
-  u.cone.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.normalize());
-  u.disc.position.copy(g); u.cone.visible = u.disc.visible = !away;
-  if (away && TA.dist({ x: H.position.x, z: H.position.z }, T) > 260) { TA.scene.remove(H); TA.scene.remove(u.cone); TA.scene.remove(u.disc); TA.heli = null; }
+  if (heli.userData.searchDisc) {
+    heli.userData.searchDisc.position.set(
+      GAME.player.x - pos.x, -pos.y + 0.2, GAME.player.z - pos.z,
+    );
+  }
+  if (p.stars >= 4) {
+    p.heli = true;
+  }
 }
-function deploySwatVanAndOfficers(dt, at) {
-  var S = TA.S, P = TA.player, T = P.car || P;
-  if ((S.wanted >= 5 || at) && !TA.swatVan) {
-    var x = at ? at.x : TA.clamp(T.x + 150, -430, 430), z = at ? at.z : T.z;
-    TA.swatVan = TA.spawnVehicle('swat', x, z, at ? at.h : -Math.PI / 2, 'police'); TA.swatVan.unit = 'BADAK-2 SWAT'; TA.swatVan.hp = 400; TA.notify('BADAK-2 SWAT DEPLOYED');
+
+// Aim the searchlight cone straight down at the player's position.
+function aimSearchlightConeAtPlayer() {
+  const heli = WORLD._heli;
+  if (!heli) {
+    return;
   }
-  var V = TA.swatVan; if (!V) return;
-  if (V.dead || S.wanted === 0 && !at) { if (TA.dist(V, T) > 80 || V.dead) { if (!V.dead) TA.removeVehicle(V); TA.swatVan = null; } return; }
-  if (!V.swatOut && (at || TA.dist(V, T) < 28)) {
-    V.swatOut = true; V.role = 'block'; V.v = 0;
-    for (var k = 0; k < 4; k++) {
-      var o = TA.spawnPerson('swat', V.x - Math.sin(V.h) * (4.5 + (k % 2) * 1.6) + Math.cos(V.h) * (k - 1.5) * 1.5, V.z - Math.cos(V.h) * (4.5 + (k % 2) * 1.6) - Math.sin(V.h) * (k - 1.5) * 1.5, { shirt: 0x1c1f26, pants: 0x121418, hat: 0x0c0d10, helmet: true, hp: 120, gun: true, bar: true, barColor: 0x4dabf7 });
-      if (k === 0) { var sh = TA.box(0.9, 1.5, 0.12, 0x2b3a67, 0, 1.0, 0.5); o.mesh.add(sh); o.shield = true; }
+  const cone = heli.userData.searchCone;
+  if (!cone) {
+    return;
+  }
+  const dx = GAME.player.x - heli.position.x;
+  const dz = GAME.player.z - heli.position.z;
+  cone.rotation.z = Math.atan2(dx, heli.position.y) * 0.4;
+  cone.rotation.x = Math.PI + Math.atan2(dz, heli.position.y) * 0.4;
+}
+
+// Deploy the SWAT van and four officers near the player's position.
+function deploySwatVanAndOfficers() {
+  const p = GAME.police;
+  if (p._swatDeployed) {
+    return;
+  }
+  p._swatDeployed = true;
+  const x = clampNumber(GAME.player.x + 30, -440, 440);
+  const z = clampNumber(GAME.player.z + 10, -440, 440);
+  const vanIndex = spawnVehicle('BADAK-2', x, z, 0, 'police');
+  const van = GAME.vehicles[vanIndex];
+  van.heading = Math.atan2(GAME.player.x - x, GAME.player.z - z);
+  veh_syncMesh(vanIndex);
+  p._swatVan = vanIndex;
+  p._swatOfficers = [];
+  for (let i = 0; i < 4; i++) {
+    const mesh = makePersonMesh(0x111111, 'swat');
+    const ox = x + (i % 2 === 0 ? -3 : 3);
+    const oz = z + 4 + Math.floor(i / 2) * 3;
+    mesh.position.set(ox, 0, oz);
+    WORLD.scene.add(mesh);
+    p._swatOfficers.push({ x: ox, z: oz, mesh: mesh, state: 'advance', shield: i === 0 });
+    if (i === 0) {
+      const shield = new THREE.Mesh(
+        new THREE.BoxGeometry(0.9, 1.3, 0.08),
+        new THREE.MeshLambertMaterial({ color: 0x1c2a4a }),
+      );
+      shield.position.set(0, 1.1, 0.3);
+      mesh.add(shield);
     }
   }
+  GAME.ui.banner = 'SWAT ARUNIKA DEPLOYED — BADAK-2';
 }
-TA.flyHelicopterWithSearchlight = flyHelicopterWithSearchlight; TA.deploySwatVanAndOfficers = deploySwatVanAndOfficers;
+
+// Advance SWAT officers toward the player and let the sniper watch.
+function updateSwatBreachAndSniper(dt) {
+  const p = GAME.police;
+  if (!p._swatOfficers) {
+    return;
+  }
+  for (const officer of p._swatOfficers) {
+    const dx = GAME.player.x - officer.x;
+    const dz = GAME.player.z - officer.z;
+    const d = Math.sqrt(dx * dx + dz * dz) || 1;
+    if (d > 8) {
+      officer.x += (dx / d) * 3.2 * dt;
+      officer.z += (dz / d) * 3.2 * dt;
+      officer.mesh.position.set(officer.x, 0, officer.z);
+      officer.mesh.rotation.y = Math.atan2(dx, dz);
+    } else {
+      officer.state = 'hold';
+      if (taNextRandom() < dt * 0.4 && typeof applyBulletDamage === 'function') {
+        applyBulletDamage(GAME.player, 4, 'swat');
+      }
+    }
+  }
+  if (p.stars >= 5 && !p._sniper) {
+    placeRooftopSniper();
+  }
+  if (p._sniper && taNextRandom() < dt * 0.2) {
+    GAME.ui.banner = 'MATA 07 — OVERWATCH ON THE ROOF';
+  }
+}
+
+// Place a rooftop sniper above the nearest tall building.
+function placeRooftopSniper() {
+  const p = GAME.police;
+  const x = Math.round(GAME.player.x / 90) * 90 + 20;
+  const z = Math.round(GAME.player.z / 90) * 90 - 20;
+  const mesh = makePersonMesh(0x111111, 'swat');
+  mesh.position.set(x, 24, z);
+  WORLD.scene.add(mesh);
+  p._sniper = { x: x, z: z, mesh: mesh };
+  p.units.push({
+    kind: 'MATA', callsign: 'MATA 07', role: 'OVERWATCH',
+    dist: distanceBetween(x, z, GAME.player.x, GAME.player.z),
+    x: x, z: z, heading: 0, speed: 0, vehicle: -1, mesh: mesh,
+    state: 'overwatch',
+  });
+}
+
+// Remove the helicopter and SWAT when the heat is gone.
+function air_clearAirUnits() {
+  if (WORLD._heli) {
+    WORLD.scene.remove(WORLD._heli);
+    WORLD._heli = null;
+  }
+  const p = GAME.police;
+  if (p._swatOfficers) {
+    for (const officer of p._swatOfficers) {
+      WORLD.scene.remove(officer.mesh);
+    }
+    p._swatOfficers = null;
+  }
+  p._swatDeployed = false;
+  if (p._sniper) {
+    WORLD.scene.remove(p._sniper.mesh);
+    p._sniper = null;
+  }
+}

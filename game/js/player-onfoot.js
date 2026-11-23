@@ -1,35 +1,197 @@
-// player-onfoot.js — Raka on foot: walking, sprinting, jumping, aiming.
-var TA = window.TA || (window.TA = {});
-function updatePlayerOnFoot(dt, inp) {
-  var P = TA.player, S = TA.S;
-  var speed = aimAndSprint(inp), mx = inp.strafe, mz = inp.fwd, len = Math.hypot(mx, mz);
-  if (len > 0) {
-    var yaw = TA.camYaw, dx = (Math.sin(yaw) * mz + Math.cos(yaw) * mx) / len, dz = (Math.cos(yaw) * mz - Math.sin(yaw) * mx) / len;
-    var nx = P.x + dx * speed * dt, nz = P.z + dz * speed * dt;
-    if (!TA.blocked(nx, P.z, 0.4)) P.x = nx; if (!TA.blocked(P.x, nz, 0.4)) P.z = nz;
-    if (!inp.aim && !inp.fire) P.h = Math.atan2(dx, dz);
-    P.phase += dt * speed * 2.2; S.stats.km += speed * dt / 1000;
+// The player on foot: walking, sprinting, jumping, aiming, interacting,
+// taking damage and respawning at the hospital.
+
+// Walk Raka with WASD, sprint with Shift, jump with Space, aim with
+// the right mouse button; E interacts, Q opens the weapon wheel.
+function updatePlayerOnFoot(dt) {
+  if (!GAME || GAME.mode !== 'playing') {
+    return;
   }
-  if (inp.jump && P.y <= 0) P.vy = 5.2;
-  P.vy -= 14 * dt; P.y = Math.max(0, P.y + P.vy * dt); if (P.y === 0) P.vy = 0;
-  TA.animatePerson(P.mesh, P.phase, len > 0 ? (speed > 5 ? 1.0 : 0.6) : 0);
-  P.mesh.position.set(P.x, 0.24 + P.y, P.z); P.mesh.rotation.y = P.h;
+  const p = GAME.player;
+  if (p.vehicle >= 0) {
+    plr_syncPlayerMesh();
+    if (inp_pressed.KeyE) {
+      enterOrExitVehicle();
+    }
+    return;
+  }
+  const speed = inp_isDown('sprint') ? 9 : 4.5;
+  p.sprinting = inp_isDown('sprint');
+  let mx = 0;
+  let mz = 0;
+  if (inp_isDown('forward')) {
+    mz += 1;
+  }
+  if (inp_isDown('back')) {
+    mz -= 1;
+  }
+  if (inp_isDown('left')) {
+    mx -= 1;
+  }
+  if (inp_isDown('right')) {
+    mx += 1;
+  }
+  if (mx !== 0 || mz !== 0) {
+    const len = Math.sqrt(mx * mx + mz * mz);
+    mx /= len;
+    mz /= len;
+    const camYaw = GAME.ui.lookYaw;
+    const wx = mx * Math.cos(camYaw) + mz * Math.sin(camYaw);
+    const wz = -mx * Math.sin(camYaw) + mz * Math.cos(camYaw);
+    p.heading = Math.atan2(wx, wz);
+    const nx = p.x + wx * speed * dt;
+    const nz = p.z + wz * speed * dt;
+    const fixed = collideWithBuildings(nx, nz, 0.6);
+    p.x = clampNumber(fixed.x, -448, 448);
+    p.z = clampNumber(fixed.z, -448, 448);
+    p.action = 'walk';
+  } else {
+    p.action = 'idle';
+  }
+  p.aiming = inp_isDown('aim');
+  if (inp_pressed.Space) {
+    sprintJumpAndAim(dt);
+  }
+  if (inp_pressed.KeyQ) {
+    GAME.ui.wheelOpen = !GAME.ui.wheelOpen;
+  }
+  if (GAME.ui.wheelOpen && inp_pressed.Digit1) {
+    selectWeaponSlot(1);
+  }
+  if (GAME.ui.wheelOpen && inp_pressed.Digit2) {
+    selectWeaponSlot(2);
+  }
+  if (GAME.ui.wheelOpen && inp_pressed.Digit3) {
+    selectWeaponSlot(3);
+  }
+  if (GAME.ui.wheelOpen && inp_pressed.Digit4) {
+    selectWeaponSlot(4);
+  }
+  if (GAME.ui.wheelOpen && inp_pressed.Digit5) {
+    selectWeaponSlot(5);
+  }
+  if (GAME.ui.wheelOpen && inp_pressed.Digit6) {
+    selectWeaponSlot(6);
+  }
+  if (inp_pressed.KeyR && typeof reloadWeapon === 'function') {
+    reloadWeapon();
+  }
+  if (inp_pressed.KeyE) {
+    interactWithNearestThing();
+  }
+  if (inp_isDown('fire') && typeof fireCurrentWeapon === 'function') {
+    fireCurrentWeapon(dt);
+  }
+  plr_checkVehicleHits(dt);
+  plr_syncPlayerMesh();
 }
-function aimAndSprint(inp) {
-  var P = TA.player, aiming = inp.aim || inp.fire;
-  P.mesh.userData.aiming = aiming && TA.S.weapon > 0;
-  P.mesh.userData.arms[1].rotation.x = P.mesh.userData.aiming ? -1.45 : P.mesh.userData.arms[1].rotation.x;
-  if (aiming) P.h = TA.camYaw;
-  P.gun.visible = TA.S.weapon > 0;
-  return aiming ? 2.6 : inp.sprint ? 7.4 : 4.2;
+
+// Sprint burst, jump and aim: Space jumps, right button aims.
+function sprintJumpAndAim(dt) {
+  const p = GAME.player;
+  p.y = 0.9;
+  p._jumpVel = 4;
+  GAME.ui.banner = '';
 }
-function createPlayerRaka(x, z) {
-  var mesh = TA.makePersonMesh(0x12b5a6, 0x2b3350, 0xf5f0e6);
-  mesh.traverse(function (m) { if (m.isMesh) m.castShadow = true; });
-  var gun = TA.box(0.1, 0.14, 0.75, 0x1b1b1f, 0.4, 1.32, 0.45); mesh.add(gun);
-  TA.scene.add(mesh);
-  TA.player = { mesh: mesh, gun: gun, x: x, z: z, y: 0, vy: 0, h: 0, phase: 0, car: null };
-  TA.camYaw = 0; TA.camPitch = 0.18;
-  mesh.position.set(x, 0.24, z);
+
+// Interact with the nearest thing: car, shop, phone box, mission spot.
+function interactWithNearestThing() {
+  const p = GAME.player;
+  let best = null;
+  let bestD = 4;
+  for (let i = 0; i < GAME.vehicles.length; i++) {
+    const v = GAME.vehicles[i];
+    const d = distanceBetween(p.x, p.z, v.x, v.z);
+    if (d < bestD) {
+      bestD = d;
+      best = i;
+    }
+  }
+  if (best !== null) {
+    GAME.ui.promptProgress = 0.01;
+    updateCarTheftProgress(1 / 60, best);
+    return;
+  }
+  for (const shop of SHOP_LOCATIONS) {
+    if (distanceBetween(p.x, p.z, shop.x, shop.z) < 6) {
+      if (typeof openShopAtPlace === 'function') {
+        openShopAtPlace(shop.id);
+      }
+      return;
+    }
+  }
+  GAME.ui.prompt = 'NOTHING TO USE HERE';
 }
-TA.updatePlayerOnFoot = updatePlayerOnFoot; TA.aimAndSprint = aimAndSprint; TA.createPlayerRaka = createPlayerRaka;
+
+// Damage the player; armour absorbs first, then health. At zero health
+// the player is knocked out and wakes at the hospital. God-mode
+// showcase scenes never take damage.
+function takePlayerDamage(amount, source) {
+  if (GAME._godMode) {
+    return;
+  }
+  const p = GAME.player;
+  let left = amount;
+  if (p.armour > 0) {
+    const absorbed = Math.min(p.armour, left);
+    p.armour -= absorbed;
+    left -= absorbed;
+  }
+  p.health -= left;
+  if (p.health <= 0) {
+    p.health = 0;
+    if (GAME.police.stars > 0) {
+      arrestOrKnockOutPlayer('arrested');
+    } else {
+      arrestOrKnockOutPlayer('knocked out');
+    }
+  }
+}
+
+// Respawn at RS Arunika hospital with full health and no vehicle.
+function respawnPlayerAtHospital() {
+  const p = GAME.player;
+  p.x = -20;
+  p.z = 200;
+  p.y = 0;
+  p.health = 100;
+  p.vehicle = -1;
+  p.heading = Math.PI;
+  plr_syncPlayerMesh();
+}
+
+// Cars and peds that hit the player on foot knock him down.
+// Showcase scenes are god-mode: the staged player never gets hurt.
+function plr_checkVehicleHits(dt) {
+  if (GAME._godMode) {
+    return;
+  }
+  const p = GAME.player;
+  for (const v of GAME.vehicles) {
+    if (v.driver === 'none' || Math.abs(v.speed) < 3) {
+      continue;
+    }
+    if (distanceBetween(p.x, p.z, v.x, v.z) < 2.2) {
+      takePlayerDamage(Math.abs(v.speed) * 1.5, 'car');
+      p.x += Math.sin(v.heading) * 3;
+      p.z += Math.cos(v.heading) * 3;
+      return;
+    }
+  }
+}
+
+// Keep the player mesh on the player record, creating it on demand.
+function plr_syncPlayerMesh() {
+  if (!WORLD.meshes.player) {
+    WORLD.meshes.player = makePersonMesh(0x18b89a, 'raka');
+    WORLD.scene.add(WORLD.meshes.player);
+  }
+  const mesh = WORLD.meshes.player;
+  const p = GAME.player;
+  mesh.position.set(p.x, p.y || 0, p.z);
+  mesh.rotation.y = p.heading;
+  mesh.visible = true;
+  if (p.vehicle >= 0) {
+    mesh.visible = false;
+  }
+}

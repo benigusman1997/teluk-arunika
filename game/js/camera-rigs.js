@@ -1,30 +1,137 @@
-// camera-rigs.js — chase, hood, cinematic look-back and on-foot cameras.
-var TA = window.TA || (window.TA = {});
-function updateChaseCamera(dt, car) {
-  var mode = TA.S.camMode, back = mode === 2 ? 12 : 7.4, up = mode === 2 ? 5.2 : 3.1, k = TA.camSnap ? 1 : Math.min(1, 5 * dt);
-  TA.camH = TA.camH === undefined || TA.camSnap ? car.h : TA.camH + TA.angDiff(car.h, TA.camH) * Math.min(1, 4 * dt);
-  var sx = Math.sin(TA.camH), cz = Math.cos(TA.camH), cam = TA.camera;
-  if (mode === 1) { cam.position.set(car.x + Math.sin(car.h) * 0.6, 1.5, car.z + Math.cos(car.h) * 0.6); cam.lookAt(car.x + Math.sin(car.h) * 30, 1.2, car.z + Math.cos(car.h) * 30); }
-  else {
-    cam.position.x += (car.x - sx * back - cam.position.x) * k; cam.position.z += (car.z - cz * back - cam.position.z) * k; cam.position.y += (up - cam.position.y) * k;
-    cam.lookAt(car.x + sx * 7, 1.3, car.z + cz * 7);
+// Camera rigs: chase, hood, look-back and on-foot cameras, plus shake.
+
+// Camera modes in cycle order.
+const cam_MODES = ['chase', 'hood', 'lookback', 'far'];
+let cam_shakeAmount = 0;
+let cam_shakeTime = 0;
+
+// Pick the right rig for the current state and run it every step.
+function updateActiveCamera(dt) {
+  if (!GAME || !WORLD || !WORLD.camera) {
+    return;
   }
-  cam.fov = 58 + Math.min(16, Math.abs(car.v) * 0.3); cam.updateProjectionMatrix(); applyCameraShake();
+  if (GAME.mode === 'title') {
+    cam_titleOrbit(dt);
+    return;
+  }
+  const mode = cam_MODES[GAME.ui.cameraMode] || 'chase';
+  if (GAME.player.vehicle >= 0) {
+    if (mode === 'hood') {
+      updateHoodCamera(dt);
+    } else if (mode === 'lookback') {
+      updateLookBackCamera(dt);
+    } else {
+      updateChaseCamera(dt);
+    }
+  } else {
+    updateOnFootCamera(dt);
+  }
+  if (cam_shakeTime > 0 && GAME.settings.shake) {
+    cam_shakeTime -= dt;
+    const s = cam_shakeAmount * (cam_shakeTime > 0 ? 1 : 0);
+    WORLD.camera.position.x += (taNextRandom() - 0.5) * s;
+    WORLD.camera.position.y += (taNextRandom() - 0.5) * s * 0.5;
+  }
 }
-function updateLookBackCamera(dt, car) {
-  var cam = TA.camera;
-  cam.position.set(car.x + Math.sin(car.h) * 8 + Math.cos(car.h) * 2, 2.2, car.z + Math.cos(car.h) * 8 - Math.sin(car.h) * 2);
-  cam.lookAt(car.x - Math.sin(car.h) * 6, 1.2, car.z - Math.cos(car.h) * 6); cam.fov = 52; cam.updateProjectionMatrix();
+
+// Slow orbit over the bay for the title screen backdrop.
+function cam_titleOrbit(dt) {
+  const t = (performance.now() / 1000) * 0.02;
+  const cx = 120 + Math.cos(t) * 260;
+  const cz = 180 + Math.sin(t) * 160;
+  WORLD.camera.position.set(cx, 95, cz);
+  WORLD.camera.lookAt(80, 10, -60);
 }
+
+// Chase camera: 7.5 m behind the car, 3.4 m up, FOV 62, speed pull-back,
+// plus a look-around yaw from the mouse.
+function updateChaseCamera(dt) {
+  const v = GAME.vehicles[GAME.player.vehicle];
+  if (!v) {
+    return;
+  }
+  const speedKmh = Math.abs(v.speed) * 3.6;
+  const pull = 7.5 + speedKmh * 0.012;
+  const height = 3.4 + speedKmh * 0.004;
+  const yaw = v.heading + GAME.ui.lookYaw + Math.PI;
+  const tx = v.x + Math.sin(yaw) * pull;
+  const tz = v.z + Math.cos(yaw) * pull;
+  const cam = WORLD.camera;
+  cam.position.x = lerpNumber(cam.position.x, tx, 0.18);
+  cam.position.y = lerpNumber(cam.position.y, height, 0.18);
+  cam.position.z = lerpNumber(cam.position.z, tz, 0.18);
+  const lookX = v.x + Math.sin(v.heading + GAME.ui.lookYaw) * 14;
+  const lookZ = v.z + Math.cos(v.heading + GAME.ui.lookYaw) * 14;
+  cam.lookAt(lookX, 1.4, lookZ);
+  cam.fov = 62 + speedKmh * 0.03;
+  cam.updateProjectionMatrix();
+}
+
+// Hood camera: low over the bonnet, looking straight down the road.
+function updateHoodCamera(dt) {
+  const v = GAME.vehicles[GAME.player.vehicle];
+  if (!v) {
+    return;
+  }
+  const cam = WORLD.camera;
+  cam.position.set(
+    v.x + Math.sin(v.heading) * 1.4,
+    1.5,
+    v.z + Math.cos(v.heading) * 1.4,
+  );
+  cam.lookAt(
+    v.x + Math.sin(v.heading) * 30,
+    1.0,
+    v.z + Math.cos(v.heading) * 30,
+  );
+  cam.fov = 68;
+  cam.updateProjectionMatrix();
+}
+
+// Look-back camera: in front of the car, facing the driver.
+function updateLookBackCamera(dt) {
+  const v = GAME.vehicles[GAME.player.vehicle];
+  if (!v) {
+    return;
+  }
+  const cam = WORLD.camera;
+  cam.position.set(
+    v.x + Math.sin(v.heading) * 8,
+    3.2,
+    v.z + Math.cos(v.heading) * 8,
+  );
+  cam.lookAt(v.x, 1.2, v.z);
+  cam.fov = 62;
+  cam.updateProjectionMatrix();
+}
+
+// On-foot camera: 5.5 m behind Raka, 2.6 m up, slightly to his right.
 function updateOnFootCamera(dt) {
-  var P = TA.player, yaw = TA.camYaw, pit = TA.camPitch, cam = TA.camera, back = 5.4, k = TA.camSnap ? 1 : Math.min(1, 10 * dt);
-  var tx = P.x - Math.sin(yaw) * back * Math.cos(pit) - Math.cos(yaw) * 0.75, tz = P.z - Math.cos(yaw) * back * Math.cos(pit) + Math.sin(yaw) * 0.75, ty = 2.1 + P.y + Math.sin(pit) * back;
-  cam.position.x += (tx - cam.position.x) * k; cam.position.y += (ty - cam.position.y) * k; cam.position.z += (tz - cam.position.z) * k;
-  cam.lookAt(P.x + Math.sin(yaw) * 12, 1.5 + P.y, P.z + Math.cos(yaw) * 12);
-  cam.fov = 58; cam.updateProjectionMatrix(); applyCameraShake();
+  const p = GAME.player;
+  const yaw = p.heading + Math.PI;
+  const cam = WORLD.camera;
+  const tx = p.x + Math.sin(yaw) * 5.5 + Math.cos(yaw) * 0.9;
+  const tz = p.z + Math.cos(yaw) * 5.5 - Math.sin(yaw) * 0.9;
+  cam.position.x = lerpNumber(cam.position.x, tx, 0.25);
+  cam.position.y = lerpNumber(cam.position.y, 2.6, 0.25);
+  cam.position.z = lerpNumber(cam.position.z, tz, 0.25);
+  cam.lookAt(
+    p.x + Math.sin(p.heading) * 6,
+    1.5,
+    p.z + Math.cos(p.heading) * 6,
+  );
+  cam.fov = 62;
+  cam.updateProjectionMatrix();
 }
-function cycleCameraMode() { TA.S.camMode = (TA.S.camMode + 1) % 3; TA.notify('CAMERA: ' + ['CHASE', 'HOOD', 'FAR CHASE'][TA.S.camMode]); }
-function applyCameraShake() {
-  if (TA.shake > 0) { TA.camera.position.x += (Math.random() - 0.5) * TA.shake; TA.camera.position.y += (Math.random() - 0.5) * TA.shake; }
+
+// Cycle to the next camera mode.
+function cycleCameraMode() {
+  GAME.ui.cameraMode = (GAME.ui.cameraMode + 1) % cam_MODES.length;
+  GAME.ui.banner = 'CAMERA — ' + cam_MODES[GAME.ui.cameraMode].toUpperCase();
 }
-TA.updateChaseCamera = updateChaseCamera; TA.updateLookBackCamera = updateLookBackCamera; TA.updateOnFootCamera = updateOnFootCamera; TA.cycleCameraMode = cycleCameraMode;
+
+// Add a shake impulse, for example on a crash or explosion.
+function shakeCamera(amount, time) {
+  cam_shakeAmount = amount;
+  cam_shakeTime = time;
+}

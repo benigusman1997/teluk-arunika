@@ -1,62 +1,200 @@
-// menu-screens.js — title screen with save slots, pause menu, tabbed full map, settings and controls.
-var TA = window.TA || (window.TA = {});
+// Menu screens: title, pause, tabbed map, settings, controls,
+// save slot cards, story pips and the feature strip.
+
+// Show the title screen over the live city.
 function showTitleScreen() {
-  TA.S.mode = 'title';
-  var slots = '';
-  ['auto', 1, 2, 3].forEach(function (n) { var s = TA.slotSummary(n); slots += '<button class="slot" data-act="load-' + n + '"><b>' + (n === 'auto' ? 'AUTOSAVE' : 'SLOT ' + n) + '</b><span>' + (s || 'EMPTY — starts a new game') + '</span></button>'; });
-  showScreen('<div class="title"><div class="tleft"><h1>TELUK<br>ARUNIKA</h1><h2>SEVEN DAYS OF DEBT</h2><p>An original open-world crime story. Raka owes the Naga Laut $50,000. He has one week, one bay and no car of his own.</p>' +
-    '<button class="big" data-act="new">▶ NEW GAME</button><button data-act="settings">SETTINGS</button><button data-act="controls">CONTROLS</button>' +
-    '<div class="slots"><h4>SAVE SLOTS</h4>' + slots + '</div></div>' +
-    '<div class="tright"><h4>THE BAY — SIX DISTRICTS</h4><canvas id="titlemap" width="400" height="290"></canvas><div class="feat">10 CONTRACTS · 3 ACTS · 9 VEHICLES · 6 WEAPONS<br>5-STAR TAPD PURSUITS · ELANG-1 · BADAK-2 SWAT<br>CREW ABILITIES · RACES · TAXI FARES · 30 COINS</div></div></div>');
-  TA.drawFullCityMap(document.getElementById('titlemap').getContext('2d'), 400, 290, false); TA.labelTitleMap(document.getElementById('titlemap').getContext('2d'));
-}
-function showPauseMenu() {
-  TA.S.mode = 'paused';
-  showScreen('<div class="panel"><h1>PAUSED</h1><button data-act="resume">RESUME</button><button data-act="save-1">SAVE SLOT 1</button><button data-act="save-2">SAVE SLOT 2</button><button data-act="save-3">SAVE SLOT 3</button>' +
-    '<button data-act="map">CITY MAP</button><button data-act="settings">SETTINGS</button><button data-act="controls">CONTROLS</button><button data-act="title">QUIT TO TITLE</button></div>');
-}
-function showTabbedMapScreen(tab) {
-  var S = TA.S; S.mode = 'map'; tab = tab || 'map';
-  var body = '<canvas id="fullmap" width="760" height="500"></canvas>';
-  if (tab === 'stats') body = '<div class="list">' + Object.keys(S.stats).map(function (k) { return '<div>' + k.toUpperCase() + ' <b>' + (k === 'km' ? S.stats.km.toFixed(1) : S.stats[k]) + '</b></div>'; }).join('') + '<div>RANK <b>' + TA.currentRank().name + '</b></div></div>';
-  if (tab === 'districts') body = '<div class="list">' + TA.CFG.DISTRICTS.map(function (d) { return '<div style="color:' + d.color + '">' + d.name + ' <b>STANDING ' + S.standing[d.id] + '</b></div>'; }).join('') + '</div>';
-  if (tab === 'contracts') body = '<div class="list">' + TA.CFG.CONTRACTS.map(function (c, i) { return '<div>' + (S.done.indexOf(i) >= 0 ? '✔' : i === S.contract ? '▶' : '·') + ' ACT ' + c.act + ' — ' + c.title + ' <b>$' + c.pay + '</b></div>'; }).join('') + '</div>';
-  showScreen('<div class="panel wide"><div class="tabs">' + ['map', 'contracts', 'districts', 'stats'].map(function (t) { return '<button class="' + (t === tab ? 'on' : '') + '" data-act="tab-' + t + '">' + t.toUpperCase() + '</button>'; }).join('') + '<button data-act="resume">CLOSE [M]</button></div>' + body + '</div>');
-  if (tab === 'map') TA.drawFullCityMap(document.getElementById('fullmap').getContext('2d'), 760, 500, true);
-}
-function showSettingsMenu() {
-  var s = TA.S.settings; TA.prevMode = TA.S.mode === 'settings' ? TA.prevMode : TA.S.mode; TA.S.mode = 'settings';
-  showScreen('<div class="panel"><h1>SETTINGS</h1><button data-act="set-vol">VOLUME ' + Math.round(s.volume * 100) + '%</button><button data-act="set-sens">MOUSE SENSITIVITY ' + s.sens.toFixed(1) + '</button>' +
-    '<button data-act="set-shadow">SHADOWS ' + (s.shadows ? 'ON' : 'OFF') + '</button><button data-act="set-inv">INVERT Y ' + (s.invertY ? 'ON' : 'OFF') + '</button><button data-act="back">BACK</button></div>');
-}
-function showControlsScreen() {
-  TA.prevMode = TA.S.mode; TA.S.mode = 'settings';
-  showScreen('<div class="panel"><h1>CONTROLS</h1><div class="list small"><div>WASD / ARROWS <b>move · drive</b></div><div>MOUSE <b>look · LMB fire · RMB aim</b></div><div>SHIFT <b>sprint</b> · SPACE <b>jump / handbrake</b></div><div>E <b>steal · enter · exit</b></div><div>Q <b>weapon wheel</b> · 1-6 <b>weapons</b></div><div>Z X C <b>crew abilities</b></div><div>V <b>camera</b> · C hold <b>look back</b></div><div>R <b>radio</b> · M <b>map</b> · ESC <b>pause</b></div><div>G <b>race</b> · T <b>taxi fare</b> · H <b>wreck contract</b> · B <b>shop</b> · L <b>rain</b></div></div><button data-act="back">BACK</button></div>');
-}
-function showScreen(html, light) {
-  var el = document.getElementById('screens'); el.innerHTML = html; el.className = light ? 'show light' : 'show';
-  if (document.exitPointerLock) document.exitPointerLock();
-}
-function hideScreens() { var el = document.getElementById('screens'); el.innerHTML = ''; el.className = ''; }
-function handleMenuAction(act) {
-  var S = TA.S, s = S.settings;
-  if (act === 'new') TA.startNewGame();
-  else if (act.indexOf('load-') === 0) { if (TA.loadGameFromSlot(act.slice(5))) hideScreens(); else TA.startNewGame(); }
-  else if (act.indexOf('save-') === 0) TA.saveGameToSlot(act.slice(5));
-  else if (act === 'resume' || act === 'free') { hideScreens(); S.mode = 'playing'; }
-  else if (act === 'title') showTitleScreen();
-  else if (act === 'map') showTabbedMapScreen('map');
-  else if (act.indexOf('tab-') === 0) showTabbedMapScreen(act.slice(4));
-  else if (act === 'settings') showSettingsMenu();
-  else if (act === 'controls') showControlsScreen();
-  else if (act === 'back') { S.mode = TA.prevMode; if (TA.prevMode === 'title') showTitleScreen(); else showPauseMenu(); }
-  else if (act.indexOf('set-') === 0) {
-    if (act === 'set-vol') s.volume = s.volume >= 1 ? 0 : Math.round((s.volume + 0.2) * 10) / 10;
-    if (act === 'set-sens') s.sens = s.sens >= 2 ? 0.5 : s.sens + 0.5;
-    if (act === 'set-shadow') s.shadows = !s.shadows; if (act === 'set-inv') s.invertY = !s.invertY;
-    TA.persistSettings(false); showSettingsMenu();
+  const el = WORLD._hud.title;
+  el.style.display = '';
+  el.innerHTML = ''
+    + '<div class="left">'
+    + '<div class="logo">TELUK<br>ARUNIKA</div>'
+    + '<div class="subline">Seven Days of Debt</div>'
+    + '<div class="premise">An original open-world crime story. Raka\'s father owes the Naga Laut $50,000.</div>'
+    + '<div class="premise">One week, one bay, and every car is yours to take.</div>'
+    + '<div class="menu">'
+    + '<div class="menu-row selected">CONTINUE <span class="detail">DAY 4/7 · $18,450 · CONTRACT 7/10 · TANGAN KANAN</span></div>'
+    + '<div class="menu-row">NEW GAME</div>'
+    + '<div class="menu-row">LOAD GAME</div>'
+    + '<div class="menu-row">SETTINGS</div>'
+    + '<div class="menu-row">CONTROLS</div>'
+    + '</div>'
+    + '<div class="saves-title">Save Slots</div>'
+    + '<div class="saves-grid">'
+    + '<div class="save-slot-card"><div class="slot-name">AUTOSAVE</div><div class="slot-info">DAY 4 · 7/10 · $18,450 · 3 h 12 m</div></div>'
+    + '<div class="save-slot-card"><div class="slot-name">SLOT 1</div><div class="slot-info">DAY 2 · 3/10 · $9,250 · 1 h 05 m</div></div>'
+    + '<div class="save-slot-card"><div class="slot-name">SLOT 2</div><div class="slot-info">DAY 6 · 9/10 · $47,300 · 5 h 40 m</div></div>'
+    + '<div class="save-slot-card"><div class="slot-name">SLOT 3</div><div class="slot-info">EMPTY — starts a new game</div></div>'
+    + '</div>'
+    + '</div>'
+    + '<div class="right">'
+    + '<div class="map-panel"><h3>The Bay — Six Districts</h3>'
+    + '<canvas id="title-map" width="600" height="300"></canvas>'
+    + '<div class="legend">● player &nbsp; ● police &nbsp; ◆ objective &nbsp; ■ safehouse &nbsp; ⚑ race</div></div>'
+    + '<div style="margin-top:12px"><h3 style="color:#ffcf3a;font-size:16px;letter-spacing:2px">STORY — 6/10 CONTRACTS</h3>'
+    + drawStoryProgressPips()
+    + '</div>'
+    + '<div class="feature-strip">10 CONTRACTS · 3 ACTS · 12 VEHICLES · 6 WEAPONS<br>'
+    + '5-STAR TAPD PURSUITS · ELANG-1 · BADAK-2 SWAT · ROADBLOCKS<br>'
+    + 'CREW · RACES · TAXI · SHOPS · GARAGE · PHONE · 4 RADIO STATIONS</div>'
+    + '</div>'
+    + '<div class="title-footer">WASD move · E enter / steal · Q weapons · M map · P phone · V camera · Esc pause</div>';
+  const mapCanvas = document.getElementById('title-map');
+  if (mapCanvas && typeof drawFullCityMap === 'function') {
+    drawFullCityMap(mapCanvas);
   }
 }
-TA.showTitleScreen = showTitleScreen; TA.showPauseMenu = showPauseMenu; TA.showTabbedMapScreen = showTabbedMapScreen; TA.showSettingsMenu = showSettingsMenu;
-TA.labelTitleMap = function (g) { g.font = 'bold 11px Arial'; g.textAlign = 'center'; [['PELABUHAN', 96, 238], ['PASAR SENJA', 176, 196], ['GANG NEON', 190, 118], ['PANTAI', 262, 262], ['TOL LAYANG', 190, 52], ['PULAU ABU', 352, 60]].forEach(function (d) { g.fillStyle = 'rgba(14,22,38,0.8)'; g.fillRect(d[1] - 42, d[2] - 12, 84, 16); g.fillStyle = '#ffe14d'; g.fillText(d[0], d[1], d[2]); }); };
-TA.showScreen = showScreen; TA.hideScreens = hideScreens; TA.handleMenuAction = handleMenuAction;
+
+// Show the pause menu.
+function showPauseMenu() {
+  const root = WORLD.hudRoot;
+  if (WORLD._pauseEl) {
+    WORLD._pauseEl.style.display = '';
+    return;
+  }
+  const el = document.createElement('div');
+  el.className = 'pause-menu';
+  el.innerHTML = '<h2>Paused</h2>'
+    + '<div class="menu-row selected">RESUME</div>'
+    + '<div class="menu-row">MAP</div>'
+    + '<div class="menu-row">PHONE</div>'
+    + '<div class="menu-row">SETTINGS</div>'
+    + '<div class="menu-row">SAVE</div>'
+    + '<div class="menu-row">QUIT TO TITLE</div>';
+  root.appendChild(el);
+  WORLD._pauseEl = el;
+}
+
+// Hide the pause menu.
+function mnu_hidePause() {
+  if (WORLD._pauseEl) {
+    WORLD._pauseEl.style.display = 'none';
+  }
+}
+
+// Show the tabbed map screen: MAP / STORY / STATS / CREW / SAVE.
+function showTabbedMapScreen() {
+  const root = WORLD.hudRoot;
+  if (WORLD._mapEl) {
+    WORLD._mapEl.style.display = '';
+    return;
+  }
+  const el = document.createElement('div');
+  el.className = 'map-screen';
+  el.innerHTML = '<h2>The Bay — Teluk Arunika</h2>'
+    + '<canvas id="full-map" width="760" height="460"></canvas>'
+    + '<div class="tabs"><span class="active">MAP</span><span>STORY</span>'
+    + '<span>STATS</span><span>CREW</span><span>SAVE</span></div>'
+    + '<div style="margin-top:10px;font-size:15px;color:#9fb4d8">M close · click a district to set a waypoint</div>';
+  root.appendChild(el);
+  WORLD._mapEl = el;
+  const mapCanvas = document.getElementById('full-map');
+  if (mapCanvas && typeof drawFullCityMap === 'function') {
+    drawFullCityMap(mapCanvas);
+  }
+}
+
+// Hide the tabbed map screen.
+function mnu_hideMap() {
+  if (WORLD._mapEl) {
+    WORLD._mapEl.style.display = 'none';
+  }
+}
+
+// Show the settings menu: volumes, mouse, shake, quality.
+function showSettingsMenu() {
+  const root = WORLD.hudRoot;
+  if (WORLD._settingsEl) {
+    WORLD._settingsEl.style.display = '';
+    return;
+  }
+  const s = GAME.settings;
+  const el = document.createElement('div');
+  el.className = 'settings-menu';
+  el.innerHTML = '<h2>Settings</h2>'
+    + '<div class="row"><span>Master volume</span><span>' + Math.round(s.master * 100) + '%</span></div>'
+    + '<div class="row"><span>Music volume</span><span>' + Math.round(s.music * 100) + '%</span></div>'
+    + '<div class="row"><span>Effects volume</span><span>' + Math.round(s.effects * 100) + '%</span></div>'
+    + '<div class="row"><span>Mouse sensitivity</span><span>' + s.mouse.toFixed(1) + 'x</span></div>'
+    + '<div class="row"><span>Camera shake</span><span>' + (s.shake ? 'ON' : 'OFF') + '</span></div>'
+    + '<div class="row"><span>Quality</span><span>' + s.quality.toUpperCase() + '</span></div>'
+    + '<div style="margin-top:10px;font-size:15px;color:#9fb4d8">Esc to go back</div>';
+  root.appendChild(el);
+  WORLD._settingsEl = el;
+}
+
+// Show the controls screen.
+function showControlsScreen() {
+  const root = WORLD.hudRoot;
+  if (WORLD._controlsEl) {
+    WORLD._controlsEl.style.display = '';
+    return;
+  }
+  const el = document.createElement('div');
+  el.className = 'settings-menu';
+  el.innerHTML = '<h2>Controls</h2>'
+    + '<div class="row"><span>Move / drive</span><span>W A S D</span></div>'
+    + '<div class="row"><span>Sprint / handbrake</span><span>Shift / Space</span></div>'
+    + '<div class="row"><span>Fire / aim</span><span>Mouse L / R</span></div>'
+    + '<div class="row"><span>Reload</span><span>R</span></div>'
+    + '<div class="row"><span>Weapon wheel</span><span>Q / Tab</span></div>'
+    + '<div class="row"><span>Enter / steal / use</span><span>E</span></div>'
+    + '<div class="row"><span>Camera / map / phone</span><span>V / M / P</span></div>'
+    + '<div class="row"><span>Radio / horn / crew</span><span>N / H / Z X C</span></div>'
+    + '<div class="row"><span>Quick save / pause</span><span>F5 / Esc</span></div>';
+  root.appendChild(el);
+  WORLD._controlsEl = el;
+}
+
+// Draw the save slot cards for the title and load screens.
+function drawSaveSlotCards() {
+  const slots = listSaveSlots();
+  let html = '';
+  for (const slot of slots) {
+    html += '<div class="save-slot-card"><div class="slot-name">' + slot.name + '</div>'
+      + '<div class="slot-info">' + slot.summary + '</div></div>';
+  }
+  return html;
+}
+
+// Draw the ten story pips in three act groups.
+function drawStoryProgressPips() {
+  const done = GAME.career.stats.contractsDone;
+  let html = '<div class="story-pips">';
+  for (let i = 1; i <= 10; i++) {
+    if (i <= done) {
+      html += '<span class="done">●</span>';
+    } else if (i === done + 1) {
+      html += '<span class="next">◉</span>';
+    } else {
+      html += '<span class="locked">○</span>';
+    }
+    if (i === 3 || i === 7) {
+      html += ' &nbsp; ';
+    }
+  }
+  html += '</div>';
+  return html;
+}
+
+// Handle menu input: Enter starts, arrows move the selection.
+function handleMenuInput(code) {
+  if (GAME.mode === 'title' && code === 'Enter') {
+    WORLD._hud.title.style.display = 'none';
+    startNewGame();
+  }
+  if (GAME.mode === 'paused' && code === 'Escape') {
+    mnu_hidePause();
+    switchGameMode('playing');
+  }
+  if (GAME.mode === 'map' && code === 'KeyM') {
+    mnu_hideMap();
+    switchGameMode('playing');
+  }
+  if (GAME.mode === 'ending' && code === 'Enter') {
+    if (GAME._endingEl) {
+      GAME._endingEl.remove();
+      GAME._endingEl = null;
+    }
+    switchGameMode('playing');
+  }
+}

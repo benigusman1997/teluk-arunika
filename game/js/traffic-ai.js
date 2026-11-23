@@ -1,54 +1,199 @@
-// traffic-ai.js — ambient cars on lanes, traffic lights, honking, fleeing.
-var TA = window.TA || (window.TA = {});
-function spawnTrafficCars(n) {
-  var kinds = ['sedan', 'sedan', 'gt', 'taxi', 'truck', 'angkot', 'komet', 'sedan', 'taxi', 'angkot'];
-  for (var i = 0; i < n; i++) {
-    var car = TA.spawnVehicle(kinds[i % kinds.length], 0, 0, 0, i % 5 === 4 ? 'parked' : 'traffic');
-    placeTrafficCarOnLane(car, null);
+// Traffic: cars that follow the lane network, stop at red lights,
+// brake for obstacles, honk, swerve and flee from gunfire.
+
+// Spawn 30-40 traffic cars of mixed models on lane paths.
+function spawnTrafficCars() {
+  const models = [
+    'ARUNIKA SEDAN', 'KANCIL HATCH', 'MERAK COUPE', 'HARIMAU SEDAN',
+    'TAKSI KUNING', 'ANGKOT MINI', 'OMBAK PICKUP', 'KOMET',
+  ];
+  const colours = [0xff7f6b, 0x7fd9b6, 0x36c2c9, 0xffc24a, 0xf4f1e6, 0x8fc3ee, 0xf25fa0];
+  for (let i = 0; i < 34; i++) {
+    const lane = WORLD.lanes[Math.floor(taNextRandom() * WORLD.lanes.length)];
+    const point = lane.points[Math.floor(taNextRandom() * lane.points.length)];
+    const model = pickFromList(models);
+    const index = spawnVehicle(model, point.x, point.z, 0, 'traffic');
+    const v = GAME.vehicles[index];
+    v.lane = WORLD.lanes.indexOf(lane);
+    v.lanePos = lane.points.indexOf(point);
+    v.cruise = 8 + taNextRandom() * 8;
+    v.colour = pickFromList(colours);
+    const mesh = WORLD.meshes.vehicles[index];
+    if (mesh) {
+      mesh.traverse(function tint(child) {
+        if (child.material && child.geometry && child.geometry.type === 'BoxGeometry') {
+          return;
+        }
+      });
+    }
   }
 }
+
+// Drive every traffic car along its lane, one waypoint at a time.
 function driveTrafficAlongLanes(dt) {
-  var S = TA.S, P = TA.player, greenX = (S.time % 20) < 10;
-  for (var i = 0; i < TA.cars.length; i++) {
-    var c = TA.cars[i]; if (c.role !== 'traffic' || c.dead) continue;
-    var a = c.ai, pos = a.axis === 'x' ? c.x : c.z, want = 11;
-    if (TA.dist(c, P) > 340 && S.mode === 'playing') { placeTrafficCarOnLane(c, P); continue; }
-    var next = Math.round((pos + a.dir * 50) / 100) * 100, gap = (next - pos) * a.dir;
-    var red = a.axis === 'x' ? !greenX : greenX;
-    if (red && gap > 11 && gap < 22) want = 0;
-    for (var j = 0; j < TA.cars.length; j++) {
-      var o = TA.cars[j]; if (o === c) continue;
-      var dx = o.x - c.x, dz = o.z - c.z, f = dx * Math.sin(c.h) + dz * Math.cos(c.h), s = Math.abs(dx * Math.cos(c.h) - dz * Math.sin(c.h));
-      if (f > 0 && f < 10 + c.cfg.len && s < 2.2) { want = 0; if (o.role === 'player') { a.honk = (a.honk || 0) + dt; if (a.honk > 1.5) { TA.playHorn(); a.honk = 0; } } }
+  if (!GAME || GAME.mode !== 'playing') {
+    return;
+  }
+  if (GAME.vehicles.filter(function isTraffic(v) { return v.driver === 'traffic'; }).length < 10) {
+    spawnTrafficCars();
+  }
+  for (let i = 0; i < GAME.vehicles.length; i++) {
+    const v = GAME.vehicles[i];
+    if (v.driver !== 'traffic') {
+      continue;
     }
-    if (TA.danger && S.time - TA.danger.t < 6 && TA.dist(c, TA.danger) < 60) want = want ? 22 : 0;
-    c.v += TA.clamp(want - c.v, -18 * dt, 7 * dt);
-    var np = pos + a.dir * c.v * dt;
-    if (Math.floor((pos - a.dir * 3.2 + 50) / 100) !== Math.floor((np - a.dir * 3.2 + 50) / 100) && TA.rnd() < 0.35 && Math.abs(next) < 400 && Math.abs(a.line) < 400) {
-      var nd = TA.rnd() < 0.5 ? 1 : -1, old = a.line; a.line = Math.round(np / 100) * 100; a.axis = a.axis === 'x' ? 'z' : 'x'; a.dir = nd; np = old + nd * 4;
+    const lane = WORLD.lanes[v.lane];
+    if (!lane) {
+      continue;
     }
-    if (Math.abs(np) > 440) { a.dir = -a.dir; np = pos; }
-    setTrafficPose(c, np);
+    const target = lane.points[v.lanePos];
+    if (!target) {
+      v.lanePos = 0;
+      continue;
+    }
+    const d = distanceBetween(v.x, v.z, target.x, target.z);
+    if (d < 6) {
+      v.lanePos += lane.dir;
+      if (v.lanePos >= lane.points.length) {
+        v.lanePos = 0;
+      }
+      if (v.lanePos < 0) {
+        v.lanePos = lane.points.length - 1;
+      }
+      continue;
+    }
+    const want = Math.atan2(target.x - v.x, target.z - v.z);
+    const diff = angleDifference(want, v.heading);
+    v.heading += clampNumber(diff, -1.4 * dt, 1.4 * dt);
+    let speed = v.cruise;
+    if (trf_lightAheadIsRed(v)) {
+      speed = 0;
+    }
+    if (brakeForObstaclesAhead(v)) {
+      speed = 0;
+    }
+    if (v.flee) {
+      speed = v.cruise * 1.8;
+    }
+    v.speed = lerpNumber(v.speed, speed, 0.08);
+    v.x += Math.sin(v.heading) * v.speed * dt;
+    v.z += Math.cos(v.heading) * v.speed * dt;
+    veh_syncMesh(i);
+  }
+  honkAndSwerveAroundPlayer(dt);
+}
+
+// True when the next traffic light ahead of a car is red.
+function trf_lightAheadIsRed(v) {
+  for (const light of WORLD.trafficLights) {
+    const d = distanceBetween(v.x, v.z, light.x, light.z);
+    if (d < 22 && d > 4 && light.state === 'red') {
+      const ahead = Math.sin(v.heading) * (light.x - v.x) + Math.cos(v.heading) * (light.z - v.z);
+      if (ahead > 0) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+// Cycle the traffic lights: green, amber, red.
+function updateTrafficLights(dt) {
+  for (const light of WORLD.trafficLights) {
+    light.timer -= dt;
+    if (light.timer <= 0) {
+      if (light.state === 'red') {
+        light.state = 'green';
+        light.timer = 9 + taNextRandom() * 4;
+        light.lamp.material.color.setHex(0x22cc44);
+        light.lamp.material.emissive.setHex(0x11aa22);
+      } else if (light.state === 'green') {
+        light.state = 'amber';
+        light.timer = 2;
+        light.lamp.material.color.setHex(0xffaa00);
+        light.lamp.material.emissive.setHex(0xcc8800);
+      } else {
+        light.state = 'red';
+        light.timer = 8 + taNextRandom() * 4;
+        light.lamp.material.color.setHex(0xff2a2a);
+        light.lamp.material.emissive.setHex(0xff1111);
+      }
+    }
   }
 }
-function updateTrafficLights() {
-  var greenX = (TA.S.time % 20) < 10;
-  TA.lightMats[0].color.setHex(greenX ? 0x2bff6a : 0xff3030); TA.lightMats[1].color.setHex(greenX ? 0xff3030 : 0x2bff6a);
+
+// Brake when another car, the player or a pedestrian is right ahead.
+function brakeForObstaclesAhead(v) {
+  const aheadX = v.x + Math.sin(v.heading) * 9;
+  const aheadZ = v.z + Math.cos(v.heading) * 9;
+  for (const other of GAME.vehicles) {
+    if (other === v || other.driver === 'none') {
+      continue;
+    }
+    if (distanceBetween(aheadX, aheadZ, other.x, other.z) < 4) {
+      return true;
+    }
+  }
+  if (GAME.player.vehicle < 0) {
+    if (distanceBetween(aheadX, aheadZ, GAME.player.x, GAME.player.z) < 3.5) {
+      return true;
+    }
+  }
+  for (const ped of GAME.peds) {
+    if (ped.state === 'cross' && distanceBetween(aheadX, aheadZ, ped.x, ped.z) < 4) {
+      return true;
+    }
+  }
+  return false;
 }
-function placeTrafficCarOnLane(car, near) {
-  var R = TA.CFG.ROADS, tries = 0, p;
-  do {
-    car.ai = { axis: TA.rnd() < 0.5 ? 'x' : 'z', line: TA.pick(R), dir: TA.rnd() < 0.5 ? 1 : -1 };
-    p = near ? (car.ai.axis === 'x' ? near.x : near.z) + (TA.rnd() < 0.5 ? -1 : 1) * (150 + TA.rnd() * 150) : -420 + TA.rnd() * 840;
-    p = TA.clamp(p, -430, 430); setTrafficPose(car, p);
-  } while (++tries < 8 && near && (TA.dist(car, near) < 140 || TA.dist(car, near) > 330));
-  car.v = car.role === 'parked' ? 0 : 9;
-  if (car.role === 'parked') { var off = car.ai.axis === 'x' ? 'z' : 'x'; car[off] += (car[off] > car.ai.line ? 1 : -1) * 2.2; car.mesh.position.set(car.x, 0, car.z); }
+
+// Honk at the player when he blocks the road; swerve around a wreck.
+function honkAndSwerveAroundPlayer(dt) {
+  const p = GAME.player;
+  for (const v of GAME.vehicles) {
+    if (v.driver !== 'traffic') {
+      continue;
+    }
+    const d = distanceBetween(v.x, v.z, p.x, p.z);
+    if (d < 12 && v.speed < 1) {
+      v._honk = (v._honk || 0) - dt;
+      if (v._honk <= 0) {
+        v._honk = 2.5;
+        if (typeof playHornSound === 'function') {
+          playHornSound();
+        }
+      }
+    }
+    if (d < 8 && p.vehicle < 0) {
+      v.heading += 0.6 * dt;
+    }
+  }
 }
-function setTrafficPose(c, p) {
-  var a = c.ai;
-  if (a.axis === 'x') { c.x = p; c.z = a.line - 3.3 * a.dir; c.h = a.dir > 0 ? Math.PI / 2 : -Math.PI / 2; }
-  else { c.z = p; c.x = a.line + 3.3 * a.dir; c.h = a.dir > 0 ? 0 : Math.PI; }
-  c.vh = c.h; c.mesh.position.set(c.x, 0, c.z); c.mesh.rotation.y = c.h;
+
+// Gunfire makes nearby traffic flee: cars speed up and scatter.
+function makeTrafficFleeGunfire(x, z) {
+  for (const v of GAME.vehicles) {
+    if (v.driver !== 'traffic') {
+      continue;
+    }
+    if (distanceBetween(v.x, v.z, x, z) < 40) {
+      v.flee = true;
+      v.cruise = 18 + taNextRandom() * 6;
+      v.lanePos = (v.lanePos + 3) % (WORLD.lanes[v.lane].points.length || 1);
+    }
+  }
 }
-TA.spawnTrafficCars = spawnTrafficCars; TA.driveTrafficAlongLanes = driveTrafficAlongLanes; TA.updateTrafficLights = updateTrafficLights; TA.setTrafficPose = setTrafficPose;
+
+// A traffic car that is wrecked stops and smokes.
+function trf_wreckCar(index) {
+  const v = GAME.vehicles[index];
+  if (!v) {
+    return;
+  }
+  v.driver = 'none';
+  v.speed = 0;
+  v.hp = 0;
+  if (typeof spawnTyreSmoke === 'function') {
+    spawnTyreSmoke(v.x, v.z);
+  }
+}

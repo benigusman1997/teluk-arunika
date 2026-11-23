@@ -1,72 +1,314 @@
-// game-main.js — boot, fixed-step loop and the state machine title / playing / paused / map / cutscene / ending.
-var TA = window.TA || (window.TA = {});
-function bootGame() {
-  TA.resetRandomSeed(); TA.S = TA.createNewGameState(); TA.persistSettings(true);
-  TA.cars = []; TA.people = []; TA.fx = []; TA.roadblocks = []; TA.heli = null; TA.swatVan = null; TA.jack = null; TA.danger = null;
-  TA.createRendererAndSky(); TA.buildOpenWorldCity(); TA.createBeaconAndRain(); TA.createCoinsAndShops();
-  TA.createPlayerRaka(-262, -90); TA.spawnTrafficCars(36); TA.spawnPedestrians(80);
-  TA.buildHudCards(); TA.bindInputListeners(handleKeyPress); TA.resizeRendererToWindow();
-  document.getElementById('screens').addEventListener('click', function (e) {
-    var b = e.target.closest ? e.target.closest('[data-act]') : null; TA.unlockAudio();
-    if (b) TA.handleMenuAction(b.getAttribute('data-act')); else if (TA.S.mode === 'cutscene') TA.advanceDialogue();
-  });
-  var shot = /[?&]shot=(\d)/.exec(location.search);
-  if (shot) TA.stageShowcaseScene(+shot[1]); else TA.showTitleScreen();
-  TA.lastT = performance.now(); TA.acc = 0; TA.frames = 0;
-  requestAnimationFrame(runFixedStepLoop);
+// Teluk Arunika core: shared state, launch modes, fixed-step loop.
+// Only this file runs anything at load time: its last line calls bootGame.
+
+// Seeded random generator (mulberry32) driving all placement.
+let taSeedState = 20261123;
+function seededRandom(seed) {
+  let s = (seed >>> 0) || 1;
+  return function nextSeeded() {
+    s = (s + 0x6D2B79F5) >>> 0;
+    let t = s;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
 }
-function runFixedStepLoop(now) {
-  var S = TA.S, STEP = 1 / 60;
-  TA.acc = Math.min(0.1, TA.acc + (now - TA.lastT) / 1000); TA.lastT = now;
-  while (TA.acc >= STEP) { TA.acc -= STEP; if (!S.showcase) stepGameWorld(STEP); }
-  renderFrame(STEP);
-  if (S.showcase && ++TA.frames === 4) window.__shotReady = true;
-  requestAnimationFrame(runFixedStepLoop);
+
+// Small shared helpers every system file may use.
+function taNextRandom() {
+  taSeedState = (taSeedState + 0x6D2B79F5) >>> 0;
+  let t = taSeedState;
+  t = Math.imul(t ^ (t >>> 15), t | 1);
+  t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+  return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
 }
-function stepGameWorld(dt) {
-  var S = TA.S, P = TA.player;
-  if (S.mode === 'title') { S.time += dt; TA.driveTrafficAlongLanes(dt); TA.walkPedestriansOnSidewalks(dt); TA.updateTrafficLights(); TA.updateEffects(dt); return; }
-  if (S.mode !== 'playing') return;
-  S.time += dt; var inp = TA.readKeyboardAndMouse();
-  if (P.car) { TA.driveVehicleWithArcadePhysics(P.car, inp, dt); P.x = P.car ? P.car.x : P.x; P.z = P.car ? P.car.z : P.z; }
-  else { if (TA.jack) TA.pullDriverOut(dt); else TA.updatePlayerOnFoot(dt, inp); TA.fireCurrentWeapon(dt, inp); }
-  TA.openWeaponWheel(inp.wheel);
-  TA.driveTrafficAlongLanes(dt); TA.updateTrafficLights(); TA.walkPedestriansOnSidewalks(dt); TA.panicPedestriansNearDanger(); TA.removeDeadPeople();
-  TA.dispatchPoliceUnits(dt); TA.pursueWithPitAndRamming(dt); TA.escapeByBreakingLineOfSight(dt); TA.bustPlayerIfCornered(dt);
-  TA.updateRoadblocks(dt); TA.flyHelicopterWithSearchlight(dt); TA.deploySwatVanAndOfficers(dt); TA.updateEnemyCoverAI(dt);
-  TA.updateMissions(dt); TA.updateSideActivities(dt); TA.tickCrewCooldowns(dt); TA.advanceDebtDay(dt); TA.tickTutorialHints(dt);
-  TA.updateEffects(dt); TA.updateRadioAndSiren(dt); TA.playEngineSound(P.car ? P.car.v : 0, !!P.car);
-  if (S.hp < 100 && S.wanted === 0) S.hp = Math.min(100, S.hp + dt * 1.5);
+function clampNumber(v, lo, hi) {
+  if (v < lo) {
+    return lo;
+  }
+  if (v > hi) {
+    return hi;
+  }
+  return v;
 }
-function renderFrame(dt) {
-  var S = TA.S, P = TA.player, focus = P.car || P;
-  if (S.mode === 'title') {
-    var a = S.time * 0.05 + 0.5; TA.camera.position.set(150 + Math.cos(a) * 120, 34, 470 + Math.sin(a) * 30); TA.camera.lookAt(100, 12, 300); TA.camera.fov = 55; TA.camera.updateProjectionMatrix(); focus = { x: 120, z: 380 };
-  } else if (P.car) { if (TA.keys.KeyC) TA.updateLookBackCamera(dt, P.car); else TA.updateChaseCamera(dt, P.car); }
-  else TA.updateOnFootCamera(dt);
-  TA.updateSunShadows(focus);
-  document.getElementById('hud').style.display = S.mode === 'title' || S.mode === 'ending' ? 'none' : 'block';
-  if (S.mode !== 'title') TA.updateHud(S.mode === 'playing' && !S.showcase ? dt : 0);
-  TA.renderer.render(TA.scene, TA.camera);
+function lerpNumber(a, b, t) {
+  return a + (b - a) * t;
 }
-function handleKeyPress(code) {
-  var S = TA.S, P = TA.player; TA.unlockAudio();
-  if (S.mode === 'cutscene') { if (code === 'Enter' || code === 'Space') TA.advanceDialogue(); return; }
-  if (code === 'Escape' || code === 'KeyP') { if (S.mode === 'playing') TA.showPauseMenu(); else if (S.mode !== 'title' && S.mode !== 'ending') TA.handleMenuAction('resume'); return; }
-  if (code === 'KeyM') { if (S.mode === 'playing') TA.showTabbedMapScreen('map'); else if (S.mode === 'map') TA.handleMenuAction('resume'); return; }
-  if (S.mode !== 'playing') return;
-  if (code === 'KeyE' || code === 'KeyF') { if (P.car) TA.enterOrExitVehicle(); else if (!TA.jack) TA.stealNearestCar(); }
-  else if (code === 'KeyV') TA.cycleCameraMode();
-  else if (code === 'KeyR') TA.tuneRadioStation(S.station + 1);
-  else if (code === 'KeyZ') TA.useCrewAbility('sari'); else if (code === 'KeyX') TA.useCrewAbility('bima'); else if (code === 'KeyC' && !P.car) TA.useCrewAbility('tono');
-  else if (code === 'KeyG') TA.startStreetRace(); else if (code === 'KeyT') TA.runTaxiFare(); else if (code === 'KeyH') TA.startWreckContract();
-  else if (code === 'KeyB') TA.useNearbyShop(); else if (code === 'KeyL') S.rainOn = !S.rainOn; else if (code === 'F5') TA.saveGameToSlot(1);
-  else if (/^Digit[1-6]$/.test(code)) { var n = +code.slice(5) - 1; if (S.owned[n]) S.weapon = n; else TA.notify(TA.CFG.WEAPONS[n].name + ' — BUY AT KELO ARMS'); }
+function distanceBetween(ax, az, bx, bz) {
+  const dx = ax - bx;
+  const dz = az - bz;
+  return Math.sqrt(dx * dx + dz * dz);
 }
+function angleDifference(a, b) {
+  let d = a - b;
+  while (d > Math.PI) {
+    d -= Math.PI * 2;
+  }
+  while (d < -Math.PI) {
+    d += Math.PI * 2;
+  }
+  return d;
+}
+function pickFromList(list) {
+  return list[Math.floor(taNextRandom() * list.length)];
+}
+
+// The two shared objects: GAME is plain serialisable state, WORLD holds
+// Three.js handles and live entity lists.
+let GAME = null;
+let WORLD = null;
+
+// Systems run in this order every fixed step; a missing name is skipped,
+// which lets the probe run before every file exists.
+const SYSTEM_UPDATE_ORDER = [
+  'readKeyboardAndMouse',
+  'advanceTimeOfDay',
+  'updatePlayerOnFoot',
+  'driveVehicleWithArcadePhysics',
+  'driveTrafficAlongLanes',
+  'updateTrafficLights',
+  'walkPedestriansOnSidewalks',
+  'updateCarTheftProgress',
+  'updatePoliceLineOfSight',
+  'runCruiserPursuitTactics',
+  'flyHelicopterWithSearchlight',
+  'updateSwatBreachAndSniper',
+  'updateEnemyCoverAI',
+  'updateMissionObjectives',
+  'updateBankHeist',
+  'updateRaceCheckpoints',
+  'updateSideActivities',
+  'updateCrewCooldowns',
+  'updatePhoneMessages',
+  'updateRadioPlayback',
+  'updateEffects',
+  'updateActiveCamera',
+  'drawAllHudPanels',
+  'drawMinimap',
+];
+
+// Build a fresh game state with every field the HUD reads, so the HUD
+// never meets an undefined value.
+function createNewGameState() {
+  return {
+    mode: 'title',
+    seed: 20261123,
+    time: { day: 1, hour: 6, minute: 0, weather: 'CERAH' },
+    money: 250,
+    debt: 50000,
+    player: {
+      x: -270, y: 0, z: 30, heading: 0, health: 100, armour: 0,
+      vehicle: -1, weaponSlot: 2, ammo: [
+        { mag: 0, reserve: 0 }, { mag: 12, reserve: 96 },
+        { mag: 30, reserve: 240 }, { mag: 8, reserve: 48 },
+        { mag: 30, reserve: 180 }, { mag: 5, reserve: 30 },
+      ],
+      aiming: false, sprinting: false, action: 'idle',
+    },
+    vehicles: [],
+    peds: [],
+    police: {
+      stars: 0, heat: 0, seen: false, incident: 'NONE',
+      units: [], roadblocks: [], heli: false, swat: false,
+    },
+    mission: {
+      id: 0, stage: 0, objective: '', next: '', timer: 0,
+      counter: 0, counterMax: 0, done: [], branch: 'none',
+    },
+    crew: {
+      recruited: [], cooldowns: { Z: 0, X: 0, C: 0 },
+      active: { Z: 0, X: 0, C: 0 },
+      chatter: { who: '', text: '', ttl: 0 },
+    },
+    career: {
+      rp: 0, rank: 1, standing: {
+        PELABUHAN: 35, 'PASAR SENJA': 55, 'GANG NEON': 40,
+        PANTAI: 60, 'TOL LAYANG': 30, 'PULAU ABU': 10,
+      },
+      stats: {
+        distance: 0, carsStolen: 0, contractsDone: 0, racesWon: 0,
+        bestPursuit: 0, cashEarned: 0, coinsFound: 0, stunts: 0,
+      },
+    },
+    radio: { station: 0, track: 0, on: true },
+    phone: { open: false, tab: 'MESSAGES', messages: [], unread: 0 },
+    garage: { cars: [], upgrades: { engine: 0, tyres: false, armour: false, nitro: false, bulletproof: false } },
+    shop: { open: false, id: '' },
+    ui: {
+      prompt: '', promptProgress: 0, banner: '', hint: '',
+      dialogue: { who: '', role: '', text: '' },
+      wheelOpen: false, cameraMode: 0, waypoint: null, lookYaw: 0,
+    },
+    settings: {
+      master: 0.8, music: 0.7, effects: 0.8, mouse: 1,
+      invertY: false, shake: true, quality: 'high',
+    },
+    tutorial: { seen: [] },
+  };
+}
+
+// Start a new game: fresh state, player at the workshop, title skipped.
 function startNewGame() {
-  var set = TA.S.settings, P = TA.player; if (P.car) TA.enterOrExitVehicleForced();
-  TA.S = TA.createNewGameState(); TA.S.settings = set; TA.S.mode = 'playing'; P.x = -262; P.z = -90; P.h = 0; TA.camYaw = 0; TA.camSnap = false;
-  TA.hideScreens(); TA.notify('DAY 1 OF 7 — YOU OWE $50,000');
+  GAME = createNewGameState();
+  GAME.mode = 'playing';
+  GAME.player.x = -270;
+  GAME.player.z = 30;
+  GAME.player.heading = Math.PI / 2;
+  if (typeof spawnVehicle === 'function') {
+    spawnVehicle('TAKSI KUNING', -262, 30, Math.PI / 2, 'none');
+  }
 }
-TA.bootGame = bootGame; TA.runFixedStepLoop = runFixedStepLoop; TA.startNewGame = startNewGame;
-window.addEventListener('load', bootGame);
+
+// Switch the top-level mode and show or hide the matching screen.
+function switchGameMode(nextMode) {
+  GAME.mode = nextMode;
+  if (nextMode === 'title' && typeof showTitleScreen === 'function') {
+    showTitleScreen();
+  }
+  if (nextMode === 'paused' && typeof showPauseMenu === 'function') {
+    showPauseMenu();
+  }
+  if (nextMode === 'map' && typeof showTabbedMapScreen === 'function') {
+    showTabbedMapScreen();
+  }
+}
+
+// Read the launch mode from the URL query: shot, probe or selftest.
+function readLaunchMode() {
+  const query = new URLSearchParams(window.location.search);
+  if (query.get('selftest') === '1') {
+    return { kind: 'selftest' };
+  }
+  if (query.get('probe') === '1') {
+    return { kind: 'probe' };
+  }
+  const shot = parseInt(query.get('shot') || '0', 10);
+  if (shot >= 1 && shot <= 4) {
+    return { kind: 'shot', number: shot };
+  }
+  return { kind: 'normal' };
+}
+
+// Run every loaded system once for one fixed step of dt seconds.
+// A failing system is logged and skipped so one bug never kills a frame.
+function updateAllSystems(dt) {
+  for (const name of SYSTEM_UPDATE_ORDER) {
+    const fn = window[name];
+    if (typeof fn === 'function') {
+      try {
+        fn(dt);
+      } catch (err) {
+        console.error('system ' + name + ' failed: ' + err.message);
+      }
+    }
+  }
+}
+
+// The fixed-step loop: 60 Hz simulation, one render per animation frame.
+let taAccumulator = 0;
+let taLastTime = 0;
+function runFixedStepLoop(now) {
+  if (!taLastTime) {
+    taLastTime = now;
+  }
+  let frameDt = (now - taLastTime) / 1000;
+  taLastTime = now;
+  if (frameDt > 0.25) {
+    frameDt = 0.25;
+  }
+  taAccumulator += frameDt;
+  const step = 1 / 60;
+  let guard = 0;
+  while (taAccumulator >= step && guard < 5) {
+    updateAllSystems(step);
+    taAccumulator -= step;
+    guard += 1;
+  }
+  if (typeof renderFrame === 'function') {
+    renderFrame();
+  }
+  requestAnimationFrame(runFixedStepLoop);
+}
+
+// Boot the game: renderer, city, input, HUD, then the launch mode.
+function bootGame() {
+  taSeedState = 20261123;
+  GAME = createNewGameState();
+  WORLD = {
+    scene: null, camera: null, renderer: null, sun: null, hemi: null,
+    skyDome: null, colliders: [], lanes: [], sidewalks: [],
+    trafficLights: [], meshes: { player: null, vehicles: [], peds: [], units: [] },
+    effects: [], hudRoot: null, canvas: null, clouds: [], sea: null,
+    lamps: [], rain: null, facadeTextures: {}, letterCache: {},
+  };
+  WORLD.canvas = document.getElementById('game-canvas');
+  WORLD.hudRoot = document.getElementById('hud-root');
+  if (typeof createRendererAndSky === 'function') {
+    createRendererAndSky();
+  }
+  if (typeof buildOpenWorldCity === 'function') {
+    buildOpenWorldCity();
+  }
+  if (typeof bindGameKeys === 'function') {
+    bindGameKeys();
+  }
+  if (typeof buildHudPanels === 'function') {
+    buildHudPanels();
+  }
+  const launch = readLaunchMode();
+  if (launch.kind === 'selftest') {
+    startNewGame();
+    if (typeof renderFrame === 'function') {
+      renderFrame();
+    }
+    document.title = 'SHOT READY';
+    window.__shotReady = true;
+    requestAnimationFrame(runFixedStepLoop);
+    return;
+  }
+  if (launch.kind === 'probe') {
+    startNewGame();
+    const gt = spawnVehicle('PELABUHAN GT', 0, 360, Math.PI / 2, 'player');
+    GAME.player.vehicle = gt;
+    if (GAME.vehicles[gt]) {
+      GAME.vehicles[gt].speed = 120 / 3.6;
+      GAME.vehicles[gt].x = 0;
+      GAME.vehicles[gt].z = 360;
+      GAME.vehicles[gt].heading = Math.PI / 2;
+    }
+    GAME.player.x = 0;
+    GAME.player.z = 360;
+    for (let i = 0; i < 120; i++) {
+      updateAllSystems(1 / 60);
+      if (GAME.vehicles[gt]) {
+        GAME.vehicles[gt].speed = 120 / 3.6;
+      }
+    }
+    for (let i = 0; i < 3; i++) {
+      if (typeof renderFrame === 'function') {
+        renderFrame();
+      }
+    }
+    document.title = 'SHOT READY';
+    window.__shotReady = true;
+    return;
+  }
+  if (launch.kind === 'shot') {
+    startNewGame();
+    if (typeof stageShowcaseScene === 'function') {
+      stageShowcaseScene(launch.number);
+    }
+    for (let i = 0; i < 3; i++) {
+      if (typeof renderFrame === 'function') {
+        renderFrame();
+      }
+    }
+    document.title = 'SHOT READY';
+    window.__shotReady = true;
+    return;
+  }
+  switchGameMode('title');
+  requestAnimationFrame(runFixedStepLoop);
+}
+
+bootGame();

@@ -1,56 +1,361 @@
-// story-missions.js — three acts, ten contracts, stages, objectives, payouts, the branch and the ending.
-var TA = window.TA || (window.TA = {});
-function startStoryContract(i) {
-  var S = TA.S, c = TA.CFG.CONTRACTS[i];
-  S.contract = i; S.stage = 0; S.kills = 0;
-  TA.playCutsceneDialogue(c.lines, function () { TA.showMissionIntroCard(c, i); setupMissionStage(); });
-}
-function advanceMissionStage(type, arg) {
-  var S = TA.S; if (S.stage < 0) return;
-  var c = TA.CFG.CONTRACTS[S.contract], st = c.stages[S.stage];
-  if (st.t !== type || (type === 'steal' && st.kind && arg.kind !== st.kind)) return;
-  S.stage++; TA.playCash();
-  if (S.stage < c.stages.length) { TA.notify('OBJECTIVE COMPLETE'); setupMissionStage(); return; }
-  var pay = Math.round(c.pay * (S.rankPts >= 300 ? 1.1 : 1));
-  S.money += pay; S.done.push(S.contract); S.stage = -1; TA.awardRankPoints(c.pts); TA.changeDistrictStanding(TA.districtAt(TA.player.x, TA.player.z).id, 5);
-  if (c.crew) TA.recruitCrewMember(c.crew);
-  TA.bigWord = { text: 'CONTRACT PASSED  +$' + pay, t: 3.5 }; TA.autosaveAtSafehouse();
-  if (c.final) showEndingDebtCleared(); else S.contract++;
-}
-function runBankArunikaJob(n, x, z) {
-  var cov = TA.landmarks.cover, out = [];
-  for (var k = 0; k < n; k++) {
-    var g = TA.spawnPerson('guard', x - 14 + k * 7, z - 5 - (k % 2) * 3, { shirt: 0x8d939c, pants: 0x4a4e57, hat: 0x5a5f69, hp: 80, gun: true, bar: true });
-    g.cover = true; g.t = k * 0.7; g.mission = true; out.push(g);
+// Story missions: the ten contracts in three acts, with stages,
+// objectives, timers, counters and the branch choice.
+
+// Story acts: number, name and the contracts they hold.
+const STORY_ACTS = [
+  { act: 'I', name: 'The Debt', contracts: [1, 2, 3] },
+  { act: 'II', name: 'The Syndicate', contracts: [4, 5, 6, 7] },
+  { act: 'III', name: 'Dawn', contracts: [8, 9, 10] },
+];
+
+// Contracts: id, title, act, giver, district, payout, stages.
+// Each stage has objective text, a target place, a kind, and an
+// optional timer or counter.
+const STORY_CONTRACTS = [
+  {
+    id: 1, title: 'FIRST FARE', act: 'I', giver: 'Pak Amir',
+    district: 'PASAR SENJA', payout: 800,
+    intro: 'The taxi is ready, son. One fare at a time — we pay this off.',
+    outro: 'Good driving. The meter is running on our debt, not on us.',
+    stages: [
+      { objective: 'Take the TAKSI KUNING from the workshop', target: { x: -262, z: 30 }, kind: 'goto' },
+      { objective: 'Pick up the fare at the market gate', target: { x: -270, z: -90 }, kind: 'goto' },
+      { objective: 'Drop her at HOTEL NUSA before the meter runs out', target: { x: 200, z: 340 }, kind: 'deliver', timer: 90 },
+    ],
+  },
+  {
+    id: 2, title: 'NIGHT MARKET SHAKEDOWN', act: 'I', giver: 'Darma Wijaya',
+    district: 'PASAR SENJA', payout: 1500,
+    intro: 'Seven days, Raka. Bring me the stall money or I take your father\'s workshop.',
+    outro: 'The stalls pay. You learn fast. Keep it that way.',
+    stages: [
+      { objective: 'Steal any car in Pasar Senja', target: { x: -270, z: -90 }, kind: 'steal' },
+      { objective: 'Collect from three stalls', target: { x: -270, z: -120 }, kind: 'collect', counter: 3 },
+      { objective: 'Lose the two-star patrol', target: { x: -180, z: 0 }, kind: 'escape' },
+      { objective: 'Deliver the cash to Darma\'s collector', target: { x: 270, z: -180 }, kind: 'deliver' },
+    ],
+  },
+  {
+    id: 3, title: 'THE HARBOUR KEY', act: 'I', giver: 'Sari',
+    district: 'PELABUHAN', payout: 2400,
+    intro: 'The foreman carries the key card. Tail him — and do not let him see you.',
+    outro: 'Key card in hand. The docks are ours tonight.',
+    stages: [
+      { objective: 'Tail the dock foreman\'s OMBAK PICKUP unseen', target: { x: -400, z: 300 }, kind: 'tail' },
+      { objective: 'Take the key card from him', target: { x: -380, z: 280 }, kind: 'steal' },
+      { objective: 'Escape the dock guards', target: { x: -270, z: 180 }, kind: 'escape' },
+    ],
+  },
+  {
+    id: 4, title: 'CONTAINER 47', act: 'II', giver: 'Darma Wijaya',
+    district: 'PELABUHAN', payout: 3600,
+    intro: 'Container 47 holds what I need. The warehouse crew will not hand it over.',
+    outro: 'The hauler is mine. You drive like you mean it.',
+    stages: [
+      { objective: 'Reach crane 3', target: { x: -345, z: 210 }, kind: 'goto' },
+      { objective: 'Defeat the warehouse crew', target: { x: -345, z: 240 }, kind: 'defeat', counter: 6 },
+      { objective: 'Drive the BANTENG HAULER out', target: { x: -300, z: 250 }, kind: 'steal' },
+      { objective: 'Escape a three-star pursuit', target: { x: -180, z: 180 }, kind: 'escape' },
+      { objective: 'Park at the drop', target: { x: 270, z: -180 }, kind: 'deliver' },
+    ],
+  },
+  {
+    id: 5, title: 'THE CHOICE', act: 'II', giver: 'Inspector Laras',
+    district: 'GANG NEON', payout: 4500,
+    intro: 'Meet me on the rooftop car park, Raka. Darma owns your debt. I can end it — for a price.',
+    outro: 'You chose. There is no going back now.',
+    stages: [
+      { objective: 'Meet Laras on the rooftop car park', target: { x: 40, z: -40 }, kind: 'goto' },
+      { objective: 'Choose PAY DARMA or WEAR THE WIRE', target: { x: 40, z: -40 }, kind: 'choose' },
+      { objective: 'Survive the ambush', target: { x: 40, z: -40 }, kind: 'defeat', counter: 5 },
+      { objective: 'Reach the Neon flat', target: { x: 0, z: -180 }, kind: 'deliver' },
+    ],
+  },
+  {
+    id: 6, title: 'SMOKE ON THE FLYOVER', act: 'II', giver: 'Budi',
+    district: 'TOL LAYANG', payout: 6000,
+    intro: 'The syndicate convoy is rolling on the flyover. Stop that hauler before the port exit.',
+    outro: 'Convoy stopped. The flyover is ours.',
+    stages: [
+      { objective: 'Catch the syndicate convoy', target: { x: -200, z: -360 }, kind: 'goto' },
+      { objective: 'Disable two escort cars', target: { x: 0, z: -360 }, kind: 'destroy', counter: 2 },
+      { objective: 'Stop the BANTENG HAULER before the port exit', target: { x: 200, z: -360 }, kind: 'destroy' },
+      { objective: 'Lose the heat', target: { x: 90, z: -270 }, kind: 'escape' },
+    ],
+  },
+  {
+    id: 7, title: 'THE BANK ARUNIKA JOB', act: 'II', giver: 'the crew',
+    district: 'GANG NEON', payout: 25000,
+    intro: 'The bank holds twenty-five thousand. Agus opens the vault. We hold the plaza.',
+    outro: 'The vault is empty and so is Darma\'s patience. Run.',
+    stages: [
+      { objective: 'Reach the bank plaza', target: { x: 90, z: -60 }, kind: 'goto' },
+      { objective: 'Cut the alarm (hold E 5 s, Agus)', target: { x: 90, z: -85 }, kind: 'hold', timer: 5 },
+      { objective: 'Neutralise the bank guards', target: { x: 90, z: -85 }, kind: 'defeat', counter: 9 },
+      { objective: 'Crack the vault (hold 45 s)', target: { x: 90, z: -96 }, kind: 'hold', timer: 45 },
+      { objective: 'Grab the cash', target: { x: 90, z: -96 }, kind: 'collect' },
+      { objective: 'Get to the getaway van', target: { x: 90, z: -40 }, kind: 'goto' },
+      { objective: 'Lose the heat — break their line of sight', target: { x: -270, z: 30 }, kind: 'escape' },
+    ],
+  },
+  {
+    id: 8, title: 'ASH ISLAND ARMS', act: 'III', giver: 'Agus',
+    district: 'PULAU ABU', payout: 7500,
+    intro: 'Darma\'s guns cross the red bridge tonight. Burn the crates, chase the dealer down.',
+    outro: 'Three crates gone. The dealer will think twice.',
+    stages: [
+      { objective: 'Cross JEMBATAN MERAH', target: { x: 535, z: -360 }, kind: 'goto' },
+      { objective: 'Destroy three weapon crates', target: { x: 620, z: -360 }, kind: 'destroy', counter: 3 },
+      { objective: 'Chase down the dealer\'s MERAK COUPE', target: { x: 620, z: -320 }, kind: 'destroy' },
+      { objective: 'Return to the mainland', target: { x: 450, z: -360 }, kind: 'deliver' },
+    ],
+  },
+  {
+    id: 9, title: 'BURN THE LEDGER', act: 'III', giver: 'Laras or Darma by branch',
+    district: 'GANG NEON', payout: 9000,
+    intro: 'The ledger names every debt in the bay. Burn it — or steal it for yourself.',
+    outro: 'The ledger is ash. Darma\'s grip on the bay is ash too.',
+    stages: [
+      { objective: 'Break into the counting house', target: { x: 270, z: -180 }, kind: 'goto' },
+      { objective: 'Find the ledger (three rooms)', target: { x: 270, z: -180 }, kind: 'collect', counter: 3 },
+      { objective: 'Burn it or steal it', target: { x: 270, z: -180 }, kind: 'choose' },
+      { objective: 'Survive SWAT ARUNIKA', target: { x: 270, z: -180 }, kind: 'defeat', counter: 4 },
+      { objective: 'Escape by car', target: { x: 180, z: -90 }, kind: 'escape' },
+    ],
+  },
+  {
+    id: 10, title: 'DAWN AT THE DOCKS', act: 'III', giver: 'finale',
+    district: 'PELABUHAN', payout: 12000,
+    intro: 'Dawn at pier 9. Darma ends this — or we do. Seven days are up.',
+    outro: 'Debt cleared. The bay is yours, Raka.',
+    stages: [
+      { objective: 'Reach pier 9 at dawn', target: { x: -400, z: 400 }, kind: 'goto' },
+      { objective: 'Break Darma\'s guard line', target: { x: -400, z: 380 }, kind: 'defeat', counter: 6 },
+      { objective: 'Chase Darma\'s RAJAWALI SUPER', target: { x: -300, z: 360 }, kind: 'destroy' },
+      { objective: 'Final choice: pay the last instalment or hand him to Laras', target: { x: -400, z: 400 }, kind: 'choose' },
+    ],
+  },
+];
+
+// Start a story contract: set the mission state, show the intro card
+// and the giver's line, and place the objective beacon.
+function startStoryContract(id) {
+  const contract = STORY_CONTRACTS[id - 1];
+  if (!contract) {
+    return;
   }
-  TA.raiseWantedLevel(3.2, 'ARMED ROBBERY — BANK ARUNIKA'); return out;
-}
-function showEndingDebtCleared() {
-  var S = TA.S, paid = S.money >= TA.CFG.DEBT;
-  S.ending = paid ? (S.branch === 'deal' ? 'THE DEAL' : 'DEBT CLEARED') : 'STILL OWING'; S.mode = 'ending';
-  TA.showScreen('<div class="panel end"><h1>' + S.ending + '</h1><p>' + (paid ? 'Day ' + S.day + '. Raka pays the Naga Laut every rupiah and Teluk Arunika wakes up without knowing his name.' : 'The week ends $' + (TA.CFG.DEBT - S.money) + ' short. The bay is big; the Naga Laut are patient.') +
-    '</p><p>Contracts ' + S.done.length + '/10 · Cars stolen ' + S.stats.stolen + ' · Wrecks ' + S.stats.wrecks + ' · Rank ' + TA.currentRank().name + '</p><button data-act="free">KEEP ROAMING</button><button data-act="title">TITLE SCREEN</button></div>');
-}
-function setupMissionStage() {
-  var S = TA.S, c = TA.CFG.CONTRACTS[S.contract], st = c.stages[S.stage];
-  TA.setBeacon(st.x === undefined ? null : st.x, st.z);
-  if (st.t === 'kill') {
-    if (S.contract === 7) runBankArunikaJob(st.n, st.x, st.z);
-    else for (var k = 0; k < st.n; k++) { var e = TA.spawnPerson('enemy', st.x + (k - st.n / 2) * 4, st.z + (k % 2) * 5, { shirt: 0x7a1f1f, pants: 0x222222, hat: 0x111111, hp: 70, gun: true, bar: true }); e.cover = k % 2 === 0; e.mission = true; }
+  const m = GAME.mission;
+  m.id = id;
+  m.stage = 1;
+  m.counter = 0;
+  m.timer = 0;
+  m.done = [];
+  mis_applyStage(contract, 1);
+  if (typeof showMissionIntroCard === 'function') {
+    showMissionIntroCard(contract);
   }
-  if (st.t === 'escape' && S.wanted < st.stars) TA.raiseWantedLevel(st.stars - S.heat + 0.2, 'CONTRACT HEAT');
-  if (c.branch && S.stage === 1) S.branch = TA.player.x < 250 ? 'deal' : 'fight';
-}
-function updateMissions(dt) {
-  var S = TA.S, P = TA.player;
-  if (S.stage < 0) {
-    var c = TA.CFG.CONTRACTS[S.contract]; if (!c || S.done.indexOf(S.contract) >= 0) { TA.setBeacon(null); return; }
-    TA.setBeacon(c.x, c.z); if (Math.hypot(P.x - c.x, P.z - c.z) < 5 && S.wanted === 0) startStoryContract(S.contract); return;
+  GAME.ui.dialogue = {
+    who: contract.giver.toUpperCase(), role: 'Contract giver',
+    text: contract.intro,
+  };
+  if (typeof spawnObjectiveBeacon === 'function') {
+    spawnObjectiveBeacon(contract.stages[0].target.x, contract.stages[0].target.z);
   }
-  var st = TA.CFG.CONTRACTS[S.contract].stages[S.stage];
-  if (st.t === 'goto' && Math.hypot((P.car || P).x - st.x, (P.car || P).z - st.z) < 7) advanceMissionStage('goto');
-  if (st.t === 'kill' && !TA.people.some(function (p) { return p.mission && !p.dead; })) advanceMissionStage('kill');
-  if (st.t === 'escape' && S.wanted === 0) advanceMissionStage('escape');
 }
-TA.startStoryContract = startStoryContract; TA.advanceMissionStage = advanceMissionStage; TA.runBankArunikaJob = runBankArunikaJob;
-TA.showEndingDebtCleared = showEndingDebtCleared; TA.updateMissions = updateMissions;
+
+// Apply one stage's objective, timer, counter and next line.
+function mis_applyStage(contract, stage) {
+  const m = GAME.mission;
+  const s = contract.stages[stage - 1];
+  if (!s) {
+    return;
+  }
+  m.objective = s.objective;
+  m.counter = 0;
+  m.counterMax = s.counter || 0;
+  m.timer = s.timer || 0;
+  m.next = mis_nextLine(contract, stage);
+}
+
+// The NEXT line shown under the objective for a stage.
+function mis_nextLine(contract, stage) {
+  const next = contract.stages[stage];
+  if (!next) {
+    return 'Finish the contract';
+  }
+  if (contract.id === 1 && stage === 1) {
+    return 'Pick up the fare · market gate';
+  }
+  if (contract.id === 7 && stage === 3) {
+    return 'Crack the vault';
+  }
+  return next.objective;
+}
+
+// Advance to the next stage, or complete the contract when done.
+function advanceMissionStage() {
+  const m = GAME.mission;
+  const contract = STORY_CONTRACTS[m.id - 1];
+  if (!contract) {
+    return;
+  }
+  m.done.push(m.stage);
+  if (m.stage >= contract.stages.length) {
+    completeContractAndPayOut();
+    return;
+  }
+  m.stage += 1;
+  mis_applyStage(contract, m.stage);
+  if (typeof sayCrewChatter === 'function') {
+    sayCrewChatter('SARI', 'Stage ' + m.stage + ' — ' + m.objective);
+  }
+}
+
+// Check stage completion every step: arrivals, timers, counters.
+function updateMissionObjectives(dt) {
+  const m = GAME.mission;
+  if (m.id === 0 || GAME.mode !== 'playing') {
+    return;
+  }
+  const contract = STORY_CONTRACTS[m.id - 1];
+  const stage = contract.stages[m.stage - 1];
+  if (!stage) {
+    return;
+  }
+  if (m.timer > 0) {
+    m.timer -= dt;
+    if (m.timer <= 0) {
+      if (stage.kind === 'deliver' && m.id === 1) {
+        failMissionAndRetry('The meter ran out.');
+        return;
+      }
+      m.timer = 0;
+    }
+  }
+  if (stage.kind === 'goto' || stage.kind === 'deliver') {
+    const d = distanceBetween(GAME.player.x, GAME.player.z, stage.target.x, stage.target.z);
+    m.next = mis_distanceLine(d, stage);
+    if (d < 12) {
+      advanceMissionStage();
+    }
+    return;
+  }
+  if (stage.kind === 'defeat' || stage.kind === 'destroy' || stage.kind === 'collect') {
+    if (m.counterMax > 0 && m.counter >= m.counterMax) {
+      advanceMissionStage();
+    }
+    return;
+  }
+  if (stage.kind === 'escape') {
+    if (GAME.police.stars === 0) {
+      advanceMissionStage();
+    }
+    return;
+  }
+  if (stage.kind === 'steal') {
+    if (GAME.player.vehicle >= 0) {
+      advanceMissionStage();
+    }
+    return;
+  }
+  if (stage.kind === 'hold') {
+    if (inp_isDown('interact')) {
+      m.timer -= dt;
+      GAME.ui.promptProgress = 1 - (m.timer / (stage.timer || 1));
+      if (m.timer <= 0) {
+        advanceMissionStage();
+      }
+    }
+    return;
+  }
+}
+
+// The NEXT line with a live distance for goto stages.
+function mis_distanceLine(d, stage) {
+  const place = mis_placeName(stage.target);
+  return place + ' · ' + Math.round(d) + ' m';
+}
+
+// A readable place name for a target coordinate.
+function mis_placeName(target) {
+  let best = null;
+  let bestD = 9999;
+  for (const place of CITY_PLACES) {
+    const d = distanceBetween(target.x, target.z, place.x, place.z);
+    if (d < bestD) {
+      bestD = d;
+      best = place.name;
+    }
+  }
+  return bestD < 40 ? best : 'the objective';
+}
+
+// Pay out the contract, bank the cash and unlock the next one.
+function completeContractAndPayOut() {
+  const m = GAME.mission;
+  const contract = STORY_CONTRACTS[m.id - 1];
+  GAME.money += contract.payout;
+  GAME.career.stats.cashEarned += contract.payout;
+  GAME.career.stats.contractsDone += 1;
+  GAME.debt = Math.max(0, GAME.debt - contract.payout);
+  if (typeof awardRankPoints === 'function') {
+    awardRankPoints(200 + contract.id * 40);
+  }
+  GAME.ui.dialogue = {
+    who: contract.giver.toUpperCase(), role: 'Contract complete',
+    text: contract.outro,
+  };
+  GAME.ui.banner = 'CONTRACT COMPLETE — $' + contract.payout.toLocaleString();
+  m.done.push(m.stage);
+  const nextId = m.id + 1;
+  m.id = 0;
+  m.stage = 0;
+  m.objective = '';
+  m.counter = 0;
+  m.counterMax = 0;
+  m.timer = 0;
+  if (nextId <= 10) {
+    m.next = 'Next contract: ' + STORY_CONTRACTS[nextId - 1].title;
+  } else {
+    if (typeof showEndingDebtCleared === 'function') {
+      showEndingDebtCleared();
+    }
+  }
+  if (typeof autosaveAtSafehouse === 'function') {
+    autosaveAtSafehouse();
+  }
+}
+
+// Fail the mission: keep the contract, restart its first stage.
+function failMissionAndRetry(reason) {
+  const m = GAME.mission;
+  GAME.ui.banner = 'MISSION FAILED — ' + reason;
+  GAME.ui.dialogue = { who: 'PAK AMIR', role: 'Father', text: 'Again, son. We do not give up.' };
+  const contract = STORY_CONTRACTS[m.id - 1];
+  m.stage = 1;
+  m.counter = 0;
+  m.timer = 0;
+  if (contract) {
+    mis_applyStage(contract, 1);
+  }
+}
+
+// Choose a story branch: PAY DARMA or WEAR THE WIRE, and remember it.
+function chooseStoryBranch(choice) {
+  GAME.mission.branch = choice;
+  if (choice === 'PAY DARMA') {
+    GAME.debt = Math.max(0, GAME.debt - 5000);
+    GAME.money = Math.max(0, GAME.money - 5000);
+  } else {
+    if (typeof receiveTextMessage === 'function') {
+      receiveTextMessage('INSPECTOR LARAS', 'Wire is live. Do not let Darma see it.');
+    }
+  }
+  advanceMissionStage();
+}
+
+// Unlock the next contract in the story order.
+function unlockNextContract() {
+  const done = GAME.career.stats.contractsDone;
+  return clampNumber(done + 1, 1, 10);
+}
