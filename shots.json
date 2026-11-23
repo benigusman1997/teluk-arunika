@@ -1,11 +1,10 @@
 {
-  "note": "Each screenshot is the real game frozen in a deterministic showcase scene. Reproduce with: node tools/shoot.mjs",
   "size": [1280, 720],
-  "seed": 20261123,
+  "maxBytes": 262144,
   "shots": [
-    { "file": "shot1-coast-chase.jpg", "query": "?scene=1&seed=20261123", "shows": "Cover. Contract 7 stage 7/7: the Pelabuhan GT flat out on Pantai Boulevard with TAPD cruisers and ELANG-1 overhead." },
-    { "file": "shot2-market-onfoot.jpg", "query": "?scene=2&seed=20261123", "shows": "On foot in Pasar Senja with two stars, a foot patrol closing in and a sedan to steal." },
-    { "file": "shot3-bank-shootout.jpg", "query": "?scene=3&seed=20261123", "shows": "Contract 7 stage 3/7: the Bank Arunika shoot-out with the weapon wheel open as SWAT arrives." },
-    { "file": "shot4-map-saves.jpg", "query": "?scene=4&seed=20261123", "shows": "The full map screen: districts, route, the ten contracts, career, district standing, save slots." }
+    { "file": "shot1-coast-chase.jpg", "query": "?shot=1&seed=11", "caption": "Contract 7, stage 7/7: four-star chase down Pantai Boulevard with ELANG-1 overhead" },
+    { "file": "shot2-market-carjack.jpg", "query": "?shot=2&seed=23", "caption": "Contract 2: carjacking an Arunika Sedan under the Pasar Senja gate" },
+    { "file": "shot3-bank-shootout.jpg", "query": "?shot=3&seed=31", "caption": "Contract 7, stage 3/7: the Bank Arunika shootout as SWAT arrives" },
+    { "file": "shot4-title-saves.jpg", "query": "?shot=4&seed=5", "caption": "Title screen over the live city with save slots and story progress" }
   ]
 }

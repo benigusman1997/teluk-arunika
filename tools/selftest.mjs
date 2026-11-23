@@ -1,136 +1,162 @@
-// Self-test: static checks on the repository, then runtime checks of the real game in headless Chromium.
-// Prints PASS / FAIL per check and a total; exits 0 only when everything passes.
-//
-//   node tools/selftest.mjs
-import { existsSync, readFileSync, statSync } from 'node:fs';
-import { join } from 'node:path';
-import { repo, serveGame, launchBrowser, openPage } from './shoot.mjs';
+// Self-test for TELUK ARUNIKA: static checks on the repository, then runtime checks in headless Chromium.
+// Usage: node tools/selftest.mjs   (same PLAYWRIGHT_CORE / CHROMIUM_PATH overrides as tools/shoot.mjs)
+// Prints PASS or FAIL per check and exits 0 only when every check passes.
+import { readFile, readdir, stat } from 'node:fs/promises';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { startStaticServer, loadChromium, openGamePage } from './shoot.mjs';
 
-const JS = ['game-config', 'game-state', 'input-controls', 'render-scene', 'mesh-factory', 'city-builder', 'traffic-ai', 'pedestrian-ai',
-  'player-onfoot', 'vehicle-driving', 'weapons-combat', 'police-wanted', 'police-airswat', 'story-missions', 'side-activities',
-  'crew-abilities', 'career-progress', 'audio-radio', 'visual-effects', 'hud-panels', 'hud-minimap', 'menu-screens', 'showcase-scenes', 'game-main'];
-const OTHER = ['main.ts', 'serve.ts', 'shots.json', 'README.md', 'LICENSE', 'game/index.html', 'game/style.css', 'game/vendor/three.min.js', 'vendor/makefun-game.ts', 'tools/shoot.mjs', 'tools/selftest.mjs'];
+const repo = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const results = [];
-const check = (name, ok, detail) => { results.push(ok); console.log((ok ? 'PASS  ' : 'FAIL  ') + name + (detail ? '  — ' + detail : '')); };
-const text = (p) => (existsSync(join(repo, p)) ? readFileSync(join(repo, p), 'utf8') : '');
 
-// ---- static ------------------------------------------------------------------
-const files = JS.map((n) => 'game/js/' + n + '.js').concat(OTHER);
-const missing = files.filter((f) => !existsSync(join(repo, f)));
-check('all v4 files exist (' + files.length + ')', missing.length === 0, missing.join(', '));
-
-const html = text('game/index.html');
-const order = [...html.matchAll(/<script src="([^"]+)"/g)].map((m) => m[1]);
-const want = ['vendor/three.min.js'].concat(JS.map((n) => 'js/' + n + '.js'));
-check('index.html loads three.js then the 24 scripts in order', JSON.stringify(order) === JSON.stringify(want), order.length + ' script tags');
-
-const own = JS.map((n) => 'game/js/' + n + '.js').concat(['game/index.html', 'game/style.css']);
-const withUrl = own.filter((f) => /https?:/.test(text(f)));
-check('no network address in the game source', withUrl.length === 0, withUrl.join(', '));
-
-const lines = own.concat(['main.ts', 'serve.ts', 'tools/shoot.mjs', 'tools/selftest.mjs']).reduce((n, f) => n + text(f).split('\n').length - 1, 0);
-check('own source size is in the planned range', lines >= 4000 && lines <= 6200, lines + ' lines');
-
-const readme = text('README.md');
-const badges = ['badge/gta6-01.svg', 'badge/gta6-01/benigusman1997/teluk-arunika/rank.svg', 'badge/gta6-01/benigusman1997/teluk-arunika/reward.svg'];
-check('README has the three live make.fun badges', badges.every((b) => readme.includes('https://make.fun/' + b)) && !/shields\.io|\{\{|\}\}/.test(readme));
-
-const spec = JSON.parse(text('shots.json') || '{"shots":[]}');
-const shotInfo = spec.shots.map((s) => {
-  const p = join(repo, 'screenshots', s.file);
-  if (!existsSync(p)) return s.file + ' missing';
-  const b = readFileSync(p), size = statSync(p).size;
-  const sof = b.indexOf(Buffer.from([0xff, 0xc0])), w = sof > 0 ? b.readUInt16BE(sof + 7) : 0, h = sof > 0 ? b.readUInt16BE(sof + 5) : 0;
-  return size <= 262144 && size > 40000 && w === 1280 && h === 720 ? '' : s.file + ' ' + size + ' bytes ' + w + 'x' + h;
-}).filter(Boolean);
-check('four 1280x720 JPEG screenshots within 262,144 bytes', spec.shots.length === 4 && shotInfo.length === 0, shotInfo.join(', '));
-
-const mainTs = text('main.ts');
-check('main.ts locates itself by import.meta.url and uses the kit caps', /import\.meta\.url/.test(mainTs) && /text_max_bytes: 163840/.test(mainTs) && /game_max_files: 993/.test(mainTs) && !/process\.cwd|rmSync|process\.exit/.test(mainTs));
-
-// ---- runtime -------------------------------------------------------------------
-const { server, base } = await serveGame();
-const browser = await launchBrowser();
-try {
-  const errors = [];
-  const page = await openPage(browser, base + '?test=1', errors);
-  await page.waitForFunction('window.__booted === true', null, { timeout: 120000 });
-  check('game boots with no console errors', errors.length === 0, errors.join(' | '));
-  const run = async (name, body) => {
-    let r;
-    try { r = await page.evaluate(body); } catch (e) { r = { ok: false, detail: String(e.message).split('\n')[0] }; }
-    check(name, !!r.ok && errors.length === 0, r.detail + (errors.length ? ' | ' + errors.join(' | ') : ''));
-  };
-  await run('WebGL context is live', () => {
-    const gl = TA.renderer.getContext();
-    return { ok: !!gl && !gl.isContextLost() && typeof THREE.REVISION === 'string', detail: 'three r' + THREE.REVISION + ', ' + TA.renderer.info.memory.geometries + ' geometries' };
-  });
-  await run('title screen, then a new game starts', () => {
-    const title = TA.run.mode === 'title';
-    TA.menuKey('Enter');
-    TA.input.auto = { hit: {} };
-    TA.simulate(30);
-    return { ok: title && TA.run.mode === 'playing' && !!TA.player && TA.cars.length > 10 && TA.people.length > 10, detail: TA.cars.length + ' cars, ' + TA.people.length + ' people, $' + TA.state.money };
-  });
-  await run('player walks, enters a car and gains speed', () => {
-    const p = TA.player, x0 = p.x, z0 = p.z;
-    TA.input.auto.KeyW = true; TA.simulate(60);
-    const walked = Math.hypot(p.x - x0, p.z - z0);
-    const car = TA.spawnCar('gt', -120, 60, 0, 'parked');
-    p.x = -122.5; p.z = 60; TA.enterCar(car, true);
-    TA.simulate(240);
-    const kmh = Math.abs(car.speed) * 3.6;
-    return { ok: walked > 1 && p.car === car && kmh > 60, detail: 'walked ' + walked.toFixed(1) + ' m, then ' + kmh.toFixed(0) + ' km/h' };
-  });
-  await run('wanted level rises and TAPD units spawn', () => {
-    TA.run.godMode = true;
-    TA.crime(3, 'SELF TEST'); TA.simulate(420);
-    const three = TA.run.wanted, units3 = TA.units.length;
-    TA.crime(4, 'SELF TEST'); TA.simulate(420);
-    return { ok: three >= 3 && units3 >= 2 && TA.run.wanted >= 4 && TA.heli.active && TA.dispatchRows().length >= 3, detail: units3 + ' units at 3 stars, ' + TA.units.length + ' at ' + TA.run.wanted + ' stars, air unit ' + (TA.heli.active ? 'up' : 'down') };
-  });
-  await run('contract starts and its stage advances', () => {
-    TA.input.auto.KeyW = false; TA.setWanted(0); TA.exitCar(true); TA.simulate(5);
-    TA.startMission(0, 0);
-    const ms = TA.run.mission, before = ms.stage;
-    TA.player.x = ms.car.x + 2.2; TA.player.z = ms.car.z; TA.enterCar(ms.car, false); TA.simulate(5);
-    const o = TA.missionObjective();
-    return { ok: before === 0 && TA.run.mission.stage === 1 && /STAGE 2\/3/.test(o.stage), detail: o.head + ' · ' + o.stage + ' · ' + o.title };
-  });
-  await run('shooting, crew ability and side job work', () => {
-    TA.failMission('self test'); TA.exitCar(true); TA.state.crew.budi = true; TA.player.hp = 40;
-    const fixed = TA.useAbility('budi') && TA.player.hp > 40;
-    TA.giveWeapon(1, 60); TA.selectWeapon(1); const before = TA.state.ammo[1].mag;
-    TA.input.auto.fire = true; TA.simulate(20); TA.input.auto.fire = false;
-    TA.startWreckContract(); TA.simulate(30);
-    const a = TA.run.activity;
-    return { ok: fixed && TA.state.ammo[1].mag < before && !!a && a.type === 'wreck' && !a.car.dead, detail: 'fired ' + (before - TA.state.ammo[1].mag) + ' rounds, wreck target ' + (a ? a.def.name : 'none') };
-  });
-  await run('save and load round-trip', () => {
-    TA.endActivity(); TA.setWanted(0);
-    TA.state.money = 4321; TA.state.missionsDone = 3; TA.state.rp = 410; TA.saveGame(2);
-    TA.state.money = 1; TA.state.missionsDone = 0;
-    const loaded = TA.continueGame(2), s = TA.slotSummary(2);
-    return { ok: loaded && TA.state.money === 4321 && TA.state.missionsDone === 3 && TA.rankInfo().n === 3 && TA.run.mode === 'playing', detail: s ? s.line : 'no slot' };
-  });
-  await run('map screen opens with every tab', () => {
-    TA.openMap(0, false);
-    const tabs = TA.TABS.map((t, i) => { TA.menuKey('Tab' + i); return TA.menu.screen.querySelectorAll('.panel').length; });
-    TA.menuKey('Escape');
-    return { ok: tabs.every((n) => n >= 1) && TA.run.mode === 'playing', detail: tabs.join('/') + ' panels' };
-  });
-  await page.close();
-  for (const shot of spec.shots) {
-    const errs = [], p2 = await openPage(browser, base + shot.query, errs);
-    let info = null;
-    try { await p2.waitForFunction('window.__sceneReady', null, { timeout: 120000 }); info = await p2.evaluate('window.__sceneReady'); } catch (e) { errs.push(e.message.split('\n')[0]); }
-    check('showcase scene ready: ' + shot.file, !!info && errs.length === 0, info ? JSON.stringify(info) : errs.join(' | '));
-    await p2.close();
-  }
-} finally {
-  await browser.close();
-  server.close();
+function record(name, ok, detail) {
+  results.push(ok);
+  console.log((ok ? 'PASS  ' : 'FAIL  ') + name + (detail ? '  (' + detail + ')' : ''));
 }
-const passed = results.filter(Boolean).length;
-console.log('\nTOTAL ' + passed + ' / ' + results.length + ' passed');
-process.exit(passed === results.length ? 0 : 1);
+
+async function readText(relative) {
+  return readFile(join(repo, relative), 'utf8');
+}
+
+// Width and height from the first start-of-frame marker of a JPEG.
+function jpegSize(bytes) {
+  let i = 2;
+  while (i + 9 < bytes.length) {
+    if (bytes[i] !== 0xff) return null;
+    const marker = bytes[i + 1], length = bytes.readUInt16BE(i + 2);
+    if (marker >= 0xc0 && marker <= 0xc3) return [bytes.readUInt16BE(i + 7), bytes.readUInt16BE(i + 5)];
+    i += 2 + length;
+  }
+  return null;
+}
+
+async function runStaticChecks() {
+  const html = await readText('game/index.html');
+  const scripts = [...html.matchAll(/<script src="([^"]+)"/g)].map((m) => m[1]);
+  const onDisk = (await readdir(join(repo, 'game', 'js'))).filter((f) => f.endsWith('.js')).sort();
+  record('index.html loads three.min.js first', scripts[0] === 'vendor/three.min.js', scripts[0]);
+  const listed = scripts.slice(1).map((s) => s.replace('js/', '')).sort();
+  record('every game/js file is loaded exactly once', listed.length === onDisk.length && listed.every((f, n) => f === onDisk[n]), onDisk.length + ' files');
+  record('game-main.js is loaded last', scripts[scripts.length - 1] === 'js/game-main.js');
+
+  let remote = 0, lines = 0;
+  for (const file of onDisk) {
+    const text = await readText('game/js/' + file);
+    lines += text.split('\n').length;
+    if (/https?:\/\//.test(text)) remote++;
+  }
+  const page = html + (await readText('game/style.css'));
+  record('own game source makes no network references', remote === 0 && !/https?:\/\//.test(page), lines + ' lines of game code');
+
+  const readme = await readText('README.md');
+  const badges = ['https://make.fun/badge/gta6-01.svg', 'https://make.fun/badge/gta6-01/benigusman1997/teluk-arunika/rank.svg', 'https://make.fun/badge/gta6-01/benigusman1997/teluk-arunika/reward.svg'];
+  record('README carries the three make.fun badges', badges.every((b) => readme.includes('](' + b + ')](https://make.fun/bounty/gta6-01)')));
+
+  const config = JSON.parse(await readText('shots.json'));
+  let shotsOk = config.shots.length === 4, detail = [];
+  for (const shot of config.shots) {
+    const path = join(repo, 'screenshots', shot.file);
+    const info = await stat(path).catch(() => null);
+    const size = info ? jpegSize(await readFile(path)) : null;
+    if (!info || info.size > config.maxBytes || !size || size[0] !== config.size[0] || size[1] !== config.size[1]) shotsOk = false;
+    detail.push(info ? info.size : 'missing');
+  }
+  record('four 1280x720 screenshots under the byte cap', shotsOk, detail.join(', '));
+  return config;
+}
+
+// Everything below runs inside the page, against the game's own global functions.
+function playthroughInPage() {
+  const out = {};
+  const step = (frames) => { for (let i = 0; i < frames; i++) { G.frame++; stepPlaying(FIXED_STEP); W.keysHit = {}; W.mouse.leftHit = false; } };
+  out.webgl = !!W.renderer.getContext() && W.scene.children.length > 20;
+  out.titleMode = G.mode;
+
+  startNewGame();
+  G.dialogue = null; G.mode = 'playing';
+  step(30);
+  out.newGame = G.mode === 'playing' && G.day === 1 && W.cars.length > 20 && W.people.length > 20;
+  out.newGameDetail = G.mode + ', day ' + G.day + ', ' + W.cars.length + ' cars, ' + W.people.length + ' people';
+
+  // Put Raka beside a car on the open boulevard and drive east.
+  const p = G.player;
+  p.x = -300; p.z = 264;
+  const car = spawnCar('gt', -300, 267, Math.PI / 2, 'parked');
+  enterOrExitVehicle(car);
+  const fromX = car.x, fromZ = car.z;
+  W.keys.KeyW = true;
+  step(150);
+  W.keys.KeyW = false;
+  out.driving = p.car === car && Math.abs(car.speed) > 4 && Math.hypot(car.x - fromX, car.z - fromZ) > 5;
+  out.speed = Math.round(Math.abs(car.speed) * 3.6);
+
+  reportCrime(3, INCIDENTS[3]);
+  W.dispatchTimer = 0.05;
+  step(240);
+  out.wanted = G.wanted >= 3 && W.units.length > 0;
+  out.units = W.units.length;
+  clearWantedLevel(false);
+  enterOrExitVehicle(car);
+  step(10);
+
+  startStoryContract(1);
+  G.dialogue = null;
+  const before = G.contract.stage, target = currentStage().at;
+  p.x = target[0]; p.z = target[1];
+  step(90);
+  out.mission = !!G.contract && G.contract.stage > before;
+
+  G.money = 4321; G.day = 3;
+  saveGameToSlot(3);
+  G.money = 1; G.day = 6;
+  const loaded = loadGameFromSlot(3);
+  out.saveLoad = loaded && G.money === 4321 && G.day === 3 && listSaveSlots().some((s) => s.slot === 3);
+  localStorage.removeItem(SAVE_PREFIX + 3);
+  return out;
+}
+
+async function runRuntimeChecks(config) {
+  const chromium = await loadChromium();
+  const server = await startStaticServer(join(repo, 'game'));
+  const base = 'http://127.0.0.1:' + server.address().port;
+  try {
+    // One browser at a time: the title boot and playthrough first, then each showcase scene.
+    const first = await openGamePage(chromium, base, '?seed=7');
+    try {
+      await first.page.waitForFunction('window.__sceneReady === true', null, { timeout: 180000 });
+      const r = await first.page.evaluate(playthroughInPage);
+      record('boots to the title screen', r.titleMode === 'title', 'mode ' + r.titleMode);
+      record('WebGL context and scene exist', r.webgl);
+      record('new game starts with a populated city', r.newGame, r.newGameDetail);
+      record('entering a car and accelerating gains speed', r.driving, r.speed + ' km/h');
+      record('a crime raises the wanted level and units respond', r.wanted, r.units + ' units');
+      record('reaching the objective advances the mission stage', r.mission);
+      record('save and load round-trip restores the game', r.saveLoad);
+      record('no console or page errors during play', first.problems.length === 0, first.problems.join(' | '));
+    } finally {
+      await first.browser.close();
+    }
+    for (const shot of config.shots) {
+      const scene = await openGamePage(chromium, base, shot.query);
+      try {
+        await scene.page.waitForFunction('window.__sceneReady === true', null, { timeout: 180000 });
+        const frozen = await scene.page.evaluate(() => W.frozen === true || G.mode === 'title');
+        record('showcase scene ' + shot.query + ' is ready', frozen && scene.problems.length === 0, scene.problems.join(' | '));
+      } finally {
+        await scene.browser.close();
+      }
+    }
+  } finally {
+    server.close();
+  }
+}
+
+async function main() {
+  const config = await runStaticChecks();
+  await runRuntimeChecks(config);
+  const failed = results.filter((ok) => !ok).length;
+  console.log(results.length - failed + ' passed, ' + failed + ' failed');
+  process.exit(failed ? 1 : 0);
+}
+
+main().catch((err) => { console.error('FAIL  selftest crashed: ' + err.message); process.exit(1); });

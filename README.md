@@ -2,137 +2,146 @@
 
 [![make.fun bounty gta6-01](https://make.fun/badge/gta6-01.svg)](https://make.fun/bounty/gta6-01) [![rank](https://make.fun/badge/gta6-01/benigusman1997/teluk-arunika/rank.svg)](https://make.fun/bounty/gta6-01) [![reward](https://make.fun/badge/gta6-01/benigusman1997/teluk-arunika/reward.svg)](https://make.fun/bounty/gta6-01)
 
-A sun-soaked, fully 3D open-world crime game that runs from one static web page. Raka, a dock courier in the
-Indonesian port city of Teluk Arunika, owes the syndicate boss Darma Wijaya $50,000 and has seven in-game days
-to clear it: ten staged contracts in three acts, a bank heist, a police force that hunts in named units with
-roles, a helicopter with a searchlight, a SWAT van, a crew with abilities, street races, a full map and saves.
+A sun-soaked 3D open-world crime game set in a fictional Indonesian port city. Raka drives a taxi; his father
+signed a fifty-thousand-dollar debt to the syndicate boss Darma Wijaya, and the workshop goes in seven days.
+Ten staged contracts in three acts lead from a first taxi fare to the Bank Arunika job, with the Teluk Arunika
+Police Department (TAPD) escalating from foot patrols to roadblocks, the ELANG-1 helicopter and a SWAT team.
 
-Everything is original and made in code: every building, car, person, texture, icon and sound. The only
-third-party file is the three.js r160 library in `game/vendor/`.
+Everything is drawn and synthesised by the game's own code at run time: there are no image, model or audio
+files. The only third-party file is Three.js r160 (`game/vendor/three.min.js`).
 
-![Cover: Contract 7, stage 7 of 7. The Pelabuhan GT at speed on Pantai Boulevard with TAPD cruisers and the ELANG-1 helicopter](screenshots/shot1-coast-chase.jpg)
+![Four-star chase on Pantai Boulevard](screenshots/shot1-coast-chase.jpg)
 
 | | |
 |---|---|
-| ![On foot in Pasar Senja with two stars](screenshots/shot2-market-onfoot.jpg) | ![The Bank Arunika shoot-out with the weapon wheel open](screenshots/shot3-bank-shootout.jpg) |
+| ![Carjacking at Pasar Senja](screenshots/shot2-market-carjack.jpg) | ![Bank Arunika shootout](screenshots/shot3-bank-shootout.jpg) |
 
-![The map screen: districts, route, contracts, career, standing, save slots](screenshots/shot4-map-saves.jpg)
+![Title screen with save slots](screenshots/shot4-title-saves.jpg)
 
 ## What is in the game
 
-### 1. Open world and atmosphere
-- One seamless city of six districts, each with its own look: **Pelabuhan** (container port, cranes, a moored
-  ship), **Pasar Senja** (shophouses and a street market under two gates), **Gang Neon** (pastel towers and
-  Bank Arunika), **Pantai** (hotels, palms, beach umbrellas, a pier), **Tol Layang** (an elevated highway and
-  bridge) and **Pulau Abu** (an ash island with a smoking volcano).
-- A day and night clock (one real second is one game minute), a moving sun, clouds, gulls, and tropical rain
-  with slick roads (press V).
-- Left-hand traffic with nine vehicle types that stop at working traffic lights, and pedestrians who walk the
-  pavements, flee from gunfire and dive away from cars.
-- A chase camera for driving and an over-the-shoulder camera on foot, both collision-aware.
+### Open world
 
-### 2. Missions and story
-- Ten contracts in three acts, each with two to seven named stages, an intro card with dialogue, a timer or a
-  progress bar where it fits, and a payout that goes partly toward the debt.
-- Contract 5 is a real choice (pay Darma or sell him out) and Contract 10 has three endings.
-- Contract 7 is a seven-stage bank job: reach the bank, cut the alarm, clear nine guards, crack the vault,
-  grab the cash, escape to the boulevard, lose a four-star response.
-- If day seven ends with the debt unpaid, Darma takes everything Raka has and the clock is wound back.
+- One continuous city on a bay with six districts: Pelabuhan (container port), Pasar Senja (market and
+  shophouses), Gang Neon (downtown towers), Pantai (beach boulevard and pier), Tol Layang (flyover and bridge)
+  and Pulau Abu (volcanic island).
+- Named streets, landmarks (Bank Arunika, Wijaya Tower, the Pasar Senja gate, the pier, the container yard),
+  three safehouses, a gun shop, a respray shop and an export dock.
+- Ambient traffic on left-hand lanes with traffic lights, six civilian vehicle types (sedan, GT, taxi,
+  minibus, scooter, hauler), and pedestrians who walk, cross, panic and dive out of the way.
+- A day clock with changing light, an optional rain mode, three synthesised radio stations and a corner
+  minimap plus a full-screen city map with route lines.
 
-### 3. Police, combat and chases
-- A five-star wanted system. TAPD responds in named units with live roles on a dispatch card: foot patrols,
-  **CAMAR** cruisers (pursuit, ramming, PIT, flanking, box-in), **BLOKIR** roadblocks with spike strips, the
-  **ELANG-1** helicopter with a searchlight, and the **BADAK** SWAT van that deploys a breach team and a sniper.
-- Line of sight matters: break it and the heat bar drains; a respray shop or the hacker's Ghost ability helps.
-- Six weapons (fists, pistol, SMG, shotgun, rifle, sniper) with magazines and reloads, a weapon wheel that
-  slows time, enemies that take cover, health bars on targets, explosions that chain between cars.
-- Cars have damage, smoke, flat tyres, fire and wrecks; every car on the street can be stolen.
+### Crime and police
 
-### 4. Side activities and progression
-- Three street races with rivals and best times, taxi fares, car export at the dock, wreck contracts against
-  named drivers, twelve Arunika coins and five stunt ramps.
-- A gun shop, a garage with engine and plating upgrades, a respray shop and three safehouses that save.
-- A crew of three with abilities on cooldown: Sari (Gaspol speed burst), Budi (Quick Fix) and Agus (Ghost).
-- Five ranks with perks, earned with rank points; standing in each district; a statistics page.
-- Three radio stations synthesised live, plus engine, siren, gunfire and crash sounds.
+- Carjacking: hold E at an occupied car to drag the driver out behind a progress ring; tap E for parked cars.
+- Five wanted stars with heat and line of sight. The TAPD dispatch card lists every unit by call sign with
+  its role (ramming, PIT, box-in, flanking) and distance.
+- Roadblocks with barriers and spike strips at three stars; at four, the ELANG-1 helicopter with a
+  searchlight and the BADAK-2 van with the SWAT ARUNIKA team; at five the team brings a sniper.
+- Escape by breaking line of sight, respraying the car, or with a crew ability.
 
-### 5. Interface and polish
-- A full HUD: mission card, dispatch card, round minimap with a route, health and armour, location banner,
-  clock, money, stars, rank bar, weapon slots, crew cards, radio line, car card with speed, crew chatter.
-- A tabbed map screen (map, story, stats, crew, settings, controls, save) that doubles as the pause menu.
-- A title screen, three manual save slots and an autosave, all in the browser's local storage.
+### Story and missions
+
+- Ten contracts in three acts (The Debt, The Syndicate, Dawn), each a chain of staged objectives: go to,
+  collect, steal a vehicle, hold a position, eliminate, destroy a convoy, lose the heat.
+- Contract 7, The Bank Arunika Job, runs seven stages: reach the bank, cut the alarm, take out the guards,
+  crack the vault, grab the cash, escape to Pantai Boulevard and lose the heat.
+- A mid-story choice (pay Darma or meet the detective) changes the later contracts and the ending.
+- Dialogue with drawn portraits, mission intro cards and crew radio chatter.
+
+### Combat and driving
+
+- Six weapons on a weapon wheel: fists, P-9 pistol, Cicak SMG, Gajah 12 shotgun, AR-Garuda rifle and
+  Pemburu sniper, with aiming, reloads, tracers, hit markers and damage numbers.
+- Guards and rivals that take cover, fire in bursts and advance.
+- Arcade car physics with handbrake drifts, collisions, damage, explosions and three driving cameras
+  (chase, hood, cinematic look-back).
+
+### Progression and extras
+
+- A three-person crew to recruit, each with a cooldown ability: Sari (speed burst), Budi (repair) and
+  Agus (drops a wanted star).
+- Five ranks from Errand Boy to King of the Bay with perks, district standing, money and the debt clock.
+- Side jobs: three street races, taxi fares, wreck contracts, hidden Arunika coins, stunt ramps, car export
+  and upgrades.
+- An autosave plus three manual save slots, settings, contextual tutorial hints and a title screen that
+  shows the newest save.
 
 ## Controls
 
 | Key | Action |
 |---|---|
-| W A S D | Walk / drive |
-| Mouse | Look and aim (click the game to capture the mouse) |
-| Left click / right click | Fire or punch / aim |
+| W A S D / arrows | Move, drive |
+| Mouse | Look, aim |
+| Left / right mouse button | Fire / aim |
+| Mouse wheel | Pull the on-foot camera back or in |
 | Shift | Sprint |
 | Space | Jump on foot, handbrake in a car |
-| E | Enter a car (hold to steal) or get out |
-| F | Interact: contracts, side jobs, shops, safehouses |
-| Tab | Weapon wheel |
-| 1 to 6 | Select a weapon, or buy in a shop |
-| R | Reload |
-| Z, X, C | Crew abilities: Gaspol, Quick Fix, Ghost |
-| Q | Next radio station |
-| H | Horn |
-| V | Toggle rain |
-| M | Map screen |
-| P or Esc | Pause |
+| Ctrl | Crouch |
+| E | Enter, exit, steal a car (hold), interact |
+| Tab, 1-6, R | Weapon wheel, pick a weapon, reload |
+| Z / X / C | Crew abilities: Sari, Budi, Agus |
+| V, [ and ] | Change camera, turn the camera |
+| Q / H | Radio station / horn |
+| M / Esc | City map / pause |
+| F5 | Quick save |
+| T / G / U / B | Taxi fares / recruit / upgrades / buy ammo (at the matching place) |
+| P | Toggle rain |
 
 ## How to run
+
+The game is a static page. With Node 22 or newer:
 
 ```
 node serve.ts
 ```
 
-Then open `localhost:8080` in a desktop browser. No build step, no install, no network access.
+then open `http://localhost:8080`. Any other static file server pointed at `game/` works as well.
 
-The entry program copies the game and the screenshots to the output directory and writes the dossier:
-
-```
-MAKEFUN_OUTPUT_DIR=/tmp/out node main.ts
-```
+`node main.ts` is the bounty entry program: it copies `game/` and `screenshots/` into the output directory
+(`MAKEFUN_OUTPUT_DIR`, default `/output`) and writes `dossier.json` there.
 
 ## How the screenshots are made
 
-The four images in `screenshots/` are real frames of the game. `tools/shoot.mjs` serves `game/` locally, opens
-each showcase scene listed in `shots.json` (`?scene=1` to `?scene=4`, with a fixed seed) in headless Chromium
-at 1280x720, waits for the scene to signal it is ready, and saves a JPEG under the size cap. A showcase scene
-stages real game entities with the real systems, runs a fixed number of real simulation steps and freezes; it
-draws nothing by hand. `tools/selftest.mjs` checks the files and then plays the game in headless Chromium
-(new game, driving, wanted level, a contract stage, shooting, saving, the map screen, all four scenes).
-Both tools need `playwright-core` and a Chromium build from outside this repository; see the top of each file.
+The four images in `screenshots/` are real renders of the game. `tools/shoot.mjs` serves `game/`, opens the
+page in headless Chromium at 1280x720 with the queries listed in `shots.json` (`?shot=1` to `?shot=4`), waits
+for the scene-ready flag and saves a JPEG under the byte cap. Each query stages a scene from the game's own
+entities and systems (`game/js/showcase-scenes.js`), runs a few real simulation steps and freezes the frame.
+`tools/selftest.mjs` checks the repository and plays through the basics (new game, driving, wanted level,
+mission stage, save and load) in the same browser. Both tools need `playwright-core`, which is not part of
+this repository; set `PLAYWRIGHT_CORE` to its folder and `CHROMIUM_PATH` to a Chromium binary.
 
 ## File map
 
 | Path | What it holds |
 |---|---|
-| `main.ts` | Entry program: copies `game/` and `screenshots/`, writes `dossier.json` |
-| `serve.ts` | Static server for local play |
-| `shots.json` | The four screenshots and the query that reproduces each |
-| `game/index.html`, `game/style.css` | The page and all HUD and menu styling |
-| `game/js/game-config.js`, `game-state.js` | Tuning data, places, weapons, crew, ranks; saved state and slots |
-| `game/js/input-controls.js`, `render-scene.js` | Keyboard and mouse; renderer, lights, sky, cameras |
-| `game/js/mesh-factory.js`, `city-builder.js` | Cars, people, props built from boxes; the city and its collision map |
-| `game/js/traffic-ai.js`, `pedestrian-ai.js` | Traffic and traffic lights; pedestrians |
-| `game/js/player-onfoot.js`, `vehicle-driving.js`, `weapons-combat.js` | Raka on foot; car physics and damage; guns and enemy AI |
-| `game/js/police-wanted.js`, `police-airswat.js` | Wanted level, units and roles; helicopter and SWAT |
-| `game/js/story-missions.js`, `side-activities.js` | The ten contracts; races, fares, export, wrecks, coins, ramps, shops |
-| `game/js/crew-abilities.js`, `career-progress.js` | Crew and abilities; ranks, standing, statistics |
-| `game/js/audio-radio.js`, `visual-effects.js` | Synthesised sound and radio; particles, markers, rain |
-| `game/js/hud-panels.js`, `hud-minimap.js`, `menu-screens.js` | HUD cards; minimap and city map; title, map and pause screens |
-| `game/js/showcase-scenes.js`, `game-main.js` | The four screenshot scenes; boot and the fixed-step loop |
-| `tools/shoot.mjs`, `tools/selftest.mjs` | Screenshot tool and self-test |
+| `main.ts` | Bounty entry program (copy game and screenshots, write the dossier) |
+| `serve.ts` | Small local static server |
+| `shots.json` | The four screenshot scenes |
+| `tools/shoot.mjs`, `tools/selftest.mjs` | Screenshot capture and self-test |
+| `game/index.html`, `game/style.css` | Page, canvas and HUD styles |
+| `game/js/open-world-city.js` | Roads, districts, landmarks, sea, collision map, lane graph |
+| `game/js/traffic-ai.js`, `pedestrian-ai.js` | Ambient traffic and pedestrians |
+| `game/js/player-onfoot.js`, `car-theft.js`, `vehicle-driving.js` | Raka on foot, carjacking, car physics |
+| `game/js/police-wanted.js`, `police-roadblocks.js`, `police-airswat.js` | Wanted level and dispatch, roadblocks, helicopter and SWAT |
+| `game/js/story-missions.js`, `story-dialogue.js` | The ten contracts, dialogue and chatter |
+| `game/js/weapons-combat.js` | Weapons, weapon wheel, enemies |
+| `game/js/side-activities.js`, `crew-abilities.js`, `career-progress.js` | Side jobs and shops, crew, rank and debt clock |
+| `game/js/save-slots.js` | Save slots and settings |
+| `game/js/hud-panels.js`, `hud-minimap.js`, `menu-screens.js`, `tutorial-hints.js` | HUD cards, minimap and city map, menus, hints |
+| `game/js/render-scene.js`, `camera-rigs.js`, `mesh-factory.js`, `visual-effects.js` | Renderer and sky, cameras, procedural meshes, effects |
+| `game/js/audio-radio.js`, `input-controls.js` | Synthesised audio and radio, keyboard and mouse |
+| `game/js/game-config.js`, `game-state.js` | Data tables, game state and helpers |
+| `game/js/showcase-scenes.js`, `game-main.js` | Screenshot scenes, boot and the fixed-step loop |
+| `game/vendor/three.min.js` | Three.js r160 (MIT) |
+| `vendor/makefun-game.ts` | make.fun kit helper used by `main.ts` |
 
 ## Originality
 
-Teluk Arunika, its districts, characters, vehicles, police force and story are invented for this entry. Nothing
-is taken from any existing game: no names, maps, models, textures, audio or code.
+Teluk Arunika is an original setting. The city, its districts, characters, vehicles, police units, brands and
+story are invented for this game, and no names, art, audio or code come from any existing game.
 
 ## License
 
-MIT. See `LICENSE`.
+MIT, see [LICENSE](LICENSE).

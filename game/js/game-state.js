@@ -1,126 +1,90 @@
-// Live game state, new-game defaults, and the three save slots plus autosave (localStorage).
-TA.SAVE_KEY = 'teluk-arunika-v4-slot-';
+// The live game state object, new-game defaults, the world runtime and shared helpers.
 
-// Everything that survives a save lives in TA.state.
-TA.newState = function () {
-  var standing = {};
-  TA.DISTRICTS.forEach(function (d) { standing[d.id] = 20; });
+function createNewGameState() {
+  const standing = {};
+  for (const d of DISTRICTS) standing[d.id] = 20;
   return {
-    version: TA.VERSION,
-    money: 350, debt: TA.CFG.DEBT, day: 1, clock: 16 * 60 + 40,   // minutes since midnight
-    missionsDone: 0, branch: null, ending: null,
+    mode: 'title', time: 0, frame: 0, playTime: 0, timeScale: 1,
+    day: 1, clock: 9 * 60, weather: 'clear',
+    money: 250, debt: 50000, health: 100, armour: 0,
+    wanted: 0, heat: 0, inSight: false, crimeTimer: 0, incident: '',
     rp: 0, standing: standing,
-    crew: { sari: false, budi: false, agus: false },
-    owned: [true, true, false, false, false, false],
-    ammo: [{ mag: 0, res: 0 }, { mag: 12, res: 36 }, { mag: 0, res: 0 }, { mag: 0, res: 0 }, { mag: 0, res: 0 }, { mag: 0, res: 0 }],
-    weapon: 1, health: 100, armour: 0,
-    coins: [], ramps: [], bestRace: [0, 0, 0], wrecks: 0, exports: 0, fares: 0,
-    upgrades: { engine: 0, plating: 0 },
-    radio: 0, weather: 'clear', px: -176, pz: -4, ph: Math.PI,
-    stats: { kills: 0, carsStolen: 0, distance: 0, busted: 0, wasted: 0, starsEscaped: 0, shots: 0, playMinutes: 0, earned: 0 },
-    settings: { volume: 0.6, invertY: false, shadows: true }
+    stats: { kills: 0, carsStolen: 0, distance: 0, wrecks: 0, escapes: 0, racesWon: 0, fares: 0, exports: 0, busted: 0, wasted: 0, earned: 0, topSpeed: 0, stunts: 0 },
+    weaponIndex: 0,
+    weapons: WEAPONS.map((w, i) => ({ owned: i < 2, mag: w.mag, reserve: i < 2 ? w.reserve : 0 })),
+    wheelOpen: false, fireCooldown: 0, reloading: 0,
+    crew: { sari: { recruited: false, cooldown: 0, active: 0 }, budi: { recruited: false, cooldown: 0, active: 0 }, agus: { recruited: false, cooldown: 0, active: 0 } },
+    contractsDone: 0, contract: null, branch: null, ending: null,
+    player: { x: PLACES.amir.x, z: PLACES.amir.z + 2, y: 0, vy: 0, heading: 0, onFoot: true, car: null, aiming: false, crouch: false, sprinting: false, moving: false, carjack: null, phase: 0, hurt: 0 },
+    cameraMode: 'chase', camYaw: 0, camPitch: 0.18,
+    hintsDone: {}, coins: COIN_SPOTS.map(() => false), rampsDone: STUNT_RAMPS.map(() => false), bestTimes: {},
+    upgrades: { engine: 0, armour: 0, tyres: 0 }, wrecksDone: WRECK_TARGETS.map(() => false),
+    activity: null, radioStation: 0, radioOn: true, lastSafehouse: 'amir',
+    chatter: null, banner: null, prompt: null, dialogue: null,
+    settings: Object.assign({}, DEFAULT_SETTINGS)
   };
-};
+}
 
-// Everything that belongs to the running session (not saved) lives in TA.run.
-TA.newRun = function () {
+function createWorldRuntime() {
   return {
-    mode: 'title',            // title / playing / paused / map / cutscene / ending
-    time: 0, frame: 0, slowmo: 1,
-    wanted: 0, heat: 0, inSight: false, wantedTimer: 0,
-    mission: null,            // active contract runtime, see story-missions.js
-    activity: null,           // active side activity
-    prompt: '', banner: null, bannerT: 0,
-    chatter: null, chatterT: 0, radioLine: '', policeLine: '',
-    wheelOpen: false, frozen: false, showcase: 0, slot: 0
+    scene: null, camera: null, renderer: null, sun: null, hemi: null, fill: null, sky: null, sunDisc: null, clouds: null,
+    sunDir: new THREE.Vector3(-0.8, 0.4, 0.3),
+    colliders: [], colliderGrid: new Map(), nodes: [], walkNodes: [], blocks: [],
+    cars: [], people: [], units: [], effects: [], markers: [], pickups: [], roadblocks: [], labels: [],
+    heli: null, swat: null, trafficLights: { phase: 0, ns: null, ew: null },
+    keys: {}, keysHit: {}, mouse: { dx: 0, dy: 0, left: false, right: false, leftHit: false }, locked: false,
+    cam: { pos: new THREE.Vector3(0, 30, 80), look: new THREE.Vector3(), shake: 0, snap: true, orbit: 0, pull: 0 },
+    playerMesh: null, showcase: 0, ready: false, hudTimer: 0, nextId: 1, rngState: 12345,
+    audio: null, mat: {}, tex: {}, rainMesh: null
   };
-};
+}
 
-TA.state = TA.newState();
-TA.run = TA.newRun();
+function seedRandom(seed) {
+  W.rngState = (seed >>> 0) || 1;
+}
 
-TA.storage = (function () {
-  try { window.localStorage.setItem('ta-probe', '1'); window.localStorage.removeItem('ta-probe'); return window.localStorage; }
-  catch (e) { var mem = {}; return { getItem: function (k) { return mem[k] || null; }, setItem: function (k, v) { mem[k] = String(v); }, removeItem: function (k) { delete mem[k]; } }; }
-})();
+function rand() {
+  W.rngState = (W.rngState + 0x6D2B79F5) >>> 0;
+  let t = W.rngState;
+  t = Math.imul(t ^ (t >>> 15), t | 1);
+  t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+  return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+}
 
-// Copy the live player values into the state object before writing it out.
-TA.captureState = function () {
-  var p = TA.player;
-  if (p) {
-    TA.state.px = Math.round(p.x * 10) / 10; TA.state.pz = Math.round(p.z * 10) / 10; TA.state.ph = p.h;
-    TA.state.health = Math.round(p.hp); TA.state.armour = Math.round(p.armour);
-  }
-  return TA.state;
-};
+function randRange(a, b) { return a + (b - a) * rand(); }
+function randInt(a, b) { return Math.floor(randRange(a, b + 1)); }
+function randPick(list) { return list[Math.floor(rand() * list.length) % list.length]; }
+function clamp(v, a, b) { return v < a ? a : v > b ? b : v; }
+function lerp(a, b, t) { return a + (b - a) * t; }
+function dist2d(ax, az, bx, bz) { return Math.hypot(ax - bx, az - bz); }
+function angleDiff(a, b) { let d = (a - b) % (Math.PI * 2); if (d > Math.PI) d -= Math.PI * 2; if (d < -Math.PI) d += Math.PI * 2; return d; }
+function formatMoney(n) { return '$' + Math.round(n).toLocaleString('en-US'); }
+function formatClock(minutes) { const h = Math.floor(minutes / 60) % 24, m = Math.floor(minutes % 60); return (h < 10 ? '0' : '') + h + ':' + (m < 10 ? '0' : '') + m; }
+function formatDuration(seconds) { const m = Math.floor(seconds / 60), s = Math.floor(seconds % 60); return m + ':' + (s < 10 ? '0' : '') + s; }
 
-TA.saveGame = function (slot) {
-  var data = JSON.parse(JSON.stringify(TA.captureState()));
-  data.savedAt = 'DAY ' + data.day + ' ' + TA.clockText(data.clock);
-  TA.storage.setItem(TA.SAVE_KEY + slot, JSON.stringify(data));
-  return data;
-};
+// Where the player is right now, whether on foot or in a car.
+function playerPosition() {
+  const p = G.player;
+  return p.car ? { x: p.car.x, z: p.car.z, y: p.car.y, heading: p.car.heading, speed: p.car.speed } : { x: p.x, z: p.z, y: p.y, heading: p.heading, speed: p.moving ? (p.sprinting ? 6.5 : 3.2) : 0 };
+}
 
-TA.readSlot = function (slot) {
-  var raw = TA.storage.getItem(TA.SAVE_KEY + slot);
-  if (!raw) return null;
-  try { var d = JSON.parse(raw); return d && d.version ? d : null; } catch (e) { return null; }
-};
+function districtAt(x, z) {
+  if (x > 560) return DISTRICTS[5];
+  if (z < -252) return DISTRICTS[4];
+  if (z > 124) return DISTRICTS[3];
+  if (x > 200) return DISTRICTS[0];
+  if (x < -100) return DISTRICTS[1];
+  return DISTRICTS[2];
+}
 
-TA.loadGame = function (slot) {
-  var d = TA.readSlot(slot);
-  if (!d) return false;
-  var fresh = TA.newState();
-  Object.keys(d).forEach(function (k) { fresh[k] = d[k]; });
-  TA.state = fresh;
-  TA.run.slot = slot;
-  return true;
-};
+function streetNameAt(x, z) {
+  let best = 'Open ground', bestD = 30;
+  ROAD_XS.forEach((rx, i) => { const d = Math.abs(x - rx); if (d < bestD) { bestD = d; best = ROAD_X_NAMES[i]; } });
+  ROAD_ZS.forEach((rz, i) => { const d = Math.abs(z - rz); if (d < bestD) { bestD = d; best = ROAD_Z_NAMES[i]; } });
+  if (Math.abs(z - FLYOVER.z) < 12 && x > FLYOVER.x0) best = x > LAND.x1 ? 'Jembatan Merah' : 'Tol Layang';
+  if (x > 580) best = 'Pulau Abu';
+  return best;
+}
 
-TA.deleteSlot = function (slot) { TA.storage.removeItem(TA.SAVE_KEY + slot); };
-
-// Slot 0 is the autosave; slots 1-3 are the manual ones shown on the save tab.
-TA.autosave = function () { if (TA.run.mode === 'playing' && !TA.run.showcase) TA.saveGame(0); };
-
-TA.slotSummary = function (slot) {
-  var d = TA.readSlot(slot);
-  if (!d) return null;
-  return {
-    day: d.day, money: d.money, debt: d.debt, done: d.missionsDone, rp: d.rp, savedAt: d.savedAt || '',
-    line: 'DAY ' + d.day + '/7 · ' + TA.fmtMoney(d.money) + ' · JOB ' + Math.min(10, d.missionsDone + 1) + '/10'
-  };
-};
-
-TA.latestSlot = function () {
-  for (var s = 0; s <= 3; s++) if (TA.readSlot(s)) return s;
-  return -1;
-};
-
-TA.clockText = function (minutes) {
-  var m = Math.floor(minutes) % 1440;
-  return TA.pad2(Math.floor(m / 60)) + ':' + TA.pad2(m % 60);
-};
-
-// The story clock: time of day advances, and each midnight eats one of the seven days.
-TA.advanceClock = function (dt) {
-  var s = TA.state;
-  s.clock += dt * TA.CFG.MINUTES_PER_SECOND;
-  s.stats.playMinutes += dt / 60;
-  if (s.clock >= 1440) {
-    s.clock -= 1440; s.day += 1;
-    if (s.day > 7 && s.debt > 0 && !s.ending) { s.day = 7; if (TA.onDebtDue) TA.onDebtDue(); }
-    else if (TA.showBanner) TA.showBanner('DAY ' + Math.min(7, s.day) + ' OF 7', TA.fmtMoney(s.debt) + ' STILL OWED TO DARMA WIJAYA', '#ffd166');
-  }
-};
-
-TA.payDebt = function (amount) {
-  var s = TA.state, pay = Math.min(amount, s.debt, s.money);
-  if (pay <= 0) return 0;
-  s.debt -= pay; s.money -= pay;
-  return pay;
-};
-
-TA.addMoney = function (n) {
-  TA.state.money = Math.max(0, TA.state.money + n);
-  if (n > 0) TA.state.stats.earned += n;
-};
+var G = null;
+var W = null;

@@ -1,148 +1,117 @@
-// Raka on foot: walking, sprinting, jumping, aiming, entering and leaving cars, stealing them.
-TA.spawnPlayer = function (x, z, h) {
-  if (TA.player && TA.player.mesh) TA.scene.remove(TA.player.mesh);
-  var p = {
-    x: x, z: z, y: TA.groundY(x, z), h: h || 0, vy: 0, air: false, hp: TA.state.health, armour: TA.state.armour,
-    car: null, mesh: TA.makePerson(TA.LOOKS.raka), phase: 0, moving: 0, dead: false, deadT: 0,
-    weapon: TA.state.weapon, cool: 0, reloadT: 0, holdE: 0, nearCar: null, pose: null, lastShot: -9
-  };
-  p.mesh.position.set(x, p.y, z);
-  TA.scene.add(p.mesh);
-  TA.player = p;
-  TA.cam.yaw = p.h;
-  return p;
-};
+// Raka on foot: third-person movement, sprint, jump, crouch, aiming, health and respawn.
 
-// The car the player could get into right now (nearest within reach), or null.
-TA.findNearCar = function () {
-  var p = TA.player, best = null, bd = 4.2;
-  for (var i = 0; i < TA.cars.length; i++) {
-    var c = TA.cars[i];
-    if (c.dead) continue;
-    var d = TA.dist(p.x, p.z, c.x, c.z) - c.model.len * 0.25;
-    if (d < bd && Math.abs(c.speed) < 9) { bd = d; best = c; }
+function updatePlayerOnFoot(dt) {
+  const p = G.player;
+  aimAndSprint(dt);
+  const ix = (W.keys.KeyD || W.keys.ArrowRight ? 1 : 0) - (W.keys.KeyA || W.keys.ArrowLeft ? 1 : 0);
+  const iz = (W.keys.KeyW || W.keys.ArrowUp ? 1 : 0) - (W.keys.KeyS || W.keys.ArrowDown ? 1 : 0);
+  p.moving = (ix !== 0 || iz !== 0) && !p.carjack;
+  if (p.moving) {
+    // Move relative to the camera; face the way Raka walks unless he is aiming.
+    const fx = Math.sin(G.camYaw), fz = Math.cos(G.camYaw), len = Math.hypot(ix, iz);
+    const dx = (fx * iz - fz * ix) / len, dz = (fz * iz + fx * ix) / len;
+    const speed = p.sprinting ? 6.5 : p.crouch || p.aiming ? 1.9 : 3.4;
+    p.x += dx * speed * dt; p.z += dz * speed * dt;
+    if (!p.aiming) p.heading += clamp(angleDiff(Math.atan2(dx, dz), p.heading), -12 * dt, 12 * dt);
+    p.phase += dt * speed * 2.7;
+    G.stats.distance += speed * dt;
+    completeTutorialHint('move');
   }
-  return best;
-};
-
-TA.carPrompt = function (car) {
-  if (car.kind === 'police' || car.kind === 'swat') return 'Hold E to steal ' + car.name;
-  if (car.driver) return 'Hold E to steal ' + car.name + ' — driver inside';
-  if (car.owned || car.mission) return 'Press E to enter ' + car.name;
-  return 'Hold E to steal ' + car.name;
-};
-
-TA.enterCar = function (car, stolen) {
-  var p = TA.player;
-  if (car.driver) {
-    // the driver is pulled out and runs
-    var side = { x: car.x + Math.cos(car.h) * 2.2, z: car.z - Math.sin(car.h) * 2.2 };
-    var ped = TA.spawnPerson('ped', side.x, side.z, TA.randomLook(TA.rand));
-    ped.corner = { i: TA.nearestNode(car.x, car.z).i, j: TA.nearestNode(car.x, car.z).j, sx: 1, sz: 1 }; ped.prev = null; ped.jit = { x: 0, z: 0 }; ped.speed = 1.5;
-    ped.state = 'flee'; ped.timer = 8; ped.fx = car.x; ped.fz = car.z;
-    car.driver = false;
-    TA.crime(Math.min(5, Math.max(1, TA.run.wanted + 1)), 'CARJACKING');
-    if (TA.sfx) TA.sfx('alarm', 1);
-  } else if (stolen && !car.owned && !car.mission) {
-    if (car.kind === 'police' || car.kind === 'swat') TA.crime(Math.max(3, TA.run.wanted), 'STOLEN POLICE VEHICLE');
-    else if (TA.rand() < 0.3) { TA.crime(1, 'CAR THEFT'); if (TA.sfx) TA.sfx('alarm', 1); }
+  if (p.aiming || W.mouse.left) p.heading = G.camYaw;
+  const out = pushOutOfColliders(p.x, p.z, 0.38);
+  p.x = out.x; p.z = out.z;
+  for (const car of W.cars) {
+    const d = dist2d(p.x, p.z, car.x, car.z), min = car.spec.wid * 0.5 + 0.35;
+    if (d < min && d > 0.01 && Math.abs(car.y - p.y) < 1.5) { p.x = car.x + ((p.x - car.x) / d) * min; p.z = car.z + ((p.z - car.z) / d) * min; }
   }
-  if (stolen && !car.owned) TA.state.stats.carsStolen++;
-  car.prevKind = car.kind; car.kind = 'player'; car.ai = null; car.owned = true; car.static = false; car.siren = false;
-  p.car = car; p.mesh.visible = false; p.holdE = 0;
-  TA.cam.offset = 0;
-  if (TA.onEnterCar) TA.onEnterCar(car);
-  if (TA.radioOn) TA.radioOn(true);
-};
+  const ground = groundHeightAt(p.x, p.z);
+  if (W.keysHit.Space && p.y <= ground + 0.02 && !p.crouch) p.vy = 5.2;
+  if (p.y > ground || p.vy > 0) { p.vy -= 16 * dt; p.y += p.vy * dt; if (p.y <= ground) { p.y = ground; p.vy = 0; } } else p.y = ground;
+  if (!isLandAt(p.x, p.z)) sinkPlayerInWater();
+  if (p.hurt > 0) p.hurt -= dt;
+  if (p.punch > 0) p.punch -= dt;
+  if (W.keysHit.KeyV) { G.camYaw += Math.PI; W.cam.snap = true; }
+  stealNearestCar(dt);
+  updatePlayerMesh();
+}
 
-TA.exitCar = function (forced) {
-  var p = TA.player, car = p.car;
-  if (!car) return;
-  if (!forced && Math.abs(car.speed) > 9) { TA.run.prompt = 'Slow down to bail out'; return; }
-  var o = { x: car.x + Math.cos(car.h) * (car.model.wid * 0.5 + 0.9), z: car.z - Math.sin(car.h) * (car.model.wid * 0.5 + 0.9) };
-  TA.collideCircle(o, 0.45); TA.keepOnLand(o);
-  p.x = o.x; p.z = o.z; p.y = TA.groundY(o.x, o.z); p.h = car.h; p.car = null; p.mesh.visible = true;
-  car.kind = 'parked'; car.keep = true;
-  TA.cam.yaw = car.h; TA.cam.pitch = 0.2;
-  if (TA.radioOn) TA.radioOn(false);
-};
-
-TA.updatePlayerOnFoot = function (dt) {
-  var p = TA.player, ax = TA.axis(), yaw = TA.cam.yaw;
-  var sprint = TA.keyDown('ShiftLeft') || TA.keyDown('ShiftRight'), aim = TA.aiming();
-  var speed = aim ? 2.4 : sprint ? 7.2 : 4.2;
-  var mx = Math.sin(yaw) * ax.f - Math.cos(yaw) * ax.r, mz = Math.cos(yaw) * ax.f + Math.sin(yaw) * ax.r, len = Math.sqrt(mx * mx + mz * mz);
-  if (len > 0.01) {
-    mx /= len; mz /= len;
-    var o = { x: p.x + mx * speed * dt, z: p.z + mz * speed * dt };
-    TA.collideCircle(o, 0.42); TA.keepOnLand(o);
-    // parked and moving cars are solid for a walker too
-    for (var i = 0; i < TA.cars.length; i++) {
-      var c = TA.cars[i], d = TA.dist(o.x, o.z, c.x, c.z), r = c.radius + 0.35;
-      if (d < r && d > 0.01) { o.x = c.x + (o.x - c.x) / d * r; o.z = c.z + (o.z - c.z) / d * r; }
-    }
-    TA.state.stats.distance += TA.dist(p.x, p.z, o.x, o.z);
-    p.x = o.x; p.z = o.z; p.moving = speed;
-    if (!aim) p.h = TA.turnToward(p.h, TA.headingTo(mx, mz), 12 * dt);
+function aimAndSprint(dt) {
+  const p = G.player, sens = 0.0026 * G.settings.sensitivity;
+  if (!G.wheelOpen) {
+    G.camYaw -= W.mouse.dx * sens;
+    G.camPitch = clamp(G.camPitch + W.mouse.dy * sens * (G.settings.invertY ? -1 : 1), -0.55, 0.9);
   }
-  if (aim || TA.firing() || TA.run.time - p.lastShot < 0.6) p.h = TA.turnToward(p.h, p.aimH !== undefined && TA.run.time - p.lastShot < 0.6 ? p.aimH : yaw, 14 * dt);
-  // jump
-  var gy = TA.groundY(p.x, p.z);
-  if (!p.air && TA.keyHit('Space')) { p.air = true; p.vy = 5.6; }
-  if (p.air) { p.vy -= 16 * dt; p.y += p.vy * dt; if (p.y <= gy) { p.y = gy; p.air = false; } } else p.y = gy;
+  // Arrow-less mouse fallback: Q and E are taken, so [ and ] also turn the camera.
+  G.camYaw += ((W.keys.BracketLeft ? 1 : 0) - (W.keys.BracketRight ? 1 : 0)) * 2.2 * dt;
+  p.aiming = W.mouse.right && WEAPONS[G.weaponIndex].id !== 'fists';
+  if (W.keysHit.ControlLeft) p.crouch = !p.crouch;
+  p.sprinting = !!W.keys.ShiftLeft && p.moving && !p.aiming && !p.crouch;
+  if (p.sprinting) p.crouch = false;
+}
 
-  // cars: E enters an owned car at once; any other car needs E held (theft, or pulling the driver out)
-  var near = TA.findNearCar();
-  p.nearCar = near;
-  if (near) {
-    TA.run.prompt = TA.carPrompt(near);
-    var quick = (near.owned || near.mission) && !near.driver && near.kind !== 'police';
-    if (quick ? TA.keyHit('KeyE') : TA.keyDown('KeyE')) {
-      p.holdE += dt;
-      if (quick || p.holdE > 0.55) TA.enterCar(near, !quick);
-    } else p.holdE = 0;
-  } else p.holdE = 0;
+function hurtPlayer(amount, cause) {
+  if (G.mode !== 'playing' || W.showcase || G.player.respawning) return;
+  let dmg = amount;
+  if (G.armour > 0 && cause !== 'drowned') { const soak = Math.min(G.armour, dmg * 0.7); G.armour -= soak; dmg -= soak; }
+  G.health -= dmg;
+  G.player.hurt = 0.35;
+  if (G.settings.shake) addCameraShake(0.18);
+  if (G.health <= 0) wastePlayer(cause);
+}
 
-  p.pose = (aim || TA.run.time - p.lastShot < 0.5) && p.weapon > 0 ? 'aim' : null;
-  p.phase += p.moving * dt * 3.6;
-  p.mesh.position.set(p.x, p.y, p.z);
-  p.mesh.rotation.y = p.h;
-  TA.animatePerson(p.mesh, p.phase, p.moving > 0.2 ? (sprint ? 1.0 : 0.6) : 0, p.pose);
-  p.moving = 0;
-};
+function wastePlayer(cause) {
+  const fee = Math.round(G.money * 0.1);
+  G.stats.wasted++;
+  G.money -= fee;
+  respawnPlayerAtSafehouse('WASTED', (cause === 'drowned' ? 'Swept out of the bay' : 'Patched up at the clinic') + ' - ' + formatMoney(fee) + ' in bills');
+}
 
-TA.damagePlayer = function (dmg, from) {
-  var p = TA.player;
-  if (!p || p.dead || TA.run.godMode) return;
-  if (p.armour > 0) { var soak = Math.min(p.armour, dmg * 0.7); p.armour -= soak; dmg -= soak; }
-  p.hp -= dmg;
-  if (TA.flashDamage) TA.flashDamage();
-  if (p.hp <= 0) { p.hp = 0; TA.killPlayer('WASTED'); }
-};
+function arrestPlayer() {
+  const fee = Math.round(G.money * 0.15);
+  G.stats.busted++;
+  G.money -= fee;
+  for (let i = 1; i < G.weapons.length; i++) G.weapons[i].reserve = Math.floor(G.weapons[i].reserve * 0.5);
+  respawnPlayerAtSafehouse('BUSTED', 'TAPD took ' + formatMoney(fee) + ' and half your ammunition');
+}
 
-// WASTED or BUSTED: the screen holds for a moment, then Raka wakes at the nearest safehouse, poorer.
-TA.killPlayer = function (word) {
-  var p = TA.player;
-  if (p.dead) return;
-  if (p.car) TA.exitCar(true);
-  p.dead = true; p.deadT = 0; p.deadWord = word;
-  p.mesh.position.set(p.x, p.y, p.z); TA.animatePerson(p.mesh, 0, 0, word === 'WASTED' ? 'down' : null);
-  if (word === 'WASTED') TA.state.stats.wasted++; else TA.state.stats.busted++;
-  TA.showBanner(word, word === 'WASTED' ? 'The bay keeps its own.' : 'TAPD takes its cut.', word === 'WASTED' ? '#e63946' : '#4895ef');
-};
+function respawnPlayerAtSafehouse(title, sub) {
+  const p = G.player, home = PLACES[G.lastSafehouse];
+  if (G.contract) failContract(title === 'BUSTED' ? 'You were arrested' : 'You were taken out');
+  if (G.activity) endActivity(false, title);
+  if (p.car) { p.car.kind = 'parked'; p.car.occupied = false; p.car = null; }
+  clearWantedLevel(false);
+  p.x = home.x; p.z = home.z + 4; p.y = 0; p.vy = 0; p.onFoot = true; p.carjack = null; p.crouch = false;
+  G.health = 100;
+  G.clock = (G.clock + 180) % 1440;
+  if (G.clock < 180) advanceDebtDay();
+  applyTimeOfDay(G.clock);
+  W.cam.snap = true;
+  showBanner(title, sub, 4);
+  playUiSound('fail');
+}
 
-TA.updatePlayerDead = function (dt) {
-  var p = TA.player;
-  p.deadT += dt;
-  if (p.deadT < 3.2) return;
-  var best = null, bd = 1e9;
-  TA.SAFEHOUSES.forEach(function (k) { var s = TA.PLACES[k], d = TA.dist(p.x, p.z, s.x, s.z); if (d < bd) { bd = d; best = s; } });
-  var fee = Math.round(TA.state.money * 0.1);
-  TA.addMoney(-fee);
-  if (TA.failMission) TA.failMission(p.deadWord === 'WASTED' ? 'You were wasted.' : 'You were busted.');
-  TA.setWanted(0);
-  p.dead = false; p.hp = 100; p.armour = 0; p.x = best.x; p.z = best.z + 3; p.h = 0; p.pose = null;
-  TA.keepOnLand(p); TA.cam.yaw = 0; TA.cam.snap = true;
-  if (p.deadWord === 'BUSTED') { for (var i = 2; i < 6; i++) { TA.state.ammo[i].mag = 0; TA.state.ammo[i].res = Math.floor(TA.state.ammo[i].res / 2); } }
-  TA.showBanner('BACK ON YOUR FEET', best.name + ' · -' + TA.fmtMoney(fee), '#ffd166');
-};
+function rebuildPlayerMesh() {
+  const id = WEAPONS[G.weaponIndex].id;
+  const weapon = id === 'fists' ? null : id === 'pistol' ? 'pistol' : id === 'smg' ? 'smg' : 'rifle';
+  if (W.playerMesh) W.scene.remove(W.playerMesh);
+  W.playerMesh = makePersonMesh(Object.assign({}, PERSON_LOOKS.raka, { weapon: weapon }));
+  W.scene.add(W.playerMesh);
+  updatePlayerMesh();
+}
+
+function updatePlayerMesh() {
+  const p = G.player, m = W.playerMesh;
+  m.visible = !p.car;
+  if (p.car) return;
+  m.position.set(p.x, p.y, p.z);
+  m.rotation.y = p.heading;
+  const armed = WEAPONS[G.weaponIndex].id !== 'fists';
+  let pose = 'stand';
+  if (p.carjack) pose = 'drag';
+  else if (p.punch > 0) pose = 'punch';
+  else if (p.crouch) pose = armed ? 'crouch' : 'hide';
+  else if (p.aiming || (armed && G.fireCooldown > 0)) pose = 'aim';
+  else if (p.sprinting || p.y > groundHeightAt(p.x, p.z) + 0.1) pose = 'run';
+  else if (p.moving) pose = 'walk';
+  posePerson(m, pose, p.phase);
+}

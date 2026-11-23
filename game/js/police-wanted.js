@@ -1,223 +1,196 @@
-// Wanted level 1-5, heat, and the TAPD dispatch: named units with roles — foot patrols, CAMAR cruisers,
-// BLOKIR roadblocks with spike strips. (The helicopter and SWAT live in police-airswat.js.)
-TA.units = [];
-TA.unitSeq = 0;
-TA.spikes = [];
+// Wanted stars, heat, line of sight, dispatch units and roles, cruisers and the foot patrol.
 
-TA.setWanted = function (n) {
-  var r = TA.run, old = r.wanted;
-  n = TA.clamp(Math.round(n), 0, 5);
-  if (n === old) return;
-  r.wanted = n;
-  if (n > old) {
-    r.heat = 1; r.inSight = true; r.shotsAtPolice = n >= 3;
-    if (n >= 4 && old < 4) TA.showBanner('SWAT ARUNIKA DEPLOYED', 'BADAK-2 AND ELANG-1 ARE ON YOU', '#e63946');
-    else TA.showBanner(TA.STATUS_LINES[n], 'WANTED LEVEL ' + n, '#ffd166');
-    TA.policeSay(TA.pick(TA.POLICE_RADIO));
+function raiseWantedLevel(stars, incident) {
+  const level = clamp(stars, 0, 5);
+  if (level > G.wanted) {
+    G.wanted = level;
+    G.incident = incident || INCIDENTS[level];
+    showBanner(level >= 4 ? 'AIR UNIT DEPLOYED' : level === 3 ? 'ROADBLOCKS AHEAD' : 'WANTED - ' + level + (level === 1 ? ' STAR' : ' STARS'), 'TAPD DISPATCH - ' + G.incident, 2.2);
+    playUiSound('wanted');
+    showTutorialHint('wanted');
   }
-  if (n === 0) {
-    if (old > 0) { TA.state.stats.starsEscaped += old; TA.addRP(old * 6); TA.showBanner('HEAT LOST', 'TAPD CODE 4 — ALL UNITS STAND DOWN', '#90be6d'); TA.policeSay('Dispatch: suspect lost. Code 4.'); }
-    r.heat = 0; r.inSight = false; r.shotsAtPolice = false;
-    TA.standDownUnits();
+  G.heat = 1;
+  G.crimePoints = 0;
+}
+
+function dispatchPoliceUnits(dt) {
+  if (G.wanted <= 0) return;
+  W.dispatchTimer = (W.dispatchTimer || 0) - dt;
+  if (W.dispatchTimer > 0) return;
+  W.dispatchTimer = 2.2;
+  const want = DISPATCH_PLAN[G.wanted];
+  const cruisers = W.units.filter((u) => u.kind === 'cruiser').length, foot = W.units.filter((u) => u.kind === 'foot').length;
+  const p = playerPosition();
+  if (cruisers < want.cruisers) {
+    // Send the next cruiser from a road junction some way off, never right on top of Raka.
+    const picks = W.nodes.filter((n) => { const d = dist2d(n.x, n.z, p.x, p.z); return d > 90 && d < 230 && !n.ramp; });
+    if (picks.length) {
+      const n = randPick(picks);
+      addCruiserUnit(n.x + randRange(-3, 3), n.z + randRange(-3, 3), Math.atan2(p.x - n.x, p.z - n.z));
+    }
+  } else if (foot < want.foot && !G.player.car) {
+    const a = randRange(0, 6.28), x = p.x + Math.cos(a) * 45, z = p.z + Math.sin(a) * 45;
+    if (!pointBlocked(x, z, 0) && isLandAt(x, z)) addFootPatrolUnit(x, z);
   }
-};
+  if (want.roadblock && G.player.car && Math.abs(p.speed) > 12 && !W.units.some((u) => u.kind === 'roadblock')) placeRoadblockAhead();
+}
 
-// A crime raises the wanted level to at least "stars" (never lowers it).
-TA.crime = function (stars, reason) {
-  if (TA.run.mode !== 'playing' || TA.run.noCrime) return;
-  if (stars > TA.run.wanted) { TA.run.incident = reason || TA.INCIDENTS[stars]; TA.setWanted(stars); }
-  else if (TA.run.wanted > 0) TA.run.heat = 1;
-};
-
-TA.policeSay = function (line) { TA.run.policeLine = line; TA.run.policeLineT = 6; };
-
-TA.addUnit = function (type, name, role, ent) {
-  var u = { id: ++TA.unitSeq, type: type, name: name, role: role, car: ent && ent.model ? ent : null, person: ent && !ent.model ? ent : null, dist: 0, roleT: 0, lost: 0 };
-  if (u.car) { u.car.unit = u; u.car.siren = true; u.car.name = name; }
-  if (u.person) u.person.unit = u;
-  TA.units.push(u);
-  return u;
-};
-
-TA.unitPos = function (u) { return u.car || u.person || u.pos || { x: 0, z: 0 }; };
-
-TA.removeUnit = function (u, keepEntity) {
-  var i = TA.units.indexOf(u);
-  if (i >= 0) TA.units.splice(i, 1);
-  if (keepEntity) return;
-  if (u.car && !u.car.dead && TA.player.car !== u.car) TA.removeCar(u.car);
-  if (u.person && !u.person.dead) TA.removePerson(u.person);
-  if (u.strip) { TA.scene.remove(u.strip.mesh); TA.spikes.splice(TA.spikes.indexOf(u.strip), 1); }
-};
-
-TA.standDownUnits = function () {
-  TA.units.slice().forEach(function (u) { if (u.type !== 'heli') TA.removeUnit(u); });
-  if (TA.heliStandDown) TA.heliStandDown();
-};
-
-// A road point between "min" and "max" metres from the player, preferably out of sight.
-TA.policeSpawnPoint = function (min, max, ahead) {
-  var p = TA.player, best = null, bs = -1e9, f = TA.cameraFocus(), fx = Math.sin(f.h), fz = Math.cos(f.h);
-  TA.world.nodes.forEach(function (n) {
-    var d = TA.dist(n.x, n.z, p.x, p.z);
-    if (d < min || d > max) return;
-    var dot = ((n.x - p.x) * fx + (n.z - p.z) * fz) / d, score = (ahead ? dot : -dot * 0.5) * 60 - Math.abs(d - (min + max) / 2) * 0.3 + TA.rand() * 30;
-    if (score > bs) { bs = score; best = n; }
+function pursueWithPitAndRamming(dt) {
+  const p = playerPosition();
+  const pfx = Math.sin(p.heading), pfz = Math.cos(p.heading), prx = -pfz, prz = pfx, pv = G.player.car ? p.speed : 0;
+  W.units.forEach((unit, index) => {
+    if (unit.kind !== 'cruiser') return;
+    const car = unit.car, side = index % 2 ? 1 : -1;
+    let tx = p.x, tz = p.z;
+    if (G.player.car) {
+      if (unit.role === 'RAMMING') { tx += pfx * pv * 0.25; tz += pfz * pv * 0.25; }
+      else if (unit.role === 'PIT') { tx += -pfx * 1.6 + prx * side * 1.9; tz += -pfz * 1.6 + prz * side * 1.9; }
+      else if (unit.role === 'BOX-IN') { tx += pfx * (9 + pv * 0.45) + prx * side * 1.5; tz += pfz * (9 + pv * 0.45) + prz * side * 1.5; }
+      else if (unit.role === 'FLANKING') { tx += pfx * 2 + prx * side * 4.6; tz += pfz * 2 + prz * side * 4.6; }
+      else { tx -= pfx * 8; tz -= pfz * 8; }
+    }
+    const dist = dist2d(car.x, car.z, p.x, p.z);
+    car.siren = true;
+    car.boost = (1 + G.wanted * 0.03) * (dist > 55 ? 1.3 : 1);
+    let throttle = 1, steer = steerTowards(car, tx, tz), handbrake = false;
+    if (!G.player.car && dist < 11) { throttle = car.speed > 1 ? -1 : 0; if (car.speed < 2 && !unit.dismounted) { unit.dismounted = true; addFootPatrolUnit(car.x - Math.cos(car.heading) * 1.6, car.z + Math.sin(car.heading) * 1.6); } }
+    else if (Math.abs(steer) > 0.9 && car.speed > 14) { throttle = 0; handbrake = true; }
+    else if (G.player.car && dist < 7 && unit.role !== 'RAMMING' && unit.role !== 'PIT') throttle = car.speed > pv + 1 ? 0 : 0.6;
+    if (unit.reverse > 0) { unit.reverse -= dt; throttle = -1; steer = -steer; }
+    driveVehicleWithArcadePhysics(car, throttle, steer, handbrake, dt);
+    resolveCarAgainstWorld(car);
+    resolveCarAgainstCars(car);
+    if (Math.abs(car.speed) < 1.2 && dist > 14) { car.stuck += dt; if (car.stuck > 1.6) { unit.reverse = 1.1; car.stuck = 0; unit.jams = (unit.jams || 0) + 1; } } else car.stuck = 0;
+    if ((unit.jams > 3 || dist > 320 || !isLandAt(car.x, car.z)) && dist > 60) { removeCar(car); unit.gone = true; }
   });
-  return best || TA.nearestNode(p.x + 150, p.z);
-};
+  updateFootPatrol(dt);
+  W.units = W.units.filter((u) => !u.gone && !(u.car && (u.car.wrecked || u.car.removed)) && !(u.person && (u.person.state === 'dead' || u.person.removed)));
+  for (const u of W.units) {
+    const src = u.car || u.person || u;
+    u.dist = dist2d(src.x, src.z, p.x, p.z);
+  }
+  W.units.sort((a, b) => a.dist - b.dist);
+}
 
-TA.spawnCruiser = function (x, z, h, role) {
-  var used = TA.units.map(function (u) { return u.name; }), name = TA.CRUISER_NAMES.filter(function (n) { return used.indexOf(n) < 0; })[0] || 'CAMAR ' + TA.ri(10, 99);
-  var car = TA.spawnCar('cruiser', x, z, h, 'police');
-  car.driver = true;
-  return TA.addUnit('cruiser', name, role || 'PURSUIT', car);
-};
+function escapeByBreakingLineOfSight(dt) {
+  if (G.wanted <= 0) { G.heat = 0; G.inSight = false; return; }
+  const p = playerPosition();
+  let seen = false;
+  for (const u of W.units) {
+    if (u.kind === 'roadblock') continue;
+    const range = u.kind === 'heli' ? 170 : u.kind === 'foot' ? 60 : 120;
+    const src = u.car || u.person || u;
+    if (u.dist < range && (u.kind === 'heli' || !segmentBlocked(src.x, src.z, p.x, p.z))) { seen = true; break; }
+  }
+  G.inSight = seen;
+  if (seen) G.heat = Math.min(1, G.heat + dt * 0.6);
+  else G.heat -= dt / ((11 + G.wanted * 4) * (currentRankIndex() >= 3 ? 0.75 : 1));
+  if (G.heat <= 0) clearWantedLevel(true);
+  W.radioTimer = (W.radioTimer || 4) - dt;
+  if (W.radioTimer <= 0 && G.wanted > 0) { W.radioTimer = 6; G.radioLine = composePoliceRadioLine(p); }
+}
 
-TA.spawnFootPatrol = function (x, z) {
-  var cop = TA.spawnGunman('cop', x, z, 1, 'PATROL');
-  var n = TA.units.filter(function (u) { return u.type === 'foot'; }).length + 1;
-  return TA.addUnit('foot', 'PATROL ' + TA.pad2(n * 7 % 90 + 4), 'FOOT CHASE', cop);
-};
+function reportCrime(stars, incident) {
+  if (G.wanted < stars) { raiseWantedLevel(stars, incident); return; }
+  G.heat = 1;
+  G.crimePoints = (G.crimePoints || 0) + 1;
+  if (G.crimePoints >= 4 && G.wanted < 5) raiseWantedLevel(G.wanted + 1, incident);
+}
 
-// BLOKIR roadblock: two cruisers parked nose to tail across the road, with a spike strip in front.
-TA.spawnRoadblock = function (node, towardX, towardZ) {
-  var alongZ = Math.abs(towardZ - node.z) > Math.abs(towardX - node.x), sgn = alongZ ? Math.sign(towardZ - node.z) || 1 : Math.sign(towardX - node.x) || 1;
-  var bx = node.x + (alongZ ? 0 : sgn * 16), bz = node.z + (alongZ ? sgn * 16 : 0), n = TA.units.filter(function (u) { return u.type === 'block'; }).length;
-  var name = 'BLOKIR ' + TA.pad2(3 + n * 4), unit = null;
-  [-3.4, 3.4].forEach(function (o, k) {
-    var car = TA.spawnCar('cruiser', bx + (alongZ ? o : 0), bz + (alongZ ? 0 : o), alongZ ? Math.PI / 2 : 0, 'police');
-    car.static = true; car.driver = false;
-    var u = TA.addUnit('block', name + (k ? 'b' : ''), 'BLOCKADE', car);
-    u.hidden = k === 1;
-    if (!k) unit = u;
-  });
-  var sx = bx + (alongZ ? 0 : sgn * 9), sz = bz + (alongZ ? sgn * 9 : 0);
-  var mesh = new THREE.Mesh(new THREE.BoxGeometry(alongZ ? 15 : 0.9, 0.12, alongZ ? 0.9 : 15), new THREE.MeshLambertMaterial({ color: 0x2b2d31 }));
-  mesh.position.set(sx, 0.08, sz); TA.scene.add(mesh);
-  unit.strip = { mesh: mesh, x: sx, z: sz, alongZ: alongZ };
-  TA.spikes.push(unit.strip);
-  TA.policeSay(name + ' in position on ' + TA.streetAt(bx, bz) + ', spikes out.');
+function clearWantedLevel(escaped) {
+  if (G.wanted > 0 && escaped) {
+    G.stats.escapes++;
+    awardRankPoints(6 * G.wanted, 'Heat lost');
+    showBanner('HEAT LOST', 'TAPD has lost the suspect', 2);
+  }
+  G.wanted = 0; G.heat = 0; G.inSight = false; G.incident = ''; G.crimePoints = 0; G.radioLine = '';
+  for (const u of W.units) {
+    if (u.car) { u.car.siren = false; if (u.dist > 50) removeCar(u.car); else { u.car.kind = 'parked'; u.car.speed = 0; } }
+    if (u.person) { if (u.dist > 40) removePerson(u.person); else { u.person.kind = 'ped'; u.person.state = 'walk'; u.person.hostile = false; u.person.node = nearestWalkNode(u.person.x, u.person.z); } }
+  }
+  W.units = [];
+  removeRoadblocks();
+  dismissAirAndSwat();
+}
+
+function steerTowards(car, tx, tz) {
+  let want = Math.atan2(tx - car.x, tz - car.z);
+  // Feel ahead for walls and bend the course around them.
+  const reach = 7 + Math.abs(car.speed) * 0.45;
+  if (pointBlocked(car.x + Math.sin(car.heading) * reach, car.z + Math.cos(car.heading) * reach, 0)) {
+    for (const off of [0.6, -0.6, 1.1, -1.1]) {
+      if (!pointBlocked(car.x + Math.sin(car.heading + off) * reach, car.z + Math.cos(car.heading + off) * reach, 0)) { want = car.heading + off * 1.3; break; }
+    }
+  }
+  return clamp(-angleDiff(want, car.heading) * 2.2, -1, 1);
+}
+
+function addCruiserUnit(x, z, heading) {
+  const used = W.units.filter((u) => u.kind === 'cruiser').map((u) => u.name);
+  const slot = CRUISER_NAMES.findIndex((n) => !used.includes(n));
+  const car = spawnCar('cruiser', x, z, heading, 'police');
+  car.siren = true;
+  car.name = CRUISER_NAMES[Math.max(0, slot)];
+  const unit = { kind: 'cruiser', name: car.name, role: G.wanted <= 2 ? 'PURSUIT' : CRUISER_ROLES[Math.max(0, slot)], car: car, person: null, dist: 0, reverse: 0, dismounted: false };
+  W.units.push(unit);
   return unit;
-};
+}
 
-// How many of each unit type a wanted level calls for.
-TA.FORCE = [
-  { foot: 0, cruiser: 0, block: 0 }, { foot: 2, cruiser: 0, block: 0 }, { foot: 1, cruiser: 3, block: 0 },
-  { foot: 0, cruiser: 4, block: 1 }, { foot: 0, cruiser: 4, block: 1 }, { foot: 0, cruiser: 6, block: 2 }
+function addFootPatrolUnit(x, z) {
+  W.footSerial = (W.footSerial || 0) + 1;
+  const cop = spawnPerson('cop', x, z, Object.assign({}, PERSON_LOOKS.cop, G.wanted >= 3 ? { weapon: 'pistol' } : {}));
+  cop.state = 'chase'; cop.hp = cop.maxHp = 80; cop.hostile = true; cop.name = 'PATROL ' + (4 + W.footSerial * 7);
+  const unit = { kind: 'foot', name: cop.name, role: 'FOOT CHASE', car: null, person: cop, dist: 0 };
+  W.units.push(unit);
+  return unit;
+}
+
+function updateFootPatrol(dt) {
+  const p = playerPosition();
+  for (const unit of W.units) {
+    const cop = unit.person;
+    if (unit.kind !== 'foot' || !cop || cop.state === 'dead' || cop.state === 'down') continue;
+    const d = dist2d(cop.x, cop.z, p.x, p.z), armed = cop.weapon === 'pistol';
+    const want = Math.atan2(p.x - cop.x, p.z - cop.z);
+    cop.heading += clamp(angleDiff(want, cop.heading), -8 * dt, 8 * dt);
+    cop.cool -= dt;
+    if (armed && d < 22 && d > 5 && !segmentBlocked(cop.x, cop.z, p.x, p.z)) {
+      cop.state = 'shoot';
+      if (cop.cool <= 0) { cop.cool = randRange(0.7, 1.3); enemyShootAtPlayer(cop, 0.35); }
+    } else if (d > 1.5) {
+      cop.state = 'chase';
+      cop.x += Math.sin(cop.heading) * 5.3 * dt; cop.z += Math.cos(cop.heading) * 5.3 * dt;
+      cop.phase += dt * 13;
+      const out = pushOutOfColliders(cop.x, cop.z, 0.35);
+      cop.x = out.x; cop.z = out.z;
+    } else if (!G.player.car) {
+      cop.state = 'chase';
+      cop.phase += dt * 9;
+      if (cop.cool <= 0) { cop.cool = 0.9; hurtPlayer(9, 'baton'); spawnHitMarker(p.x, p.y + 1.4, p.z, 0xffffff); }
+      W.bustTimer = (W.bustTimer || 0) + dt;
+      if (G.wanted <= 2 && !G.player.moving && W.bustTimer > 1.6) arrestPlayer();
+    }
+    if (d > 2.5) W.bustTimer = 0;
+    cop.y = groundHeightAt(cop.x, cop.z);
+    updatePersonMesh(cop);
+  }
+}
+
+function composePoliceRadioLine(p) {
+  const lead = W.units.find((u) => u.kind === 'cruiser') || W.units[0];
+  const who = lead ? lead.name : 'DISPATCH';
+  const compass = ['southbound', 'eastbound', 'northbound', 'westbound'][((Math.round(p.heading / (Math.PI / 2)) % 4) + 4) % 4];
+  const street = streetNameAt(p.x, p.z), kmh = Math.round(Math.abs(p.speed) * 3.6);
+  if (!G.inSight) return who + ': lost visual near ' + street + ', all units sweep ' + districtAt(p.x, p.z).name + '.';
+  if (G.player.car) return who + ': ' + compass + ', ' + street + (kmh > 90 ? ', ' + Math.floor(kmh / 10) * 10 + '+' : '.');
+  return who + ': suspect on foot at ' + street + ', moving in.';
+}
+
+const DISPATCH_PLAN = [
+  { cruisers: 0, foot: 0, roadblock: false },
+  { cruisers: 0, foot: 2, roadblock: false },
+  { cruisers: 2, foot: 2, roadblock: false },
+  { cruisers: 3, foot: 2, roadblock: true },
+  { cruisers: 4, foot: 2, roadblock: true },
+  { cruisers: 5, foot: 3, roadblock: true }
 ];
-
-TA.countUnits = function (type) { return TA.units.filter(function (u) { return u.type === type && !u.hidden && !(u.car && u.car.dead) && !(u.person && u.person.dead); }).length; };
-
-TA.reinforce = function () {
-  var want = TA.FORCE[TA.run.wanted], p = TA.player, n;
-  if (TA.countUnits('foot') < want.foot) {
-    n = TA.policeSpawnPoint(35, 110, false);
-    var c = TA.cornerPos({ i: n.i, j: n.j, sx: p.x > n.x ? 1 : -1, sz: p.z > n.z ? 1 : -1 });
-    TA.spawnFootPatrol(c.x, c.z);
-  }
-  if (TA.countUnits('cruiser') < want.cruiser) {
-    n = TA.policeSpawnPoint(110, 230, TA.rand() < 0.4);
-    var roles = ['PURSUIT', 'RAMMING', 'PIT', 'FLANKING', 'BOX-IN', 'PURSUIT'];
-    TA.spawnCruiser(n.x + TA.rr(-3, 3), n.z + TA.rr(-3, 3), TA.headingTo(p.x - n.x, p.z - n.z), roles[TA.countUnits('cruiser') % roles.length]);
-  }
-  if (TA.countUnits('block') < want.block && p.car) {
-    n = TA.policeSpawnPoint(120, 240, true);
-    TA.spawnRoadblock(n, p.x, p.z);
-  }
-};
-
-// Each role aims the cruiser at a different point around the suspect.
-TA.roleTarget = function (u, tgt) {
-  var fx = Math.sin(tgt.h), fz = Math.cos(tgt.h), sp = tgt.speed || 0, lead = Math.min(40, sp * 1.1);
-  var side = (u.id % 2 ? 1 : -1);
-  switch (u.role) {
-    case 'RAMMING': return { x: tgt.x + fx * sp * 0.3, z: tgt.z + fz * sp * 0.3, fast: 1.15 };
-    case 'PIT': return { x: tgt.x - fx * 2.2 + fz * side * 2.4, z: tgt.z - fz * 2.2 - fx * side * 2.4, fast: 1.1 };
-    case 'FLANKING': return { x: tgt.x + fx * lead * 0.5 + fz * side * 5, z: tgt.z + fz * lead * 0.5 - fx * side * 5, fast: 1.1 };
-    case 'BOX-IN': return { x: tgt.x + fx * (lead + 8), z: tgt.z + fz * (lead + 8), fast: 1.2 };
-    default: return { x: tgt.x - fx * 6, z: tgt.z - fz * 6, fast: 1 };
-  }
-};
-
-TA.updateCruiser = function (u, dt) {
-  var car = u.car, p = TA.player, f = TA.cameraFocus();
-  if (car.dead) { TA.removeUnit(u, true); TA.addRP(4); return; }
-  if (car.kind !== 'police') { TA.removeUnit(u, true); return; }
-  var d = TA.dist(car.x, car.z, p.x, p.z);
-  u.dist = d;
-  if (d > 380) { TA.removeUnit(u); return; }
-  var tgt = TA.roleTarget(u, f), tx = tgt.x, tz = tgt.z;
-  // no clear run at the suspect: go via the neighbouring intersection that gets closest to him
-  if (d > 30 && !TA.losClear(car.x, car.z, p.x, p.z)) {
-    var here = TA.nearestNode(car.x, car.z), bestN = here, bd = 1e9;
-    if (TA.dist(car.x, car.z, here.x, here.z) > 16 && TA.losClear(car.x, car.z, here.x, here.z)) { tx = here.x; tz = here.z; }
-    else {
-      here.nb.forEach(function (id) { var n = TA.world.nodes[id], nd = TA.dist(n.x, n.z, p.x, p.z); if (nd < bd) { bd = nd; bestN = n; } });
-      tx = bestN.x; tz = bestN.z;
-    }
-  }
-  var top = car.model.top * tgt.fast * (0.72 + TA.run.wanted * 0.07);
-  // on foot suspect: pull up nearby, do not run him over at full speed
-  var brake = p.car ? 0 : 16;
-  if (!p.car && d < 9) { TA.stepCarPhysics(car, car.speed > 1 ? -1 : 0, 0, true, dt); u.stopped = (u.stopped || 0) + dt; }
-  else { TA.driveToward(car, tx, tz, dt, top, brake); u.stopped = 0; }
-  // officers step out of a stopped cruiser
-  if (u.stopped > 1.2 && !u.dismounted && TA.countUnits('foot') < 4) {
-    u.dismounted = true;
-    TA.spawnFootPatrol(car.x + Math.cos(car.h) * 2, car.z - Math.sin(car.h) * 2);
-  }
-  // change role now and then so the pack keeps reshuffling
-  u.roleT += dt;
-  if (u.roleT > 9) { u.roleT = 0; if (TA.rand() < 0.5) u.role = TA.pick(['PURSUIT', 'RAMMING', 'PIT', 'FLANKING', 'BOX-IN']); }
-};
-
-TA.updateSpikes = function () {
-  var car = TA.player.car;
-  if (!car || !car.tyres || car.air) return;
-  for (var i = 0; i < TA.spikes.length; i++) {
-    var s = TA.spikes[i];
-    if (Math.abs(car.x - s.x) < (s.alongZ ? 7.5 : 1.6) && Math.abs(car.z - s.z) < (s.alongZ ? 1.6 : 7.5)) {
-      car.tyres = false; TA.showBanner('TYRES SHREDDED', 'SPIKE STRIP — FIND ANOTHER CAR', '#f8961e'); if (TA.sfx) TA.sfx('crash', 0.6);
-    }
-  }
-};
-
-TA.updatePolice = function (dt) {
-  var r = TA.run, p = TA.player, i, u;
-  if (r.policeLineT > 0) { r.policeLineT -= dt; if (r.policeLineT <= 0) r.policeLine = ''; }
-  if (r.wanted <= 0) return;
-  // heat: full while any unit can see the suspect, draining once they all lose him
-  var seen = false;
-  for (i = TA.units.length - 1; i >= 0; i--) {
-    u = TA.units[i];
-    var pos = TA.unitPos(u);
-    u.dist = TA.dist(pos.x, pos.z, p.x, p.z);
-    if (u.type === 'cruiser') TA.updateCruiser(u, dt);
-    else if (u.type === 'foot' || u.type === 'swat') { if (u.person.dead) { TA.removeUnit(u, true); continue; } if (u.dist > 260) { TA.removeUnit(u); continue; } }
-    else if (u.type === 'block') { if (u.car.dead || u.car.kind !== 'police') { TA.removeUnit(u, true); continue; } if (u.dist > 330) { TA.removeUnit(u); continue; } }
-    if (u.dist < (u.type === 'heli' ? 150 : 95) && (u.type === 'heli' || TA.losClear(pos.x, pos.z, p.x, p.z))) seen = true;
-  }
-  r.inSight = seen;
-  var fade = (TA.rankInfo().n >= 5 ? 1.25 : 1) / (9 + r.wanted * 3.5);
-  r.heat = seen ? 1 : Math.max(0, r.heat - fade * dt);
-  if (r.heat <= 0) { TA.setWanted(0); return; }
-  r.reinforceT = (r.reinforceT || 0) - dt;
-  if (r.reinforceT <= 0) { r.reinforceT = 2.2 - r.wanted * 0.25; TA.reinforce(); if (TA.reinforceAir) TA.reinforceAir(); }
-  if (TA.rand() < dt * 0.06) TA.policeSay(TA.pick(TA.POLICE_RADIO));
-  TA.updateSpikes();
-  // long chases escalate on their own
-  r.wantedTimer += dt;
-  if (r.wantedTimer > 70 && r.wanted < 5 && seen && r.wanted >= 2 && !r.mission) { r.wantedTimer = 0; TA.crime(r.wanted + 1, TA.INCIDENTS[r.wanted + 1]); }
-};
-
-// Rows for the dispatch card: nearest first, hidden duplicates removed.
-TA.dispatchRows = function () {
-  return TA.units.filter(function (u) { return !u.hidden; }).sort(function (a, b) { return a.dist - b.dist; });
-};
-
-// Ramming a cruiser, or anything in front of a cruiser, is noticed.
-TA.onPlayerRam = function (other, rel) {
-  if (other.kind === 'police' || other.kind === 'swat') TA.crime(Math.max(2, TA.run.wanted), 'ASSAULT ON OFFICER');
-  else if (rel > 9 && TA.run.wanted === 0 && TA.units.length === 0 && TA.rand() < 0.25) TA.crime(1, 'RECKLESS DRIVER');
-};

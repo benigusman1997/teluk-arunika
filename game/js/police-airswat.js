@@ -1,143 +1,151 @@
-// The air unit and the tactical team: ELANG-1 helicopter with its searchlight, the SWAT ARUNIKA van
-// "BADAK-2" and the officers it deploys (BREACH and SNIPER roles).
-TA.heli = null;
+// ELANG-1 helicopter with its searchlight, the BADAK-2 SWAT van and the SWAT ARUNIKA tactical team.
 
-TA.initAirUnit = function () {
-  var mesh = TA.makeHelicopter(), light = TA.makeSearchlight();
-  mesh.visible = false; light.cone.visible = false; light.disc.visible = false;
-  TA.scene.add(mesh, light.cone, light.disc);
-  TA.heli = { mesh: mesh, cone: light.cone, disc: light.disc, active: false, x: 0, y: 60, z: 0, h: 0, hp: 320, lx: 0, lz: 0, unit: null, downT: 0, orbit: 0 };
-};
-
-TA.deployHeli = function (x, z) {
-  var h = TA.heli, p = TA.player;
-  if (h.active || h.downT > 0) return;
-  h.active = true; h.hp = 320;
-  h.x = x !== undefined ? x : p.x + 160; h.z = z !== undefined ? z : p.z - 120; h.y = 46; h.lx = p.x; h.lz = p.z;
-  h.mesh.visible = h.cone.visible = h.disc.visible = true;
-  h.unit = TA.addUnit('heli', 'ELANG-1', 'SPOTLIGHT', null);
-  h.unit.pos = h;
-  TA.policeSay('ELANG-1 airborne over ' + TA.districtAt(p.x, p.z).name + '.');
-};
-
-TA.heliStandDown = function () {
-  var h = TA.heli;
-  if (!h || !h.active) return;
-  h.active = false; h.mesh.visible = h.cone.visible = h.disc.visible = false;
-  if (h.unit) { TA.removeUnit(h.unit, true); h.unit = null; }
-};
-
-TA.damageHeli = function (dmg) {
-  var h = TA.heli;
-  if (!h.active) return;
-  h.hp -= dmg;
-  if (TA.spawnSparks) TA.spawnSparks(h.x, h.y, h.z, 3);
+function flyHelicopterWithSearchlight(dt) {
+  const p = playerPosition();
+  if (!W.heli) {
+    W.heliDelay = (W.heliDelay || 0) - dt;
+    if (G.wanted >= 4 && W.heliDelay <= 0) { spawnHelicopter(p.x - 160, p.z - 120, 60); showBanner('AIR UNIT DEPLOYED', 'ELANG-1 has a spotlight on you', 2.4); }
+    return;
+  }
+  const h = W.heli;
+  // Hover behind and to the side of the suspect, a little higher when he is fast.
+  const fx = Math.sin(p.heading), fz = Math.cos(p.heading);
+  const tx = p.x - fx * 15 - fz * 9, tz = p.z - fz * 15 + fx * 9, ty = p.y + 24 + Math.min(8, Math.abs(p.speed) * 0.12);
+  const k = 1 - Math.exp(-dt * 1.4);
+  h.vx = lerp(h.vx, clamp(tx - h.x, -60, 60) * 1.5, k); h.vz = lerp(h.vz, clamp(tz - h.z, -60, 60) * 1.5, k);
+  h.x += h.vx * dt; h.z += h.vz * dt; h.y = lerp(h.y, ty, k * 0.6);
+  h.heading += clamp(angleDiff(Math.atan2(p.x - h.x, p.z - h.z), h.heading), -1.6 * dt, 1.6 * dt);
+  h.unit.x = h.x; h.unit.z = h.z;
+  aimSearchlight(h, p.x, p.y, p.z, dt);
+  h.cool -= dt;
+  if (G.wanted >= 5 && h.cool <= 0 && dist2d(h.x, h.z, p.x, p.z) < 60) {
+    h.cool = 2.4;
+    spawnTracer(h.x, h.y - 1, h.z, p.x + randRange(-1.5, 1.5), p.y + 1, p.z + randRange(-1.5, 1.5), 0xfff3a0);
+    playGunSound('sniper', 0.5);
+    if (rand() < 0.4) hurtPlayer(G.player.car ? 6 : 14, 'sniper');
+  }
   if (h.hp <= 0) {
-    if (TA.spawnExplosion) TA.spawnExplosion(h.x, h.y, h.z, 2.4);
-    TA.heliStandDown(); h.downT = 45;
-    TA.addRP(25); TA.showBanner('ELANG-1 DOWN', 'TAPD SCRAMBLES A REPLACEMENT', '#f94144'); TA.crime(5, 'AIRCRAFT DOWN');
+    spawnExplosion(h.x, h.y, h.z, 2);
+    removeHelicopter();
+    W.heliDelay = 40;
+    G.stats.wrecks++;
+    reportCrime(5, 'AIR UNIT DOWN');
+    awardRankPoints(40, 'ELANG-1 shot down');
   }
-};
+}
 
-// Hover ahead of and above the suspect, keep the searchlight on him, strafe at five stars.
-TA.updateHeli = function (dt) {
-  var h = TA.heli, p = TA.player;
-  if (!h) return;
-  if (h.downT > 0) h.downT -= dt;
-  if (!h.active) return;
-  var f = TA.cameraFocus(), fx = Math.sin(f.h), fz = Math.cos(f.h);
-  h.orbit += dt * 0.25;
-  var lead = p.car ? 14 + Math.min(20, f.speed * 0.45) : 26, lift = p.car ? 13.5 : 25;
-  var tx = f.x + fx * lead + Math.sin(h.orbit) * 4, tz = f.z + fz * lead + Math.cos(h.orbit) * 4, ty = f.y + lift + Math.sin(h.orbit * 2.1) * 1.2;
-  var k = 1 - Math.exp(-dt * 3.5), ox = h.x, oz = h.z;
-  h.x += (tx - h.x) * k; h.z += (tz - h.z) * k; h.y += (ty - h.y) * k;
-  var mvx = h.x - ox, mvz = h.z - oz;
-  h.h = TA.turnToward(h.h, TA.headingTo(f.x - h.x, f.z - h.z), 2.5 * dt);
-  h.mesh.position.set(h.x, h.y, h.z);
-  h.mesh.rotation.set(TA.clamp((mvx * Math.sin(h.h) + mvz * Math.cos(h.h)) * 0.6, -0.3, 0.3) + 0.12, h.h, 0);
-  h.mesh.userData.rotor.rotation.y += dt * 32; h.mesh.userData.tail.rotation.x += dt * 40;
-  // searchlight: the spot trails the suspect a little, the cone stretches from the nose lamp to the spot
-  var kl = 1 - Math.exp(-dt * 16), aheadL = f.speed * 0.1;
-  h.lx += (f.x + fx * aheadL - h.lx) * kl; h.lz += (f.z + fz * aheadL - h.lz) * kl;
-  var gy = TA.groundY(h.lx, h.lz) + 0.12, sx = h.x + Math.sin(h.h) * 1.5, sy = h.y - 1.1, sz = h.z + Math.cos(h.h) * 1.5;
-  var dx = h.lx - sx, dy = gy - sy, dz = h.lz - sz, len = Math.sqrt(dx * dx + dy * dy + dz * dz), radius = 3.3;
-  h.cone.position.set(sx, sy, sz);
-  h.cone.material.opacity = p.car ? 0.2 : 0.07;   // on foot the camera sits inside the beam, so keep it faint
-  h.cone.scale.set(radius, len, radius);
-  h.cone.quaternion.setFromUnitVectors(TA._down || (TA._down = new THREE.Vector3(0, -1, 0)), (TA._tmpV || (TA._tmpV = new THREE.Vector3())).set(dx / len, dy / len, dz / len));
-  h.disc.position.set(h.lx, gy, h.lz); h.disc.scale.setScalar(radius);
-  // door gunner at five stars
-  h.cool = (h.cool || 2) - dt;
-  if (TA.run.wanted >= 5 && h.cool <= 0 && TA.dist(h.x, h.z, p.x, p.z) < 70) {
-    h.cool = 0.5;
-    var hd = TA.headingTo(p.x - h.x, p.z - h.z) + (TA.rand() - 0.5) * 0.14;
-    if (TA.rand() < 0.35) { if (p.car) TA.damageCar(p.car, 6, 'cop'); else TA.damagePlayer(5, null); }
-    if (TA.spawnTracer) TA.spawnTracer(h.x, h.y - 0.6, h.z, p.x + Math.sin(hd) * 2 - Math.sin(hd) * 2 + TA.rr(-1.5, 1.5), p.y + 0.5, p.z + TA.rr(-1.5, 1.5));
-    if (TA.sfxAt) TA.sfxAt('shot', h.x, h.z);
+function deploySwatVanAndOfficers(dt) {
+  const p = playerPosition();
+  if (!W.swat) {
+    W.swatDelay = (W.swatDelay || 0) - dt;
+    if (G.wanted >= 4 && W.swatDelay <= 0) {
+      const picks = W.nodes.filter((n) => { const d = dist2d(n.x, n.z, p.x, p.z); return d > 100 && d < 230 && !n.ramp; });
+      if (picks.length) { const n = randPick(picks); spawnSwatVan(n.x, n.z, Math.atan2(p.x - n.x, p.z - n.z)); }
+    }
+    return;
   }
-};
-
-// ---- SWAT ARUNIKA ----------------------------------------------------------
-TA.spawnSwatVan = function (x, z, h) {
-  var car = TA.spawnCar('swatvan', x, z, h, 'swat');
-  car.driver = true;
-  var n = TA.units.filter(function (u) { return u.type === 'swatvan'; }).length;
-  var u = TA.addUnit('swatvan', 'BADAK-' + (2 + n), 'BREACH', car);
-  u.team = 4; u.deployed = false;
-  TA.policeSay(u.name + ' rolling with a full tactical team.');
-  return u;
-};
-
-TA.deploySwatTeam = function (u) {
-  var car = u.car;
-  u.deployed = true;
-  for (var i = 0; i < u.team; i++) {
-    var side = i % 2 ? 1 : -1, back = car.model.len * 0.5 + 1 + Math.floor(i / 2) * 1.3;
-    var o = { x: car.x - Math.sin(car.h) * back + Math.cos(car.h) * side * 1.2, z: car.z - Math.cos(car.h) * back - Math.sin(car.h) * side * 1.2 };
-    TA.collideCircle(o, 0.45);
-    var sniper = i === u.team - 1, g = TA.spawnGunman('swat', o.x, o.z, sniper ? 5 : 4, 'SWAT');
-    g.ownCar = car;
-    if (sniper) { g.accuracy = 0.03; g.sniper = true; }
-    TA.addUnit('swat', 'SWAT ' + String.fromCharCode(65 + i) + (TA.units.length % 9 + 1), sniper ? 'SNIPER' : 'BREACH', g);
-  }
-  TA.showBanner('SWAT ARUNIKA DEPLOYED', u.name + ' — TACTICAL TEAM ON THE GROUND', '#e63946');
-  if (TA.say) TA.say('agus', 'Tactical channel just lit up. That is SWAT, Raka.');
-};
-
-TA.updateSwat = function (dt) {
-  var p = TA.player;
-  for (var i = TA.units.length - 1; i >= 0; i--) {
-    var u = TA.units[i];
-    if (u.type !== 'swatvan') continue;
-    var car = u.car;
-    if (car.dead || car.kind !== 'swat') { TA.removeUnit(u, true); continue; }
-    var d = TA.dist(car.x, car.z, p.x, p.z);
-    if (d > 400) { TA.removeUnit(u); continue; }
-    if (u.deployed) { TA.stepCarPhysics(car, car.speed > 0.5 ? -1 : 0, 0, true, dt); continue; }
-    var slowTarget = !p.car || Math.abs(p.car.speed) < 9;
-    if (d < (slowTarget ? 26 : 12)) {
-      TA.stepCarPhysics(car, car.speed > 0.5 ? -1 : 0, 0, true, dt);
-      if (Math.abs(car.speed) < 3) TA.deploySwatTeam(u);
+  const s = W.swat, van = s.car;
+  if (van.wrecked || van.removed) { W.swat = null; W.swatDelay = 30; s.unit.gone = true; return; }
+  const dist = dist2d(van.x, van.z, p.x, p.z);
+  van.siren = true;
+  if (!s.deployed) {
+    const slowTarget = !G.player.car || Math.abs(p.speed) < 6;
+    if (dist < (slowTarget ? 24 : 9)) {
+      driveVehicleWithArcadePhysics(van, van.speed > 1 ? -1 : 0, 0, false, dt);
+      if (Math.abs(van.speed) < 2 && slowTarget) deploySwatOfficers(s);
     } else {
-      var tx = p.x, tz = p.z;
-      if (d > 30 && !TA.losClear(car.x, car.z, p.x, p.z)) {
-        var here = TA.nearestNode(car.x, car.z), bestN = here, bd = 1e9;
-        if (TA.dist(car.x, car.z, here.x, here.z) > 16) { tx = here.x; tz = here.z; }
-        else { here.nb.forEach(function (id) { var n = TA.world.nodes[id], nd = TA.dist(n.x, n.z, p.x, p.z); if (nd < bd) { bd = nd; bestN = n; } }); tx = bestN.x; tz = bestN.z; }
-      }
-      TA.driveToward(car, tx, tz, dt, car.model.top, 18);
+      van.boost = dist > 60 ? 1.35 : 1.1;
+      driveVehicleWithArcadePhysics(van, 1, steerTowards(van, p.x, p.z), false, dt);
+    }
+    resolveCarAgainstWorld(van);
+    resolveCarAgainstCars(van);
+    if (Math.abs(van.speed) < 1 && dist > 30) { van.stuck += dt; if (van.stuck > 3) { removeCar(van); } } else van.stuck = 0;
+  } else {
+    van.speed = 0;
+    s.officers = s.officers.filter((o) => o.state !== 'dead' && !o.removed);
+    // The suspect drove off: pick the team up again and resume the chase.
+    if (dist > 75 || s.officers.length === 0) {
+      for (const o of s.officers) removePerson(o);
+      s.officers = []; s.deployed = false;
+      setSwatDoorsOpen(van.mesh, false);
+      s.unit.role = 'BREACH';
     }
   }
-};
+}
 
-// Called by the dispatch loop: four stars bring the air unit and one van, five bring a second van.
-TA.reinforceAir = function () {
-  var w = TA.run.wanted, p = TA.player;
-  if (w < 4) { if (TA.heli.active && w < 3) TA.heliStandDown(); return; }
-  if (!TA.heli.active) TA.deployHeli();
-  var vans = TA.units.filter(function (u) { return u.type === 'swatvan'; }).length;
-  if (vans < (w >= 5 ? 2 : 1)) {
-    var n = TA.policeSpawnPoint(120, 240, false);
-    TA.spawnSwatVan(n.x, n.z, TA.headingTo(p.x - n.x, p.z - n.z));
+function spawnHelicopter(x, z, y) {
+  const mesh = makeHelicopterMesh();
+  W.scene.add(mesh);
+  W.scene.add(mesh.userData.cone);
+  W.scene.add(mesh.userData.spot);
+  const unit = { kind: 'heli', name: 'ELANG-1', role: 'SPOTLIGHT', car: null, person: null, x: x, z: z, dist: 0 };
+  W.units.push(unit);
+  W.heli = { mesh: mesh, x: x, y: y, z: z, vx: 0, vz: 0, heading: 0, hp: 300, cool: 2, unit: unit };
+  aimSearchlight(W.heli, G.player.x, G.player.y, G.player.z, 0);
+  return W.heli;
+}
+
+function aimSearchlight(h, tx, ty, tz, dt) {
+  const m = h.mesh, u = m.userData;
+  m.position.set(h.x, h.y, h.z);
+  m.rotation.set(0.12, h.heading, clamp(-h.vx * 0.004, -0.2, 0.2), 'YXZ');
+  u.rotor.rotation.y += dt * 38;
+  m.updateMatrixWorld(true);
+  const from = u.lamp.getWorldPosition(new THREE.Vector3());
+  const ground = ty + 0.06, dir = new THREE.Vector3(tx - from.x, ground - from.y, tz - from.z);
+  const len = dir.length();
+  u.cone.position.copy(from);
+  u.cone.quaternion.setFromUnitVectors(new THREE.Vector3(0, -1, 0), dir.normalize());
+  u.cone.scale.set(1.7, len, 1.7);
+  u.spot.position.set(tx, ground, tz);
+  u.spot.scale.set(3.8, 3.8, 1);
+}
+
+function removeHelicopter() {
+  const h = W.heli;
+  if (!h) return;
+  W.scene.remove(h.mesh);
+  W.scene.remove(h.mesh.userData.cone);
+  W.scene.remove(h.mesh.userData.spot);
+  h.unit.gone = true;
+  W.heli = null;
+}
+
+function spawnSwatVan(x, z, heading) {
+  const car = spawnCar('badak', x, z, heading, 'swat');
+  car.siren = true; car.name = 'BADAK-2';
+  const unit = { kind: 'swat', name: 'BADAK-2', role: 'BREACH', car: car, person: null, dist: 0 };
+  W.units.push(unit);
+  W.swat = { car: car, unit: unit, deployed: false, officers: [] };
+  return W.swat;
+}
+
+function deploySwatOfficers(s) {
+  const van = s.car, bx = -Math.sin(van.heading), bz = -Math.cos(van.heading), rx = Math.cos(van.heading), rz = -Math.sin(van.heading);
+  s.deployed = true;
+  setSwatDoorsOpen(van.mesh, true);
+  const count = G.wanted >= 5 ? 4 : 3;
+  for (let i = 0; i < count; i++) {
+    const off = (i - (count - 1) / 2) * 2.3;
+    const look = Object.assign({}, PERSON_LOOKS.swat, i === 0 ? { shield: true, weapon: 'pistol' } : {});
+    const o = spawnPerson('swat', van.x + bx * (van.spec.len * 0.5 + 1.6 + (i % 2)) + rx * off, van.z + bz * (van.spec.len * 0.5 + 1.6 + (i % 2)) + rz * off, look);
+    o.hp = o.maxHp = 130; o.hostile = true; o.state = 'advance'; o.name = i === count - 1 && G.wanted >= 5 ? 'SNIPER' : 'SWAT';
+    o.heading = Math.atan2(G.player.x - o.x, G.player.z - o.z);
+    attachEnemyMarkers(o);
+    s.officers.push(o);
   }
-};
+  s.unit.role = G.wanted >= 5 ? 'SNIPER' : 'BREACH';
+  showBanner('SWAT ARUNIKA DEPLOYED', 'BADAK-2 tactical team on the ground', 2.6);
+  playUiSound('wanted');
+}
+
+function dismissAirAndSwat() {
+  removeHelicopter();
+  if (W.swat) {
+    for (const o of W.swat.officers) if (!o.removed) removePerson(o);
+    if (!W.swat.car.removed) { if (dist2d(W.swat.car.x, W.swat.car.z, G.player.x, G.player.z) > 50) removeCar(W.swat.car); else { W.swat.car.kind = 'parked'; W.swat.car.siren = false; } }
+    W.swat.unit.gone = true;
+    W.swat = null;
+  }
+  W.heliDelay = 0; W.swatDelay = 0;
+}

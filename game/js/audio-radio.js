@@ -1,139 +1,151 @@
-// WebAudio synthesis: engine, guns, sirens, crashes, UI blips, city ambience, and the three radio stations.
-TA.audio = { ctx: null, master: null, engine: null, siren: null, radioGain: null, step: 0, nextNote: 0, on: false };
+// Synthesised audio (Web Audio, no files): engine, sirens, guns, crashes, UI blips and three radio stations.
 
-// Browsers only allow audio after a user gesture, so the context is created on the first click or key.
-TA.audioUnlock = function () {
-  var a = TA.audio;
-  if (a.ctx) { if (a.ctx.state === 'suspended') a.ctx.resume(); return; }
-  var AC = window.AudioContext || window.webkitAudioContext;
-  if (!AC) return;
-  try { a.ctx = new AC(); } catch (e) { return; }
-  a.master = a.ctx.createGain(); a.master.gain.value = TA.state.settings.volume; a.master.connect(a.ctx.destination);
-  // engine: a saw oscillator through a low-pass, pitch follows speed
-  a.engine = TA.makeVoice('sawtooth', 60, 0); a.engineFilter = a.ctx.createBiquadFilter(); a.engineFilter.type = 'lowpass'; a.engineFilter.frequency.value = 500;
-  a.engine.gain.disconnect(); a.engine.gain.connect(a.engineFilter); a.engineFilter.connect(a.master);
-  a.siren = TA.makeVoice('square', 700, 0);
-  a.radioGain = a.ctx.createGain(); a.radioGain.gain.value = 0; a.radioGain.connect(a.master);
-  a.noise = TA.makeNoiseBuffer();
-  // ambience: very quiet filtered noise, like distant surf and traffic
-  var amb = a.ctx.createBufferSource(); amb.buffer = a.noise; amb.loop = true;
-  var af = a.ctx.createBiquadFilter(); af.type = 'lowpass'; af.frequency.value = 380;
-  var ag = a.ctx.createGain(); ag.gain.value = 0.05; amb.connect(af); af.connect(ag); ag.connect(a.master); amb.start();
-};
+function playEngineSound(dt) {
+  const a = W.audio, car = G.player.car;
+  if (!a) return;
+  const on = car && !car.wrecked && G.mode === 'playing';
+  const sp = on ? Math.abs(car.speed) : 0;
+  // A fake gearbox: the pitch climbs inside each gear and drops on the shift.
+  const gear = Math.min(4, Math.floor(sp / 11)), rev = (sp - gear * 11) / 11;
+  a.engine.frequency.setTargetAtTime(on ? 52 + gear * 14 + rev * 58 : 40, a.ctx.currentTime, 0.05);
+  a.engineGain.gain.setTargetAtTime(on ? 0.05 + Math.min(0.07, sp * 0.003) : 0, a.ctx.currentTime, 0.1);
+}
 
-TA.makeVoice = function (type, freq, gain) {
-  var a = TA.audio, osc = a.ctx.createOscillator(), g = a.ctx.createGain();
-  osc.type = type; osc.frequency.value = freq; g.gain.value = gain;
-  osc.connect(g); g.connect(a.master); osc.start();
-  return { osc: osc, gain: g };
-};
+function playSiren(dt) {
+  const a = W.audio;
+  if (!a) return;
+  let near = 1e9;
+  const p = playerPosition();
+  for (const car of W.cars) if (car.siren && !car.wrecked) near = Math.min(near, dist2d(car.x, car.z, p.x, p.z));
+  const on = near < 140 && G.mode === 'playing';
+  a.siren.frequency.setTargetAtTime(660 + Math.sin(G.time * 5.2) * 190, a.ctx.currentTime, 0.03);
+  a.sirenGain.gain.setTargetAtTime(on ? clamp(0.09 - near * 0.0006, 0.01, 0.09) : 0, a.ctx.currentTime, 0.15);
+  if (W.heli && G.mode === 'playing') a.rotorGain.gain.setTargetAtTime(clamp(0.1 - dist2d(W.heli.x, W.heli.z, p.x, p.z) * 0.001, 0, 0.1) * (0.6 + 0.4 * Math.sin(G.time * 38)), a.ctx.currentTime, 0.02);
+  else a.rotorGain.gain.setTargetAtTime(0, a.ctx.currentTime, 0.2);
+}
 
-TA.makeNoiseBuffer = function () {
-  var ctx = TA.audio.ctx, buf = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate), d = buf.getChannelData(0), rng = TA.makeRng(7);
-  for (var i = 0; i < d.length; i++) d[i] = rng() * 2 - 1;
-  return buf;
-};
+function tuneRadioStation() {
+  if (!G.radioOn) { G.radioOn = true; G.radioStation = 0; }
+  else if (G.radioStation + 1 >= RADIO_STATIONS.length) G.radioOn = false;
+  else G.radioStation++;
+  W.radioStep = 0;
+  W.newsLine = '';
+  const s = RADIO_STATIONS[G.radioStation];
+  showBanner(G.radioOn ? s.name : 'RADIO OFF', G.radioOn ? s.show : '', 1.6);
+  playUiSound('talk');
+}
 
-// One-shot tone with an exponential decay.
-TA.blip = function (type, f0, f1, dur, vol, dest) {
-  var a = TA.audio, t = a.ctx.currentTime, osc = a.ctx.createOscillator(), g = a.ctx.createGain();
-  osc.type = type; osc.frequency.setValueAtTime(f0, t); osc.frequency.exponentialRampToValueAtTime(Math.max(20, f1), t + dur);
-  g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.001, t + dur);
-  osc.connect(g); g.connect(dest || a.master); osc.start(t); osc.stop(t + dur + 0.02);
-};
+function initAudio() {
+  if (W.audio) return;
+  const Ctx = window.AudioContext || window.webkitAudioContext;
+  if (!Ctx) return;
+  const ctx = new Ctx();
+  const master = ctx.createGain(), effects = ctx.createGain(), music = ctx.createGain();
+  master.connect(ctx.destination); effects.connect(master); music.connect(master);
+  const voice = (type, freq, dest) => { const o = ctx.createOscillator(), g = ctx.createGain(); o.type = type; o.frequency.value = freq; g.gain.value = 0; o.connect(g); g.connect(dest); o.start(); return [o, g]; };
+  const engine = voice('sawtooth', 50, effects), siren = voice('square', 700, effects), rotor = voice('triangle', 46, effects);
+  const noise = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate), data = noise.getChannelData(0);
+  for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
+  W.audio = { ctx: ctx, master: master, effects: effects, music: music, noise: noise, engine: engine[0], engineGain: engine[1], siren: siren[0], sirenGain: siren[1], rotorGain: rotor[1] };
+  applyAudioSettings();
+}
 
-// One-shot burst of filtered noise (gunshots, crashes, explosions, snare hits).
-TA.burst = function (freq, dur, vol, dest) {
-  var a = TA.audio, t = a.ctx.currentTime, src = a.ctx.createBufferSource(), f = a.ctx.createBiquadFilter(), g = a.ctx.createGain();
-  src.buffer = a.noise; f.type = 'lowpass'; f.frequency.setValueAtTime(freq, t); f.frequency.exponentialRampToValueAtTime(Math.max(60, freq * 0.2), t + dur);
-  g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.001, t + dur);
-  src.connect(f); f.connect(g); g.connect(dest || a.master); src.start(t, Math.random() * 0.5, dur + 0.05);
-};
+function applyAudioSettings() {
+  const a = W.audio;
+  if (!a) return;
+  a.master.gain.value = G.settings.master;
+  a.effects.gain.value = G.settings.effects;
+  a.music.gain.value = G.settings.music * 0.5;
+}
 
-TA.sfx = function (name, vol) {
-  var a = TA.audio;
-  if (!a.ctx) return;
-  vol = (vol === undefined ? 1 : vol) * 0.5;
-  switch (name) {
-    case 'shot': TA.burst(2600, 0.16, vol); TA.blip('square', 220, 60, 0.08, vol * 0.5); break;
-    case 'boom': TA.burst(900, 0.5, vol * 1.3); TA.blip('sine', 110, 30, 0.4, vol); break;
-    case 'explosion': TA.burst(500, 1.2, vol * 1.8); TA.blip('sine', 80, 24, 0.9, vol * 1.4); break;
-    case 'crash': TA.burst(1400, 0.3, vol); break;
-    case 'punch': TA.burst(500, 0.1, vol); break;
-    case 'horn': TA.blip('square', 392, 380, 0.35, vol * 0.5); TA.blip('square', 494, 480, 0.35, vol * 0.4); break;
-    case 'alarm': TA.blip('square', 880, 660, 0.25, vol * 0.5); break;
-    case 'coin': TA.blip('triangle', 880, 1760, 0.18, vol); break;
-    case 'click': TA.blip('square', 1200, 900, 0.04, vol * 0.5); break;
-    case 'reload': TA.blip('square', 300, 500, 0.08, vol * 0.5); break;
-    case 'stage': TA.blip('triangle', 523, 784, 0.25, vol); break;
-    case 'ability': TA.blip('sawtooth', 220, 880, 0.3, vol * 0.6); break;
-    case 'win': TA.blip('triangle', 523, 523, 0.15, vol); TA.blip('triangle', 784, 1046, 0.5, vol); break;
+// One enveloped tone; the building block for blips, horn and radio notes.
+function playTone(freq, seconds, type, volume, dest, slideTo) {
+  const a = W.audio;
+  if (!a || a.ctx.state !== 'running') return;
+  const o = a.ctx.createOscillator(), g = a.ctx.createGain(), t = a.ctx.currentTime;
+  o.type = type; o.frequency.setValueAtTime(freq, t);
+  if (slideTo) o.frequency.exponentialRampToValueAtTime(slideTo, t + seconds);
+  g.gain.setValueAtTime(volume, t);
+  g.gain.exponentialRampToValueAtTime(0.0008, t + seconds);
+  o.connect(g); g.connect(dest || a.effects);
+  o.start(t); o.stop(t + seconds + 0.02);
+}
+
+function playNoise(seconds, volume, cutoff) {
+  const a = W.audio;
+  if (!a || a.ctx.state !== 'running') return;
+  const src = a.ctx.createBufferSource(), f = a.ctx.createBiquadFilter(), g = a.ctx.createGain(), t = a.ctx.currentTime;
+  src.buffer = a.noise; f.type = 'lowpass'; f.frequency.setValueAtTime(cutoff, t); f.frequency.exponentialRampToValueAtTime(Math.max(60, cutoff * 0.15), t + seconds);
+  g.gain.setValueAtTime(volume, t); g.gain.exponentialRampToValueAtTime(0.0008, t + seconds);
+  src.connect(f); f.connect(g); g.connect(a.effects);
+  src.start(t); src.stop(t + seconds + 0.02);
+}
+
+function playGunSound(weaponId, volume) {
+  const v = clamp(volume, 0, 1);
+  if (weaponId === 'shotgun') { playNoise(0.3, 0.5 * v, 2600); playTone(90, 0.2, 'square', 0.2 * v, null, 40); }
+  else if (weaponId === 'sniper') { playNoise(0.45, 0.5 * v, 5200); playTone(140, 0.3, 'sawtooth', 0.2 * v, null, 40); }
+  else if (weaponId === 'rifle') { playNoise(0.12, 0.34 * v, 4200); playTone(170, 0.08, 'square', 0.14 * v, null, 70); }
+  else if (weaponId === 'smg') { playNoise(0.07, 0.26 * v, 5200); playTone(230, 0.05, 'square', 0.1 * v, null, 110); }
+  else { playNoise(0.1, 0.3 * v, 3600); playTone(200, 0.07, 'square', 0.12 * v, null, 80); }
+}
+
+function playCrashSound(impact) {
+  const v = clamp(impact / 25, 0.1, 1);
+  playNoise(0.25 + v * 0.2, 0.4 * v, 1800);
+  playTone(110, 0.15, 'triangle', 0.25 * v, null, 45);
+}
+
+function playExplosionSound() {
+  playNoise(1.1, 0.7, 900);
+  playTone(70, 0.8, 'sine', 0.5, null, 28);
+}
+
+function playHorn(volume) {
+  const v = volume || 0.5;
+  playTone(392, 0.32, 'square', 0.12 * v);
+  playTone(494, 0.32, 'square', 0.12 * v);
+}
+
+function playUiSound(name) {
+  const s = UI_SOUNDS[name];
+  s.forEach((n, i) => setTimeout(() => playTone(n[0], n[1], n[2], 0.12), i * 90));
+}
+
+function updateAudio(dt) {
+  const a = W.audio;
+  if (!a) return;
+  playEngineSound(dt);
+  playSiren(dt);
+  // Radio sequencer: a bass note per beat plus a pentatonic lead, only while driving.
+  const station = RADIO_STATIONS[G.radioStation];
+  if (!G.player.car || !G.radioOn || G.mode !== 'playing') return;
+  W.radioClock = (W.radioClock || 0) + dt;
+  const beat = 60 / station.tempo / 2;
+  if (W.radioClock < beat) return;
+  W.radioClock -= beat;
+  const step = W.radioStep = (W.radioStep || 0) + 1;
+  const note = (degree, octave) => station.root * Math.pow(2, (station.scale[degree % station.scale.length] + 12 * octave) / 12);
+  if (station.news) {
+    if (step % 64 === 1) W.newsLine = station.news[Math.floor(step / 64) % station.news.length];
+    if (step % 8 === 0) playTone(note(0, 0), 0.12, station.wave, 0.05, a.music);
+    return;
   }
-};
+  if (step % 2 === 0) playTone(note([0, 0, 3, 4][Math.floor(step / 8) % 4], -1), beat * 1.6, 'triangle', 0.16, a.music);
+  const lead = RADIO_PATTERN[(step + Math.floor(step / 32) * 3) % RADIO_PATTERN.length];
+  if (lead >= 0) playTone(note(lead, 1), beat * 0.9, station.wave, 0.07, a.music);
+  if (step % 4 === 2) playNoise(0.04, 0.08 * G.settings.music, 7000);
+}
 
-// Positional variant: quieter with distance from the player, silent beyond 90 m.
-TA.sfxAt = function (name, x, z) {
-  var p = TA.player;
-  if (!p || !TA.audio.ctx) return;
-  var d = TA.dist(x, z, p.x, p.z);
-  if (d < 90) TA.sfx(name, 0.8 * (1 - d / 90));
-};
-
-// ---- radio: three generative stations ----------------------------------------
-TA.SCALES = { arunika: [0, 2, 3, 7, 8, 12, 14, 15], ombak: [0, 3, 5, 7, 10, 12, 15, 17], kota: [0, 7, 12, 7] };
-
-TA.radioOn = function (on) {
-  TA.audio.on = on;
-  var st = TA.RADIO[TA.state.radio];
-  TA.run.radioLine = on ? st.name + ' — ' + st.show : '';
-  if (TA.audio.radioGain) TA.audio.radioGain.gain.value = on ? 0.5 : 0;
-};
-
-TA.nextStation = function () {
-  TA.state.radio = (TA.state.radio + 1) % TA.RADIO.length;
-  TA.audio.step = 0;
-  TA.radioOn(true);
-  if (TA.sfx) TA.sfx('click', 0.6);
-};
-
-// Sixteenth-note sequencer; each station has its own drum pattern, bass and lead rule.
-TA.radioTick = function () {
-  var a = TA.audio, st = TA.RADIO[TA.state.radio], scale = TA.SCALES[st.id], step = a.step++, beat = step % 16, out = a.radioGain;
-  var note = function (semi, base) { return base * Math.pow(2, semi / 12); };
-  if (st.id === 'arunika') {
-    if (beat % 4 === 0) TA.blip('sine', 150, 50, 0.16, 0.5, out);
-    if (beat === 3 || beat === 6 || beat === 11 || beat === 14) TA.blip('sine', 320, 200, 0.07, 0.35, out);      // kendang
-    if (beat % 2 === 1) TA.burst(6000, 0.03, 0.12, out);
-    if (beat % 4 === 2) TA.blip('square', note(scale[(step >> 2) % 4], 110), note(scale[(step >> 2) % 4], 110), 0.14, 0.18, out);
-    if (beat % 2 === 0) TA.blip('triangle', note(scale[(step * 5 + (step >> 3)) % 8], 440), note(scale[(step * 5) % 8], 440), 0.16, 0.2, out);
-  } else if (st.id === 'ombak') {
-    if (beat === 0 || beat === 10) TA.blip('sine', 110, 45, 0.3, 0.45, out);
-    if (beat === 4 || beat === 12) TA.burst(1800, 0.12, 0.14, out);
-    if (beat % 8 === 0) [0, 3, 7].forEach(function (s) { TA.blip('triangle', note(scale[(step >> 3) % 4] + s, 220), note(scale[(step >> 3) % 4] + s, 220), 0.9, 0.09, out); });
-    if (beat % 4 === 3) TA.blip('sine', note(scale[(step * 3) % 8], 440), note(scale[(step * 3) % 8], 436), 0.3, 0.12, out);
-  } else {
-    // news: a soft time signal and murmuring "speech" blips; the headline goes to the HUD radio line
-    if (beat === 0) TA.blip('sine', 1000, 1000, 0.08, 0.12, out);
-    if (beat % 2 === 0) TA.blip('sawtooth', 130 + ((step * 37) % 60), 110 + ((step * 53) % 50), 0.1, 0.07, out);
-    if (step % 96 === 0) TA.run.radioLine = st.name + ' — ' + TA.NEWS_LINES[(step / 96) % TA.NEWS_LINES.length];
-  }
-};
-
-TA.updateAudio = function (dt) {
-  var a = TA.audio, p = TA.player;
-  if (TA.keyHit('KeyQ') && p && p.car) TA.nextStation();
-  if (!a.ctx) return;
-  a.master.gain.value = TA.run.mode === 'playing' ? TA.state.settings.volume : TA.state.settings.volume * 0.3;
-  var car = p && p.car, sp = car ? Math.abs(car.speed) : 0;
-  a.engine.gain.gain.value = car ? 0.07 + Math.min(0.08, sp * 0.002) : 0;
-  if (car) { a.engine.osc.frequency.value = 55 + sp * 3.2 + (car.boost > 0 ? 40 : 0); a.engineFilter.frequency.value = 400 + sp * 30; }
-  // siren: two-tone wail whenever a unit with its lights on is close
-  var nearest = 1e9;
-  TA.units.forEach(function (u) { if (u.car && u.car.siren && !u.car.dead) nearest = Math.min(nearest, u.dist); });
-  a.siren.gain.gain.value = nearest < 140 ? 0.05 * (1 - nearest / 140) : 0;
-  a.siren.osc.frequency.value = 650 + Math.sin(TA.run.time * 5) * 180;
-  if (a.on && car) {
-    a.nextNote -= dt;
-    if (a.nextNote <= 0) { a.nextNote += 15 / TA.RADIO[TA.state.radio].bpm; TA.radioTick(); }
-  }
+const RADIO_PATTERN = [0, -1, 2, 3, -1, 4, 2, -1, 5, 4, -1, 2, 3, -1, 1, 0];
+const UI_SOUNDS = {
+  talk: [[660, 0.06, 'square']],
+  hit: [[1200, 0.04, 'square']],
+  reload: [[300, 0.05, 'square'], [420, 0.05, 'square']],
+  pickup: [[784, 0.08, 'triangle'], [1046, 0.12, 'triangle']],
+  stage: [[523, 0.1, 'triangle'], [659, 0.1, 'triangle'], [784, 0.16, 'triangle']],
+  complete: [[523, 0.12, 'triangle'], [659, 0.12, 'triangle'], [784, 0.12, 'triangle'], [1046, 0.3, 'triangle']],
+  fail: [[330, 0.18, 'sawtooth'], [247, 0.18, 'sawtooth'], [196, 0.4, 'sawtooth']],
+  wanted: [[880, 0.1, 'square'], [660, 0.1, 'square'], [880, 0.1, 'square']],
+  alarm: [[988, 0.12, 'square'], [784, 0.12, 'square'], [988, 0.12, 'square'], [784, 0.12, 'square']]
 };

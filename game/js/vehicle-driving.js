@@ -1,208 +1,197 @@
-// Cars as simulation entities, the arcade driving model for the player (and any AI that drives "for real"),
-// collisions with the city and other cars, damage, condition, smoke and the final explosion.
-TA.cars = [];
-TA.carSeq = 0;
+// Player car physics: arcade driving, handbrake drift, collisions, damage and condition.
 
-TA.spawnCar = function (key, x, z, h, kind, color) {
-  var model = TA.CAR_MODELS[key];
-  var col = color !== undefined ? color : model.colors[Math.floor(TA.rand() * model.colors.length) % model.colors.length];
-  var car = {
-    id: ++TA.carSeq, key: key, model: model, color: col, mesh: TA.makeCar(key, col),
-    x: x, z: z, y: TA.groundY(x, z), h: h, vx: 0, vz: 0, vy: 0, speed: 0, air: false,
-    hp: model.hp, maxHp: model.hp, kind: kind || 'parked', driver: kind === 'traffic', dead: false, deadT: 0,
-    radius: Math.max(1.0, model.wid * 0.62), tyres: true, boost: 0, smokeT: 0, ai: null, name: model.name, siren: false, owned: false
+function driveVehicleWithArcadePhysics(car, throttle, steer, handbrake, dt) {
+  const spec = car.spec;
+  let top = (spec.top / 3.6) * car.boost * (car.tyresOut ? 0.45 : 1);
+  if (car.hp < 35) top *= 0.75;
+  const sp = Math.abs(car.speed);
+  if (throttle > 0) {
+    if (car.speed < top) car.speed += spec.accel * throttle * car.boost * dt * (1.15 - 0.75 * clamp(car.speed / top, 0, 1));
+  } else if (throttle < 0) {
+    if (car.speed > 1) car.speed -= 24 * dt;
+    else if (car.speed > -top * 0.3) car.speed -= spec.accel * 0.7 * dt;
+  }
+  car.speed -= car.speed * (throttle === 0 ? 0.55 : 0.12) * dt;
+  if (car.speed > top) car.speed -= (car.speed - top) * 2.5 * dt;
+  car.steer = lerp(car.steer, steer, 1 - Math.exp(-dt * 9));
+  const grip = spec.grip * car.gripBonus * (G.weather === 'rain' ? 0.82 : 1);
+  const turn = car.steer * (2.5 / (1 + sp * 0.05)) * clamp(sp / 3.5, 0, 1) * (car.speed < 0 ? -1 : 1) * grip;
+  car.heading -= turn * dt;
+  applyHandbrakeDrift(car, handbrake, grip, dt);
+  const fx = Math.sin(car.heading), fz = Math.cos(car.heading);
+  car.x += (fx * car.speed - fz * car.slip) * dt;
+  car.z += (fz * car.speed + fx * car.slip) * dt;
+  // Jumps off stunt ramps and the flyover edge: simple ballistic height.
+  const ground = groundHeightAt(car.x, car.z);
+  if (car.y > ground + 0.05 || car.vy > 0) {
+    car.vy -= 22 * dt;
+    car.y += car.vy * dt;
+    if (car.y <= ground) { if (car.vy < -9) damageVehicleOnCollision(car, -car.vy * 0.8, null); car.y = ground; car.vy = 0; }
+  } else car.y = ground;
+}
+
+function applyHandbrakeDrift(car, handbrake, grip, dt) {
+  const sp = Math.abs(car.speed);
+  car.drifting = false;
+  if (handbrake && sp > 5) {
+    car.speed -= Math.sign(car.speed) * 10 * dt;
+    car.slip = lerp(car.slip, -car.steer * sp * 0.5, 1 - Math.exp(-dt * 4));
+    car.heading -= car.steer * 1.3 * dt;
+    car.drifting = Math.abs(car.steer) > 0.2;
+  } else {
+    car.slip *= Math.exp(-dt * 4.5 * grip);
+    if (sp > 22 && Math.abs(car.steer) > 0.75) { car.slip -= car.steer * sp * 0.08 * dt * 8; car.drifting = sp > 30; }
+  }
+}
+
+function damageVehicleOnCollision(car, impactSpeed, other) {
+  if (car.wrecked || impactSpeed < 3.5) return;
+  const plating = car === G.player.car ? 1 - 0.2 * G.upgrades.armour : 1;
+  car.hp -= (impactSpeed - 3) * 1.5 * plating * (car.kind === 'traffic' ? 1.6 : 1);
+  spawnSparks(car.x + Math.sin(car.heading) * car.spec.len * 0.4, car.y + 0.6, car.z + Math.cos(car.heading) * car.spec.len * 0.4, Math.min(10, 3 + impactSpeed * 0.4));
+  playCrashSound(impactSpeed);
+  if (car === G.player.car) {
+    addCameraShake(Math.min(0.6, impactSpeed * 0.03));
+    if (other && other.kind === 'traffic' && impactSpeed > 9) reportCrime(1, 'HIT AND RUN');
+  }
+  if (car.hp <= 0) explodeCar(car, car === G.player.car ? null : G.player.car === other ? 'player' : null);
+}
+
+function updatePlayerDriving(dt) {
+  const car = G.player.car;
+  const throttle = (W.keys.KeyW || W.keys.ArrowUp ? 1 : 0) - (W.keys.KeyS || W.keys.ArrowDown ? 1 : 0);
+  const steer = (W.keys.KeyD || W.keys.ArrowRight ? 1 : 0) - (W.keys.KeyA || W.keys.ArrowLeft ? 1 : 0);
+  car.boost = (1 + 0.12 * G.upgrades.engine) * (G.crew.sari.active > 0 ? 1.45 : 1);
+  car.gripBonus = 1 + 0.1 * G.upgrades.tyres;
+  const before = { x: car.x, z: car.z };
+  driveVehicleWithArcadePhysics(car, car.wrecked ? 0 : throttle, steer, !!W.keys.Space, dt);
+  resolveCarAgainstWorld(car);
+  resolveCarAgainstCars(car);
+  G.stats.distance += dist2d(before.x, before.z, car.x, car.z);
+  G.stats.topSpeed = Math.max(G.stats.topSpeed, Math.abs(car.speed) * 3.6);
+  if ((car.drifting || (throttle > 0 && car.speed < 8 && car.speed > 0.5)) && G.frame % 3 === 0) spawnTyreSmoke(car);
+  if (W.keysHit.KeyH) playHorn();
+  if (W.keysHit.KeyV) cycleCameraMode();
+  if (!isLandAt(car.x, car.z) && car.y < 1) sinkPlayerInWater();
+  G.player.x = car.x; G.player.z = car.z; G.player.y = car.y; G.player.heading = car.heading;
+}
+
+function spawnCar(modelId, x, z, heading, kind, colorHex) {
+  const spec = CAR_MODELS[modelId];
+  const color = colorHex === undefined ? randPick(spec.colors) : colorHex;
+  const mesh = modelId === 'cruiser' ? makePoliceCruiserMesh() : modelId === 'badak' ? makeSwatVanMesh() : makeCarMesh(modelId, color);
+  const car = {
+    id: W.nextId++, model: modelId, spec: spec, mesh: mesh, color: color, kind: kind,
+    x: x, z: z, y: groundHeightAt(x, z), vy: 0, heading: heading, speed: 0, slip: 0, steer: 0,
+    kx: 0, kz: 0, hp: spec.hp, boost: 1, gripBonus: 1, tyresOut: false, drifting: false, wrecked: false,
+    occupied: kind !== 'parked', siren: false, alarm: 0, ai: null, name: '', stuck: 0, fire: 0, doorOpen: 0
   };
-  car.mesh.position.set(x, car.y, z); car.mesh.rotation.y = h;
-  TA.scene.add(car.mesh);
-  TA.cars.push(car);
+  W.scene.add(mesh);
+  W.cars.push(car);
+  updateCarMesh(car, 0);
   return car;
-};
+}
 
-TA.removeCar = function (car) {
-  var i = TA.cars.indexOf(car);
-  if (i >= 0) TA.cars.splice(i, 1);
-  TA.scene.remove(car.mesh);
+function removeCar(car) {
+  W.scene.remove(car.mesh);
+  const i = W.cars.indexOf(car);
+  if (i >= 0) W.cars.splice(i, 1);
   car.removed = true;
-  if (TA.player && TA.player.car === car) TA.player.car = null;
-};
+}
 
-TA.carForward = function (car) { return { x: Math.sin(car.h), z: Math.cos(car.h) }; };
-
-// One step of arcade car physics. throttle -1..1, steer -1..1 (positive = right), handbrake true/false.
-TA.stepCarPhysics = function (car, throttle, steer, handbrake, dt) {
-  var m = car.model, fx = Math.sin(car.h), fz = Math.cos(car.h);
-  var vf = car.vx * fx + car.vz * fz, vlx = car.vx - fx * vf, vlz = car.vz - fz * vf;
-  var top = m.top * (car.tyres ? 1 : 0.45) * (car.kind === 'player' ? 1 + TA.state.upgrades.engine * 0.08 : 1) * (car.boost > 0 ? 1.35 : 1);
-  var hpFactor = car.hp < car.maxHp * 0.25 ? 0.7 : 1;
-  if (!car.air) {
-    if (throttle > 0) vf += m.acc * (car.boost > 0 ? 2 : 1) * hpFactor * throttle * Math.max(0, 1 - vf / top) * dt;
-    else if (throttle < 0) vf += (vf > 0.5 ? -26 : -m.acc * 0.6 * Math.max(0, 1 + vf / (top * 0.3))) * -throttle * dt;
-    vf -= vf * (0.12 + (handbrake ? 1.1 : 0)) * dt + Math.sign(vf) * Math.min(Math.abs(vf), 0.8 * dt);
-    // steering tightens with speed; reversing flips it
-    var rate = 2.7 / (1 + Math.abs(vf) / 24) * Math.min(1, Math.abs(vf) / 4) * (handbrake ? 1.5 : 1);
-    car.h = TA.wrapAngle(car.h - steer * rate * dt * (vf >= 0 ? 1 : -1));
-    var grip = (handbrake ? 1.4 : 9) * m.grip * (car.tyres ? 1 : 0.5) * (TA.state.weather === 'rain' ? 0.6 : 1);
-    var keep = Math.exp(-grip * dt);
-    vlx *= keep; vlz *= keep;
-    car.slip = Math.sqrt(vlx * vlx + vlz * vlz);
-  }
-  fx = Math.sin(car.h); fz = Math.cos(car.h);
-  car.vx = fx * vf + vlx; car.vz = fz * vf + vlz;
-  car.speed = vf;
-  TA.moveCar(car, dt);
-};
-
-// Integrates position, resolves collisions against the city, keeps the car on land and on the ground.
-TA.moveCar = function (car, dt) {
-  var before = Math.sqrt(car.vx * car.vx + car.vz * car.vz);
-  car.x += car.vx * dt; car.z += car.vz * dt;
-  var fx = Math.sin(car.h), fz = Math.cos(car.h), off = car.model.len * 0.28, hitAny = false;
-  for (var s = -1; s <= 1; s += 2) {
-    var probe = { x: car.x + fx * off * s, z: car.z + fz * off * s, nx: 0, nz: 0 };
-    var px = probe.x, pz = probe.z;
-    if (TA.collideCircle(probe, car.radius) || TA.keepOnLand(probe)) {
-      car.x += probe.x - px; car.z += probe.z - pz;
-      var vn = car.vx * probe.nx + car.vz * probe.nz;
-      if (vn < 0) { car.vx -= probe.nx * vn * 1.35; car.vz -= probe.nz * vn * 1.35; if (-vn > 4) TA.carImpact(car, -vn, car.x - probe.nx * car.radius, car.z - probe.nz * car.radius); }
-      else if (!probe.nx && !probe.nz) { car.vx *= 0.5; car.vz *= 0.5; }
-      hitAny = true;
+function resolveCarAgainstWorld(car) {
+  if (car.y > groundHeightAt(car.x, car.z) + 1.2) return;
+  const fx = Math.sin(car.heading), fz = Math.cos(car.heading), r = car.spec.wid * 0.56, reach = car.spec.len * 0.3;
+  for (const end of [1, -1]) {
+    const px = car.x + fx * reach * end, pz = car.z + fz * reach * end;
+    const out = pushOutOfColliders(px, pz, r);
+    if (!out.hit) continue;
+    car.x += out.x - px; car.z += out.z - pz;
+    const into = -(fx * out.nx + fz * out.nz) * car.speed;
+    if (into > 0.5) {
+      damageVehicleOnCollision(car, into, null);
+      car.speed *= into > 6 ? 0.25 : 0.7;
+      // Glance off the wall instead of sticking to it.
+      const side = fx * out.nz - fz * out.nx;
+      car.heading += clamp(side, -1, 1) * 0.06 * end;
     }
   }
-  if (hitAny) car.speed = car.vx * fx + car.vz * fz;
-  var gy = TA.groundY(car.x, car.z);
-  if (car.air) {
-    car.vy -= 22 * dt; car.y += car.vy * dt;
-    if (car.y <= gy) { car.y = gy; car.air = false; if (car.vy < -9) TA.carImpact(car, -car.vy * 0.5, car.x, car.z); car.vy = 0; if (car.onLand) car.onLand(car); }
-  } else car.y = gy;
-  car.mesh.position.set(car.x, car.y, car.z);
-  car.mesh.rotation.set(car.air ? -car.vy * 0.02 : 0, car.h, TA.clamp((car.slip || 0) * 0.02, -0.1, 0.1) * (car.steerSign || 0));
-  if (car.kind === 'player') TA.state.stats.distance += before * dt;
-};
+}
 
-TA.launchCar = function (car, vy) { if (!car.air) { car.air = true; car.vy = vy; car.y += 0.2; } };
-
-// Damage from a crash, scaled by the closing speed; sparks fly from the contact point.
-TA.carImpact = function (car, closing, x, z) {
-  var plating = car.kind === 'player' ? 1 - TA.state.upgrades.plating * 0.2 : 1;
-  TA.damageCar(car, closing * 0.9 * plating, null);
-  if (TA.spawnSparks) TA.spawnSparks(x, car.y + 0.6, z, Math.min(8, 2 + closing * 0.3));
-  if (car.kind === 'player') { TA.addShake(Math.min(0.6, closing * 0.03)); if (TA.sfx) TA.sfx('crash', Math.min(1, closing / 20)); }
-};
-
-TA.damageCar = function (car, amount, by) {
-  if (car.dead || car.invincible) return;
-  car.hp -= amount;
-  if (by === 'player' && car.kind === 'traffic' && car.ai) car.ai.flee = 8;
-  if (car.hp <= 0) TA.explodeCar(car, by);
-};
-
-TA.explodeCar = function (car, by) {
-  if (car.dead) return;
-  car.dead = true; car.hp = 0; car.deadT = 0; car.driver = false; car.vx *= 0.3; car.vz *= 0.3; car.siren = false;
-  car.mesh.children[0].material = TA.wreckMaterial || (TA.wreckMaterial = new THREE.MeshLambertMaterial({ color: 0x2a2623 }));
-  TA.flashBars(car.mesh, 0, false);
-  if (TA.spawnExplosion) TA.spawnExplosion(car.x, car.y + 1, car.z, 1 + car.model.len / 6);
-  TA.blastDamage(car.x, car.z, 7, 70, car);
-  if (TA.onCarDestroyed) TA.onCarDestroyed(car, by);
-  if (TA.player && TA.player.car === car) { TA.exitCar(true); TA.damagePlayer(60, null); }
-};
-
-// Area damage around an explosion: people, other cars and the player.
-TA.blastDamage = function (x, z, radius, dmg, source) {
-  TA.cars.forEach(function (c) { if (c !== source && !c.dead) { var d = TA.dist(x, z, c.x, c.z); if (d < radius) TA.damageCar(c, dmg * (1 - d / radius), 'blast'); } });
-  TA.people.forEach(function (p) { if (!p.dead) { var d = TA.dist(x, z, p.x, p.z); if (d < radius) TA.damagePerson(p, dmg * (1 - d / radius) * 1.5, 'blast'); } });
-  var pl = TA.player;
-  if (pl && !pl.car && TA.dist(x, z, pl.x, pl.z) < radius) TA.damagePlayer(dmg * 0.6 * (1 - TA.dist(x, z, pl.x, pl.z) / radius), null);
-};
-
-// Car against car: equal-mass push apart with damage to both, heavier models shove lighter ones.
-TA.collideCars = function () {
-  var cars = TA.cars, n = cars.length;
-  for (var i = 0; i < n; i++) {
-    var a = cars[i];
-    for (var j = i + 1; j < n; j++) {
-      var b = cars[j], dx = b.x - a.x, dz = b.z - a.z, rr = a.radius + b.radius + 0.5;
-      if (Math.abs(dx) > rr || Math.abs(dz) > rr || Math.abs(a.y - b.y) > 2.5) continue;
-      var d = Math.sqrt(dx * dx + dz * dz);
-      if (d >= rr || d < 0.01) continue;
-      var nx = dx / d, nz = dz / d, pen = rr - d, ma = a.model.hp, mb = b.model.hp, ta = mb / (ma + mb), tb = 1 - ta;
-      if (a.static) { ta = 0; tb = 1; } if (b.static) { tb = 0; ta = a.static ? 0 : 1; }
-      a.x -= nx * pen * ta; a.z -= nz * pen * ta; b.x += nx * pen * tb; b.z += nz * pen * tb;
-      var rel = (a.vx - b.vx) * nx + (a.vz - b.vz) * nz;
-      if (rel > 0) {
-        a.vx -= nx * rel * ta * 1.2; a.vz -= nz * rel * ta * 1.2; b.vx += nx * rel * tb * 1.2; b.vz += nz * rel * tb * 1.2;
-        if (rel > 3) {
-          var who = a.kind === 'player' ? 'player' : b.kind === 'player' ? 'player' : null;
-          TA.damageCar(a, rel * 0.8 * (a.kind === 'player' ? 0.5 : 1), who); TA.damageCar(b, rel * 0.8 * (b.kind === 'player' ? 0.5 : 1), who);
-          if (TA.spawnSparks) TA.spawnSparks(a.x + nx * a.radius, a.y + 0.7, a.z + nz * a.radius, Math.min(8, rel * 0.4));
-          if (who) { TA.addShake(Math.min(0.5, rel * 0.025)); if (TA.sfx) TA.sfx('crash', Math.min(1, rel / 18)); if (TA.onPlayerRam) TA.onPlayerRam(a.kind === 'player' ? b : a, rel); }
-        }
-      }
-    }
+function resolveCarAgainstCars(car) {
+  const ra = car.spec.len * 0.42;
+  for (const other of W.cars) {
+    if (other === car || Math.abs(other.y - car.y) > 2.5) continue;
+    const rb = other.spec.len * 0.42, dx = other.x - car.x, dz = other.z - car.z, d = Math.hypot(dx, dz);
+    if (d >= ra + rb || d < 0.001) continue;
+    const nx = dx / d, nz = dz / d, overlap = ra + rb - d;
+    const ma = car.spec.hp, mb = other.spec.hp * (other.wrecked ? 2 : 1), share = mb / (ma + mb);
+    car.x -= nx * overlap * share; car.z -= nz * overlap * share;
+    other.x += nx * overlap * (1 - share); other.z += nz * overlap * (1 - share);
+    const va = Math.sin(car.heading) * car.speed * nx + Math.cos(car.heading) * car.speed * nz;
+    const vb = Math.sin(other.heading) * other.speed * nx + Math.cos(other.heading) * other.speed * nz;
+    const closing = va - vb;
+    if (closing <= 0.5) continue;
+    damageVehicleOnCollision(car, closing * (1 - share) * 1.6, other);
+    damageVehicleOnCollision(other, closing * share * 1.6, car);
+    car.speed -= Math.sign(car.speed) * Math.min(Math.abs(car.speed), closing * (1 - share) * 0.8);
+    other.kx += nx * closing * share * 0.9; other.kz += nz * closing * share * 0.9;
+    if (other.ai) other.ai.shoved = 1.5;
   }
-};
+}
 
-// Steers and throttles a car toward a point using the same physics as the player (police, convoys, rivals).
-TA.driveToward = function (car, tx, tz, dt, maxSpeed, brakeDist) {
-  var want = TA.headingTo(tx - car.x, tz - car.z), diff = TA.wrapAngle(want - car.h), d = TA.dist(car.x, car.z, tx, tz);
-  var steer = TA.clamp(-diff * 2.2, -1, 1), limit = maxSpeed * (Math.abs(diff) > 0.9 ? 0.35 : Math.abs(diff) > 0.4 ? 0.65 : 1);
-  if (brakeDist && d < brakeDist) limit = Math.min(limit, maxSpeed * d / brakeDist);
-  var throttle = car.speed < limit ? 1 : car.speed > limit + 3 ? -0.6 : 0;
-  // stuck against something: back out with opposite lock
-  car.stuckT = Math.abs(car.speed) < 1.2 && throttle > 0 ? (car.stuckT || 0) + dt : Math.max(0, (car.stuckT || 0) - dt * 2);
-  if (car.stuckT > 1.2) { car.reverseT = 1.1; car.stuckT = 0; }
-  if (car.reverseT > 0) { car.reverseT -= dt; throttle = -1; steer = -steer; }
-  TA.stepCarPhysics(car, throttle, steer, false, dt);
-  return d;
-};
-
-// ---- the player's car -----------------------------------------------------
-TA.updatePlayerDriving = function (dt) {
-  var p = TA.player, car = p.car, ax = TA.axis();
-  var handbrake = TA.keyDown('Space');
-  car.steerSign = ax.r;
-  if (car.boost > 0) car.boost -= dt;
-  if (car.dead) { TA.exitCar(true); return; }
-  TA.stepCarPhysics(car, ax.f, ax.r, handbrake, dt);
-  p.x = car.x; p.z = car.z; p.y = car.y; p.h = car.h;
-  var sp = Math.abs(car.speed);
-  if (TA.spawnSmoke) {
-    if ((car.slip > 3.5 || (handbrake && sp > 8) || car.boost > 0) && !car.air) { TA.emitTyreSmoke(car); }
+function explodeCar(car, creditedTo) {
+  if (car.wrecked) return;
+  car.wrecked = true;
+  car.hp = 0; car.speed *= 0.3; car.siren = false; car.fire = 14;
+  spawnExplosion(car.x, car.y + 0.8, car.z, 1.3);
+  car.mesh.children[0].material = W.mat.wreck || (W.mat.wreck = new THREE.MeshLambertMaterial({ vertexColors: true, color: 0x3a3632 }));
+  if (car.mesh.userData.lightbar) flashLightBar(car.mesh.userData.lightbar, 0, false);
+  const wasPolice = car.kind === 'police' || car.kind === 'swat' || car.kind === 'roadblock';
+  if (car === G.player.car) hurtPlayer(200, 'explosion');
+  else if (dist2d(car.x, car.z, playerPosition().x, playerPosition().z) < 7) hurtPlayer(45, 'explosion');
+  if (creditedTo === 'player' || wasPolice || car.kind === 'target' || car.kind === 'convoy') {
+    G.stats.wrecks++;
+    if (wasPolice) { reportCrime(1, 'OFFICER DOWN'); awardRankPoints(8, 'Cruiser wrecked'); }
   }
-  if (TA.keyHit('KeyH') && TA.sfx) TA.sfx('horn', 1);
-  // stunt ramps launch the car
-  if (!car.air && sp > 16) for (var i = 0; i < TA.RAMPS.length; i++) {
-    var r = TA.RAMPS[i];
-    if (TA.dist(car.x, car.z, r[0], r[1]) < 3.2 && Math.abs(TA.wrapAngle(car.h - r[2])) < 0.8) { TA.launchCar(car, 5 + sp * 0.22); if (TA.onRampJump) TA.onRampJump(i, car); }
-  }
-};
+  for (const other of W.cars) if (other !== car && !other.wrecked && dist2d(car.x, car.z, other.x, other.z) < 6) other.hp -= 35;
+  car.kind = 'wreck';
+  car.occupied = false;
+  car.ai = null;
+}
 
-TA.emitTyreSmoke = function (car) {
-  car.smokeT = (car.smokeT || 0) + 1;
-  if (car.smokeT % 2) return;
-  var fx = Math.sin(car.h), fz = Math.cos(car.h), rx = -fz, rz = fx, back = car.model.len * 0.36, w = car.model.wid * 0.42;
-  TA.spawnSmoke(car.x - fx * back + rx * w, car.y + 0.2, car.z - fz * back + rz * w, 0.3, 0xffffff, 0.55, 0.16);
-  TA.spawnSmoke(car.x - fx * back - rx * w, car.y + 0.2, car.z - fz * back - rz * w, 0.3, 0xffffff, 0.55, 0.16);
-};
+function sinkPlayerInWater() {
+  spawnSplash(G.player.car ? G.player.car.x : G.player.x, G.player.car ? G.player.car.z : G.player.z);
+  if (G.player.car) { const car = G.player.car; G.player.car = null; G.player.onFoot = true; removeCar(car); }
+  hurtPlayer(200, 'drowned');
+}
 
-// Shared per-step upkeep for every car: wreck timers, damage smoke, light bars.
-TA.updateCars = function (dt) {
-  TA.collideCars();
-  for (var i = TA.cars.length - 1; i >= 0; i--) {
-    var c = TA.cars[i];
-    if (c.dead) {
-      c.deadT += dt;
-      if (TA.spawnSmoke && TA.run.frame % 9 === 0 && c.deadT < 14) TA.spawnSmoke(c.x, c.y + 1.4, c.z, 1.6, 0x2b2b2b, 2.2);
-      if (TA.spawnFire && TA.run.frame % 7 === 0 && c.deadT < 9) TA.spawnFire(c.x + TA.rr(-0.8, 0.8), c.y + 1, c.z + TA.rr(-0.8, 0.8), 1.1);
-      if (c.deadT > 30 && TA.player && TA.dist(c.x, c.z, TA.player.x, TA.player.z) > 60 && !c.keep) TA.removeCar(c);
-      else if (Math.abs(c.vx) + Math.abs(c.vz) > 0.05) { c.vx *= 0.9; c.vz *= 0.9; TA.moveCar(c, dt); }
-      continue;
-    }
-    if (c.hp < c.maxHp * 0.4 && TA.spawnSmoke && TA.run.frame % (c.hp < c.maxHp * 0.2 ? 5 : 12) === 0) {
-      TA.spawnSmoke(c.x + Math.sin(c.h) * c.model.len * 0.35, c.y + 1.0, c.z + Math.cos(c.h) * c.model.len * 0.35, 0.8, c.hp < c.maxHp * 0.2 ? 0x222222 : 0x9aa0a6, 1.4);
-    }
-    if (c.mesh.userData.bars.length) TA.flashBars(c.mesh, TA.run.time + c.id * 0.13, c.siren);
-    // an empty car that was left rolling coasts to a stop
-    if (!c.driver && c.kind !== 'player' && !c.static && (Math.abs(c.vx) + Math.abs(c.vz) > 0.05)) TA.stepCarPhysics(c, 0, 0, true, dt);
+function updateCarMesh(car, dt) {
+  const m = car.mesh;
+  if (car.kx || car.kz) {
+    car.x += car.kx * dt; car.z += car.kz * dt;
+    const k = Math.exp(-dt * 3.2);
+    car.kx *= k; car.kz *= k;
+    if (Math.abs(car.kx) + Math.abs(car.kz) < 0.05) car.kx = car.kz = 0;
   }
-};
+  m.position.set(car.x, car.y, car.z);
+  const fx = Math.sin(car.heading), fz = Math.cos(car.heading), half = car.spec.len * 0.4;
+  const pitch = car.y > 0.3 ? Math.atan2(groundHeightAt(car.x - fx * half, car.z - fz * half) - groundHeightAt(car.x + fx * half, car.z + fz * half), half * 2) : 0;
+  m.rotation.set(pitch + (car.vy ? -car.vy * 0.012 : 0), car.heading, clamp(car.slip * 0.018 + car.steer * Math.abs(car.speed) * 0.0022, -0.12, 0.12), 'YXZ');
+  if (m.userData.lightbar && !car.wrecked) flashLightBar(m.userData.lightbar, G.time + car.id * 0.37, car.siren);
+  if (m.userData.door) m.userData.door.rotation.y = -car.doorOpen * 1.15;
+  if (car.wrecked && car.fire > 0) {
+    car.fire -= dt;
+    if (G.frame % 5 === car.id % 5) spawnFireAndSmoke(car.x, car.y + 1.0, car.z, car.fire > 4 ? 1 : 0.5);
+  } else if (!car.wrecked && car.hp < car.spec.hp * 0.4 && G.frame % 9 === car.id % 9) spawnSmokePuff(car.x + fx * half, car.y + 1.0, car.z + fz * half, 0.5, 0x555555);
+  if (car.alarm > 0) car.alarm -= dt;
+}
+
+function updateAllCars(dt) {
+  for (let i = W.cars.length - 1; i >= 0; i--) {
+    const car = W.cars[i];
+    if (!car.wrecked && car.hp <= 0) explodeCar(car, null);
+    if (car.kind === 'wreck' && car.fire <= 0 && dist2d(car.x, car.z, G.player.x, G.player.z) > 160 && !car.keep) { removeCar(car); continue; }
+    updateCarMesh(car, dt);
+  }
+}

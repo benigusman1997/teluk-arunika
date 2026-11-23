@@ -1,74 +1,54 @@
-// The crew: recruitment, ability cooldowns and effects (Z / X / C), and radio chatter lines.
-TA.crewRun = { sari: { cd: 0, active: 0 }, budi: { cd: 0, active: 0 }, agus: { cd: 0, active: 0 } };
-TA.CHATTER = {
-  sari: ['Gaspol! Keep it pinned, Raka!', 'Left at the lights, they never cover it.', 'Boulevard is clear for two blocks. Go!', 'You drive like my grandmother. Faster!'],
-  budi: ['She will hold together. Probably.', 'Bring it in, I will patch her in ten seconds.', 'Smoke means stop. Usually.', 'New plating is holding.'],
-  agus: ['Their radios just went quiet.', 'One unit dropped off the board.', 'ELANG-1 is on a short leash. Use the towers.', 'Cameras on Jl. Neon are looping.']
-};
+// The crew: Sari (driver), Budi (mechanic) and Agus (hacker) with paid recruitment and cooldown abilities.
 
-TA.crewDef = function (id) { for (var i = 0; i < TA.CREW.length; i++) if (TA.CREW[i].id === id) return TA.CREW[i]; return null; };
-
-TA.unlockCrew = function (id) {
-  if (TA.state.crew[id]) return;
-  TA.state.crew[id] = true;
-  var c = TA.crewDef(id);
-  TA.showBanner('CREW JOINED', c.name.toUpperCase() + ' "' + c.nick.toUpperCase() + '" — ' + c.key + ': ' + c.ability, c.color);
-  TA.say(id, id === 'sari' ? 'I drive, you shoot. Deal?' : id === 'budi' ? 'Anything with wheels, I can keep alive.' : 'I listen. They talk too much.');
-};
-
-// Puts a line in the chatter box at the bottom of the screen. who = crew id or a plain speaker name.
-TA.say = function (who, line) {
-  var c = TA.crewDef(who);
-  TA.run.chatter = { who: c ? c.name.toUpperCase() : who, role: c ? c.role + ' · "' + c.nick + '"' : '', color: c ? c.color : '#ffd166', line: line, initial: (c ? c.name : who).charAt(0) };
-  TA.run.chatterT = 6;
-};
-
-TA.useAbility = function (id) {
-  var def = TA.crewDef(id), st = TA.crewRun[id], p = TA.player;
-  if (!TA.state.crew[id]) { TA.showBanner('NOT RECRUITED', def.name.toUpperCase() + ' joins through the story or at the garage', '#adb5bd'); return false; }
-  if (st.cd > 0) return false;
-  if (id === 'sari') {
-    if (!p.car) { TA.say('sari', 'Get in a car first!'); return false; }
-    p.car.boost = def.duration; st.active = def.duration;
-  } else if (id === 'budi') {
-    if (p.car) { p.car.hp = p.car.maxHp; p.car.tyres = true; }
-    p.armour = Math.min(100, p.armour + 50); p.hp = Math.min(100, p.hp + 25);
-  } else {
-    if (TA.run.wanted <= 0) { TA.say('agus', 'Nobody is looking for you. Yet.'); return false; }
-    var w = TA.run.wanted - 1;
-    TA.run.wantedTimer = 0;
-    if (w === 0) TA.setWanted(0);
-    else { TA.run.wanted = w; TA.showBanner('GHOST', 'ONE STAR DROPPED — ' + TA.STATUS_LINES[w], '#72efdd'); if (w < 4 && TA.heliStandDown) TA.heliStandDown(); }
-  }
-  st.cd = def.cooldown;
-  TA.say(id, TA.pick(TA.CHATTER[id]));
-  if (TA.sfx) TA.sfx('ability', 0.8);
+function recruitCrewMember(id) {
+  const c = CREW.find((m) => m.id === id), s = G.crew[id];
+  if (s.recruited) return false;
+  if (G.money < c.cost) { showBanner('NOT ENOUGH CASH', c.name + ' wants ' + formatMoney(c.cost), 2); return false; }
+  addMoney(-c.cost, 'Crew: ' + c.name);
+  s.recruited = true;
+  awardRankPoints(20, 'Crew recruited');
+  sayChatter(id, id === 'sari' ? 'Sari here. Give me a road and I will give you wings.' : id === 'budi' ? 'Budi. If it has wheels, I can fix it at a red light.' : 'Agus. I do not talk much. Their radios will talk even less.', 5);
+  showBanner(c.name + ' JOINED THE CREW', c.ability + ' - press ' + c.key, 3);
+  playUiSound('complete');
   return true;
-};
+}
 
-TA.updateCrew = function (dt) {
-  var r = TA.run;
-  TA.CREW.forEach(function (c) {
-    var st = TA.crewRun[c.id];
-    if (st.cd > 0) st.cd = Math.max(0, st.cd - dt);
-    if (st.active > 0) st.active = Math.max(0, st.active - dt);
-    if (TA.keyHit('Key' + c.key)) TA.useAbility(c.id);
-  });
-  if (r.chatterT > 0) { r.chatterT -= dt; if (r.chatterT <= 0) r.chatter = null; }
-  // idle chatter during a chase
-  r.chatterIdle = (r.chatterIdle || 0) + dt;
-  if (!r.chatter && r.chatterIdle > 14 && r.wanted >= 2) {
-    r.chatterIdle = 0;
-    var have = TA.CREW.filter(function (c) { return TA.state.crew[c.id]; });
-    if (have.length) { var who = TA.pick(have); TA.say(who.id, TA.pick(TA.CHATTER[who.id])); }
+function useCrewAbility(id) {
+  const c = CREW.find((m) => m.id === id), s = G.crew[id], car = G.player.car;
+  if (!s.recruited) { showBanner(c.name + ' IS NOT IN THE CREW', "Recruit at Pak Amir's workshop", 1.6); return false; }
+  if (s.cooldown > 0 || s.active > 0) return false;
+  if (id === 'sari') {
+    if (!car) { showBanner('GASPOL NEEDS A CAR', '', 1.2); return false; }
+    s.active = c.duration;
+    car.speed = Math.max(car.speed, car.speed + 8);
+  } else if (id === 'budi') {
+    if (car) { car.hp = car.spec.hp; car.tyresOut = false; }
+    G.armour = Math.max(G.armour, currentRankIndex() >= 2 ? 125 : 100);
+    G.health = Math.min(100, G.health + 35);
+    s.active = c.duration;
+  } else {
+    if (G.wanted <= 0) { showBanner('NO HEAT TO DROP', '', 1.2); return false; }
+    const before = G.wanted;
+    if (before === 1) clearWantedLevel(true);
+    else { G.wanted = before - 1; G.incident = INCIDENTS[G.wanted]; G.heat = 0.6; if (G.wanted < 4) dismissAirAndSwat(); }
+    s.active = c.duration;
   }
-};
+  s.cooldown = c.cooldown * (currentRankIndex() >= 2 ? 0.85 : 1);
+  sayChatter(id, randPick(c.lines), 4);
+  showBanner(c.name + ' - ' + c.ability, c.desc, 1.8);
+  playUiSound('stage');
+  completeTutorialHint('crew');
+  return true;
+}
 
-// State of one ability card for the HUD: locked, ready, active or cooling down.
-TA.abilityState = function (id) {
-  var st = TA.crewRun[id], def = TA.crewDef(id);
-  if (!TA.state.crew[id]) return { text: 'LOCKED', frac: 0, cls: 'locked' };
-  if (st.active > 0) return { text: 'ACTIVE', frac: st.active / def.duration, cls: 'active' };
-  if (st.cd > 0) return { text: Math.ceil(st.cd) + 's', frac: 1 - st.cd / def.cooldown, cls: 'cooling' };
-  return { text: 'READY', frac: 1, cls: 'ready' };
-};
+function updateCrewAbilities(dt) {
+  for (const c of CREW) {
+    const s = G.crew[c.id];
+    if (s.active > 0) s.active = Math.max(0, s.active - dt);
+    else if (s.cooldown > 0) s.cooldown = Math.max(0, s.cooldown - dt);
+    if (W.keysHit[c.code]) useCrewAbility(c.id);
+  }
+  // Sari keeps talking while the heat is on.
+  W.crewTalk = (W.crewTalk || 12) - dt;
+  if (W.crewTalk <= 0 && G.wanted >= 3 && G.player.car && G.crew.sari.recruited && !G.chatter && !(G.contract && CONTRACTS[G.contract.index].bank)) { W.crewTalk = 14; sayChatter('sari', randPick(CREW[0].lines), 4); }
+}

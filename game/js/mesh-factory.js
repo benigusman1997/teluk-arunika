@@ -1,433 +1,752 @@
-// Procedural meshes: geometry batching, canvas textures, cars, police units, helicopter, people, palms and street props.
+// Procedural meshes: cars, police cruiser, SWAT van, helicopter, people, palms, street props, canvas textures, portraits.
 
-// ---- geometry batch: merges many coloured primitives into one mesh ----------
-TA.GEO = {};
-TA.unitGeo = function (key, make) {
-  if (!TA.GEO[key]) { var g = make(); TA.GEO[key] = g.index ? g.toNonIndexed() : g; }
-  return TA.GEO[key];
-};
+function makeCarMesh(modelId, colorHex) {
+  const spec = CAR_MODELS[modelId];
+  const group = new THREE.Group();
+  const batch = createGeometryBatch();
+  const L = spec.len, wd = spec.wid;
+  if (spec.style === 'truck') addTruckBody(batch, L, wd, colorHex);
+  else if (spec.style === 'van') addVanBody(batch, L, wd, colorHex, 1.9);
+  else if (spec.style === 'swat') addVanBody(batch, L, wd, colorHex, 2.55);
+  else if (spec.style === 'scooter') addScooterBody(batch, L, colorHex);
+  else addSaloonBody(batch, L, wd, colorHex, spec.style);
+  group.add(batchToMesh(batch, sharedMaterial('flat'), true, true));
+  group.add(makeContactShadow(wd + 1.1, L + 1.3));
+  group.userData = { model: modelId, door: null, lightbar: null, rearDoors: null, rider: null };
+  if (spec.style === 'scooter') {
+    const rider = makePersonMesh({ shirt: randPick(PED_SHIRTS), pants: 0x2b3a55, skin: randPick(PED_SKINS), hair: 0x1a1a1a, hat: 'helmet', hatColor: randPick([0xf8f9fa, 0xffd43b, 0xe03131]) });
+    rider.position.set(0, 0.42, -0.2);
+    posePerson(rider, 'sit', 0);
+    rider.children.forEach((c) => { if (c.userData.shadowBlob) c.visible = false; });
+    group.add(rider);
+    group.userData.rider = rider;
+  } else if (spec.style !== 'truck' && spec.style !== 'swat') {
+    // The driver's door (right-hand drive) is its own panel so it can swing open during a carjack.
+    const door = new THREE.Group();
+    const panel = new THREE.Mesh(unitGeometry('box'), new THREE.MeshLambertMaterial({ color: colorHex }));
+    panel.scale.set(0.07, 0.5, 1.05);
+    panel.position.set(0, 0, -0.52);
+    panel.castShadow = true;
+    door.add(panel);
+    door.position.set(-wd / 2 - 0.02, 0.64, L * 0.13);
+    group.add(door);
+    group.userData.door = door;
+  }
+  if (spec.style === 'taxi') {
+    const sign = makeSignMesh('TAKSI', 0.9, 0.3, { bg: '#fff7d6', fg: '#1b1b1b', size: 44 });
+    sign.position.set(0, 1.62, -0.25);
+    group.add(sign);
+    const back = sign.clone();
+    back.rotation.y = Math.PI;
+    group.add(back);
+  }
+  if (spec.style === 'swat') addSwatVanDetails(group, L, wd);
+  return group;
+}
 
-TA.Batch = function () {
-  var pos = [], nor = [], col = [], uv = [];
-  var m = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler(0, 0, 0, 'YXZ');
-  var p = new THREE.Vector3(), s = new THREE.Vector3(), v = new THREE.Vector3(), n = new THREE.Vector3(), nm = new THREE.Matrix3(), c = new THREE.Color();
-  var b = { count: 0 };
-  b.add = function (geo, color) {
-    var gp = geo.attributes.position, gn = geo.attributes.normal;
-    c.setHex(color);
-    nm.getNormalMatrix(m);
-    for (var i = 0; i < gp.count; i++) {
-      v.fromBufferAttribute(gp, i).applyMatrix4(m); pos.push(v.x, v.y, v.z);
-      n.fromBufferAttribute(gn, i).applyMatrix3(nm).normalize(); nor.push(n.x, n.y, n.z);
-      col.push(c.r, c.g, c.b); uv.push(0, 0);
+function makePoliceCruiserMesh() {
+  const spec = CAR_MODELS.cruiser;
+  const group = makeCarMesh('cruiser', spec.colors[0]);
+  const L = spec.len, wd = spec.wid;
+  for (const side of [-1, 1]) {
+    const label = makeSignMesh('TAPD', 2.3, 0.62, { bg: '#1c4fa3', fg: '#ffffff', size: 58, lit: true });
+    label.position.set(side * (wd / 2 + 0.035), 0.66, -0.1);
+    label.rotation.y = side * Math.PI / 2;
+    group.add(label);
+  }
+  const hood = makeSignMesh('TAPD', 1.5, 0.5, { bg: '#1c4fa3', fg: '#ffffff', size: 50, lit: true });
+  hood.rotation.x = -Math.PI / 2;
+  hood.rotation.z = Math.PI;
+  hood.position.set(0, 0.915, L * 0.33);
+  group.add(hood);
+  group.userData.lightbar = makeLightBar(group, 1.5, -0.25, wd * 0.62);
+  return group;
+}
+
+function makeHelicopterMesh() {
+  const group = new THREE.Group();
+  const b = createGeometryBatch();
+  const m = new THREE.Matrix4();
+  m.compose(new THREE.Vector3(0, 0, 0.4), new THREE.Quaternion(), new THREE.Vector3(2.5, 2.4, 5.2));
+  batchAddGeometry(b, unitGeometry('sphere'), m, 0xf1ede2);
+  m.compose(new THREE.Vector3(0, 0.35, 1.9), new THREE.Quaternion(), new THREE.Vector3(2.0, 1.3, 1.9));
+  batchAddGeometry(b, unitGeometry('sphere'), m, 0x16202e);
+  batchAddBox(b, 0, -0.25, 0.4, 2.56, 0.5, 3.4, 0x1c4fa3, 0);
+  batchAddBox(b, 0, 0.25, -4.2, 0.42, 0.5, 5.4, 0xf1ede2, 0);
+  batchAddBox(b, 0, 1.0, -6.6, 0.14, 1.7, 0.9, 0x1c4fa3, 0);
+  batchAddBox(b, 0, 0.3, -6.3, 1.9, 0.1, 0.6, 0x1c4fa3, 0);
+  batchAddBox(b, 0, 1.35, 0.2, 0.3, 0.55, 0.3, 0x30343c, 0);
+  for (const s of [-1, 1]) {
+    batchAddBox(b, s * 1.05, -1.75, 0.4, 0.14, 0.14, 4.4, 0x30343c, 0);
+    batchAddBox(b, s * 0.95, -1.3, 1.5, 0.1, 0.9, 0.1, 0x30343c, 0);
+    batchAddBox(b, s * 0.95, -1.3, -0.7, 0.1, 0.9, 0.1, 0x30343c, 0);
+  }
+  group.add(batchToMesh(b, sharedMaterial('flat'), true, false));
+  for (const side of [-1, 1]) {
+    const tag = makeSignMesh('ELANG-1', 2.3, 0.5, { bg: '#1c4fa3', fg: '#ffffff', size: 46, lit: true });
+    tag.position.set(side * 1.3, -0.25, 0.4);
+    tag.rotation.y = side * Math.PI / 2;
+    group.add(tag);
+  }
+  const rotor = new THREE.Group();
+  const disc = new THREE.Mesh(new THREE.CircleGeometry(5.6, 24), new THREE.MeshBasicMaterial({ color: 0x20242c, transparent: true, opacity: 0.22, side: THREE.DoubleSide, depthWrite: false }));
+  disc.rotation.x = -Math.PI / 2;
+  rotor.add(disc);
+  const blades = createGeometryBatch();
+  batchAddBox(blades, 0, 0, 0, 11.2, 0.06, 0.34, 0x20242c, 0);
+  batchAddBox(blades, 0, 0, 0, 0.34, 0.06, 11.2, 0x20242c, 0);
+  rotor.add(batchToMesh(blades, sharedMaterial('flat'), true, false));
+  rotor.position.set(0, 1.68, 0.2);
+  group.add(rotor);
+  const tail = new THREE.Mesh(new THREE.CircleGeometry(0.95, 14), new THREE.MeshBasicMaterial({ color: 0x20242c, transparent: true, opacity: 0.4, side: THREE.DoubleSide, depthWrite: false }));
+  tail.rotation.y = Math.PI / 2;
+  tail.position.set(0.2, 1.0, -6.6);
+  group.add(tail);
+  const lamp = new THREE.Mesh(unitGeometry('sphere'), new THREE.MeshBasicMaterial({ color: 0xfff6c8, toneMapped: false }));
+  lamp.scale.setScalar(0.6);
+  lamp.position.set(0, -1.25, 1.6);
+  group.add(lamp);
+  // Searchlight: a translucent cone from the lamp to a bright disc on the ground (aimed every frame).
+  const cone = new THREE.Mesh(new THREE.CylinderGeometry(0.25, 1, 1, 20, 1, true), new THREE.MeshBasicMaterial({ color: 0xfff6cf, transparent: true, opacity: 0.11, side: THREE.DoubleSide, depthWrite: false, toneMapped: false, fog: false }));
+  cone.geometry.translate(0, -0.5, 0);
+  const spot = new THREE.Mesh(new THREE.CircleGeometry(1, 24), new THREE.MeshBasicMaterial({ map: sharedTexture('glow'), color: 0xfff3bf, transparent: true, opacity: 0.6, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false }));
+  spot.rotation.x = -Math.PI / 2;
+  group.userData = { rotor: rotor, cone: cone, spot: spot, lamp: lamp, lightbar: null };
+  return group;
+}
+
+function makePersonMesh(look) {
+  const group = new THREE.Group();
+  const rig = new THREE.Group();
+  group.add(rig);
+  const body = createGeometryBatch();
+  batchAddBox(body, 0, 1.16, 0, 0.52, 0.62, 0.28, look.shirt, 0);
+  batchAddBox(body, 0, 0.9, 0, 0.48, 0.14, 0.27, look.pants, 0);
+  batchAddBox(body, 0, 1.5, 0, 0.14, 0.1, 0.14, look.skin, 0);
+  batchAddBox(body, 0, 1.68, 0, 0.3, 0.3, 0.3, look.skin, 0);
+  if (look.vest) batchAddBox(body, 0, 1.2, 0, 0.56, 0.46, 0.32, look.vest, 0);
+  if (look.hat === 'cap') {
+    batchAddBox(body, 0, 1.85, 0, 0.32, 0.09, 0.32, look.hatColor, 0);
+    batchAddBox(body, 0, 1.82, 0.22, 0.28, 0.035, 0.18, look.hatColor, 0);
+  } else if (look.hat === 'helmet') {
+    batchAddBox(body, 0, 1.76, -0.01, 0.36, 0.26, 0.37, look.hatColor, 0);
+    batchAddBox(body, 0, 1.68, 0.17, 0.26, 0.1, 0.04, 0x16202e, 0);
+  } else {
+    batchAddBox(body, 0, 1.84, -0.02, 0.32, 0.08, 0.33, look.hair, 0);
+    batchAddBox(body, 0, 1.7, -0.14, 0.32, 0.26, 0.06, look.hair, 0);
+  }
+  if (look.shield) {
+    batchAddBox(body, 0.12, 0.95, 0.46, 0.66, 1.2, 0.06, 0x20242c, 0);
+    batchAddBox(body, 0.12, 1.36, 0.495, 0.4, 0.14, 0.02, 0x9ad0ff, 0);
+  }
+  rig.add(batchToMesh(body, sharedMaterial('flat'), true, false));
+  const limbs = {};
+  for (const side of [-1, 1]) {
+    const arm = createGeometryBatch();
+    batchAddBox(arm, 0, -0.17, 0, 0.15, 0.34, 0.16, look.sleeve || look.shirt, 0);
+    batchAddBox(arm, 0, -0.47, 0, 0.13, 0.28, 0.14, look.skin, 0);
+    if (side === -1 && look.weapon) {
+      const len = look.weapon === 'pistol' ? 0.26 : look.weapon === 'baton' ? 0.6 : 0.86;
+      batchAddBox(arm, 0, -0.6 - len / 2, 0.02, 0.07, len, look.weapon === 'baton' ? 0.07 : 0.12, 0x14161a, 0);
+      if (look.weapon === 'rifle' || look.weapon === 'smg') batchAddBox(arm, 0, -0.62, -0.12, 0.07, 0.12, 0.2, 0x14161a, 0);
     }
-    b.count += gp.count;
-  };
-  b.place = function (x, y, z, sx, sy, sz, ry, rx, rz) {
-    e.set(rx || 0, ry || 0, rz || 0); q.setFromEuler(e);
-    m.compose(p.set(x, y, z), q, s.set(sx, sy, sz));
-  };
-  // box centred on (x, y, z)
-  b.box = function (x, y, z, sx, sy, sz, color, ry, rx, rz) {
-    b.place(x, y, z, sx, sy, sz, ry, rx, rz);
-    b.add(TA.unitGeo('box', function () { return new THREE.BoxGeometry(1, 1, 1); }), color);
-  };
-  b.cyl = function (x, y, z, rTop, rBot, h, color, seg, rx, rz) {
-    var rmax = Math.max(rTop, rBot), ratio = Math.round(rTop / rmax * 20) + '_' + Math.round(rBot / rmax * 20) + '_' + (seg || 8);
-    b.place(x, y, z, rmax, h, rmax, 0, rx, rz);
-    b.add(TA.unitGeo('cyl' + ratio, function () { return new THREE.CylinderGeometry(rTop / rmax, rBot / rmax, 1, seg || 8); }), color);
-  };
-  b.sphere = function (x, y, z, sx, sy, sz, color) {
-    b.place(x, y, z, sx, sy, sz);
-    b.add(TA.unitGeo('sphere', function () { return new THREE.SphereGeometry(1, 10, 7); }), color);
-  };
-  // flat quad given four corners (counter-clockwise seen from the normal side) with texture repeats u, v
-  b.quad = function (ax, ay, az, bx, by, bz, cx, cy, cz, dx, dy, dz, color, u, w) {
-    c.setHex(color);
-    v.set(bx - ax, by - ay, bz - az); n.set(dx - ax, dy - ay, dz - az); v.cross(n).normalize();
-    pos.push(ax, ay, az, bx, by, bz, cx, cy, cz, ax, ay, az, cx, cy, cz, dx, dy, dz);
-    uv.push(0, 0, u || 1, 0, u || 1, w || 1, 0, 0, u || 1, w || 1, 0, w || 1);
-    for (var i = 0; i < 6; i++) { nor.push(v.x, v.y, v.z); col.push(c.r, c.g, c.b); }
-    b.count += 6;
-  };
-  // horizontal rectangle at height y (used for roads, paint, roofs, water)
-  b.flat = function (x0, z0, x1, z1, y, color, u, w) {
-    b.quad(x0, y, z1, x1, y, z1, x1, y, z0, x0, y, z0, color, u, w);
-  };
-  // the four walls of a box footprint, textured with window cells of 4 m by 3.4 m
-  b.walls = function (x0, z0, x1, z1, y0, y1, color) {
-    var u = (x1 - x0) / 4, w = (z1 - z0) / 4, t = (y1 - y0) / 3.4;
-    b.quad(x0, y0, z1, x1, y0, z1, x1, y1, z1, x0, y1, z1, color, u, t);
-    b.quad(x1, y0, z0, x0, y0, z0, x0, y1, z0, x1, y1, z0, color, u, t);
-    b.quad(x1, y0, z1, x1, y0, z0, x1, y1, z0, x1, y1, z1, color, w, t);
-    b.quad(x0, y0, z0, x0, y0, z1, x0, y1, z1, x0, y1, z0, color, w, t);
-  };
-  b.geometry = function () {
-    var g = new THREE.BufferGeometry();
-    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-    g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
-    g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
-    g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
-    g.computeBoundingSphere();
-    return g;
-  };
-  b.build = function (material) {
-    var mesh = new THREE.Mesh(b.geometry(), material || TA.flatMaterial());
-    mesh.castShadow = true; mesh.receiveShadow = true;
-    return mesh;
-  };
-  return b;
-};
+    const armMesh = batchToMesh(arm, sharedMaterial('flat'), true, false);
+    armMesh.position.set(side * 0.335, 1.45, 0);
+    rig.add(armMesh);
+    const leg = createGeometryBatch();
+    batchAddBox(leg, 0, -0.4, 0, 0.2, 0.8, 0.22, look.pants, 0);
+    batchAddBox(leg, 0, -0.82, 0.04, 0.2, 0.1, 0.3, look.shoes || 0x24262b, 0);
+    const legMesh = batchToMesh(leg, sharedMaterial('flat'), true, false);
+    legMesh.position.set(side * 0.125, 0.87, 0);
+    rig.add(legMesh);
+    limbs[side === -1 ? 'armR' : 'armL'] = armMesh;
+    limbs[side === -1 ? 'legR' : 'legL'] = legMesh;
+  }
+  const blob = makeContactShadow(1.5, 1.5);
+  blob.userData.shadowBlob = true;
+  group.add(blob);
+  group.userData = { rig: rig, armL: limbs.armL, armR: limbs.armR, legL: limbs.legL, legR: limbs.legR, pose: '' };
+  return group;
+}
 
-TA.flatMaterial = function () {
-  if (!TA._flatMat) TA._flatMat = new THREE.MeshLambertMaterial({ vertexColors: true });
-  return TA._flatMat;
-};
+function makePalmTree(batch, x, z, height, lean, bend) {
+  const m = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler();
+  const segs = 6;
+  let px = x, pz = z, py = 0;
+  const dx = Math.sin(bend), dz = Math.cos(bend);
+  for (let i = 0; i < segs; i++) {
+    const t = i / segs, tilt = lean * (0.3 + t);
+    const segH = height / segs, r = 0.5 - t * 0.22;
+    e.set(tilt * dz, 0, -tilt * dx);
+    q.setFromEuler(e);
+    const cx = px + Math.sin(tilt) * dx * segH * 0.5, cz = pz + Math.sin(tilt) * dz * segH * 0.5;
+    m.compose(new THREE.Vector3(cx, py + segH * 0.5, cz), q, new THREE.Vector3(r, segH * 1.08, r));
+    batchAddGeometry(batch, unitGeometry('cyl6'), m, i % 2 ? 0x8a6a48 : 0x9c7a55);
+    px += Math.sin(tilt) * dx * segH; pz += Math.sin(tilt) * dz * segH; py += Math.cos(tilt) * segH;
+  }
+  const fronds = 9;
+  for (let k = 0; k < fronds; k++) {
+    const a = (k / fronds) * Math.PI * 2 + bend, len = height * 0.42 * (0.85 + (k % 3) * 0.1);
+    const ox = Math.sin(a), oz = Math.cos(a);
+    for (let part = 0; part < 2; part++) {
+      const pitch = part === 0 ? -0.42 : 0.6;
+      const startR = part === 0 ? 0 : len * 0.5 * Math.cos(0.42), startY = part === 0 ? 0 : len * 0.5 * Math.sin(0.42);
+      const half = len * 0.25;
+      e.set(pitch, a, 0, 'YXZ');
+      q.setFromEuler(e);
+      const cr = startR + Math.cos(pitch) * half, cy = startY - Math.sin(pitch) * half;
+      m.compose(new THREE.Vector3(px + ox * cr, py + cy, pz + oz * cr), q, new THREE.Vector3(part === 0 ? 0.95 : 0.7, 0.07, len * 0.5));
+      batchAddGeometry(batch, unitGeometry('box'), m, k % 2 ? 0x2f9e5b : 0x3fb56a);
+    }
+  }
+  m.compose(new THREE.Vector3(px, py - 0.15, pz), new THREE.Quaternion(), new THREE.Vector3(0.9, 0.7, 0.9));
+  batchAddGeometry(batch, unitGeometry('sphere'), m, 0x6b4f2e);
+}
 
-// ---- canvas textures --------------------------------------------------------
-TA.canvasTexture = function (w, h, draw) {
-  var cv = document.createElement('canvas'); cv.width = w; cv.height = h;
-  draw(cv.getContext('2d'), w, h);
-  var tex = new THREE.CanvasTexture(cv);
+function posePerson(mesh, pose, phase) {
+  const u = mesh.userData, rig = u.rig;
+  const s = Math.sin(phase);
+  rig.rotation.set(0, 0, 0);
+  rig.position.set(0, 0, 0);
+  u.armL.rotation.set(0, 0, 0); u.armR.rotation.set(0, 0, 0);
+  u.legL.rotation.set(0, 0, 0); u.legR.rotation.set(0, 0, 0);
+  if (pose === 'walk') {
+    u.legL.rotation.x = s * 0.55; u.legR.rotation.x = -s * 0.55;
+    u.armL.rotation.x = -s * 0.45; u.armR.rotation.x = s * 0.45;
+  } else if (pose === 'run') {
+    rig.rotation.x = 0.2;
+    u.legL.rotation.x = s * 1.0; u.legR.rotation.x = -s * 1.0;
+    u.armL.rotation.x = -s * 1.0; u.armR.rotation.x = s * 1.0;
+  } else if (pose === 'aim' || pose === 'crouch') {
+    u.armR.rotation.x = -1.52; u.armL.rotation.x = -1.4; u.armL.rotation.z = -0.55;
+    u.legL.rotation.x = -0.25; u.legR.rotation.x = 0.25;
+    if (pose === 'crouch') { rig.position.y = -0.42; rig.rotation.x = 0.18; u.legL.rotation.x = -1.35; u.legR.rotation.x = 0.75; }
+  } else if (pose === 'hide') {
+    rig.position.y = -0.5; rig.rotation.x = 0.3; u.legL.rotation.x = -1.4; u.legR.rotation.x = 0.8;
+  } else if (pose === 'fall') {
+    rig.rotation.x = -1.0; rig.position.y = 0.25;
+    u.armL.rotation.set(-2.2, 0, 0.9); u.armR.rotation.set(-2.4, 0, -0.9);
+    u.legL.rotation.x = -0.7; u.legR.rotation.x = 0.3;
+  } else if (pose === 'down') {
+    rig.rotation.x = -Math.PI / 2; rig.position.set(0, 0.16, 0.8);
+    u.armL.rotation.z = 1.2; u.armR.rotation.z = -0.8; u.legL.rotation.x = 0.3;
+  } else if (pose === 'dive') {
+    rig.rotation.x = 1.15; rig.position.y = 0.45;
+    u.armL.rotation.x = -2.7; u.armR.rotation.x = -2.9; u.legL.rotation.x = 0.5; u.legR.rotation.x = -0.2;
+  } else if (pose === 'sit') {
+    u.legL.rotation.x = -1.35; u.legR.rotation.x = -1.35; u.armL.rotation.x = -1.0; u.armR.rotation.x = -1.0;
+  } else if (pose === 'drag') {
+    rig.rotation.x = -0.22; u.armL.rotation.x = -1.35; u.armR.rotation.x = -1.2; u.legL.rotation.x = 0.4; u.legR.rotation.x = -0.35;
+  } else if (pose === 'baton') {
+    rig.rotation.x = 0.2; u.armR.rotation.x = -2.5 + s * 0.3; u.armL.rotation.x = s * 0.9;
+    u.legL.rotation.x = s * 1.0; u.legR.rotation.x = -s * 1.0;
+  } else if (pose === 'punch') {
+    u.armR.rotation.x = -1.5; u.armL.rotation.x = -0.6; u.legL.rotation.x = -0.3; u.legR.rotation.x = 0.3;
+  }
+  u.pose = pose;
+}
+
+function makeSwatVanMesh() {
+  return makeCarMesh('badak', CAR_MODELS.badak.colors[0]);
+}
+
+function addSwatVanDetails(group, L, wd) {
+  for (const side of [-1, 1]) {
+    const label = makeSignMesh('SWAT', 2.6, 0.8, { bg: '#1d2f55', fg: '#ffffff', size: 60, lit: true });
+    label.position.set(side * (wd / 2 + 0.04), 1.75, -0.7);
+    label.rotation.y = side * Math.PI / 2;
+    group.add(label);
+    const tag = makeSignMesh('BADAK-2', 1.5, 0.34, { bg: '#1d2f55', fg: '#ffd43b', size: 44, lit: true });
+    tag.position.set(side * (wd / 2 + 0.04), 1.1, -0.7);
+    tag.rotation.y = side * Math.PI / 2;
+    group.add(tag);
+  }
+  const doors = [];
+  for (const side of [-1, 1]) {
+    const hinge = new THREE.Group();
+    const leaf = new THREE.Mesh(unitGeometry('box'), new THREE.MeshLambertMaterial({ color: 0x24396a }));
+    leaf.scale.set(wd / 2 - 0.06, 1.7, 0.08);
+    leaf.position.set(-side * (wd / 4), 0, 0);
+    leaf.castShadow = true;
+    hinge.add(leaf);
+    hinge.position.set(side * (wd / 2 - 0.03), 1.55, -L / 2 - 0.05);
+    group.add(hinge);
+    doors.push({ hinge: hinge, side: side });
+  }
+  group.userData.rearDoors = doors;
+  group.userData.lightbar = makeLightBar(group, 2.62, L * 0.2, wd * 0.6);
+}
+
+function setSwatDoorsOpen(mesh, open) {
+  for (const d of mesh.userData.rearDoors) d.hinge.rotation.y = open ? -d.side * 1.9 : 0;
+}
+
+function makeLightBar(group, y, z, width) {
+  const base = new THREE.Mesh(unitGeometry('box'), new THREE.MeshLambertMaterial({ color: 0x22252b }));
+  base.scale.set(width + 0.1, 0.07, 0.34);
+  base.position.set(0, y - 0.05, z);
+  group.add(base);
+  const parts = [];
+  for (const side of [-1, 1]) {
+    const color = side < 0 ? 0xff2b2b : 0x2f6bff;
+    const lamp = new THREE.Mesh(unitGeometry('box'), new THREE.MeshBasicMaterial({ color: color, toneMapped: false }));
+    lamp.scale.set(width / 2 - 0.04, 0.16, 0.28);
+    lamp.position.set(side * width / 4, y + 0.06, z);
+    group.add(lamp);
+    const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: sharedTexture('glow'), color: color, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false }));
+    glow.scale.set(3.4, 3.4, 1);
+    glow.position.set(side * width / 4, y + 0.12, z);
+    group.add(glow);
+    parts.push({ lamp: lamp, glow: glow, color: new THREE.Color(color) });
+  }
+  return parts;
+}
+
+function flashLightBar(parts, time, on) {
+  parts.forEach((part, i) => {
+    const bright = on ? ((Math.floor(time * 5) + i) % 2 === 0 ? 1 : 0.5) : 0.12;
+    part.lamp.material.color.copy(part.color).multiplyScalar(0.35 + bright * 0.9);
+    part.glow.material.opacity = on ? 0.3 + bright * 0.6 : 0;
+  });
+}
+
+// ---- car bodies -------------------------------------------------------------------------------
+
+function addWheels(batch, wd, zFront, zBack, radius, width) {
+  const m = new THREE.Matrix4(), q = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, Math.PI / 2));
+  for (const z of [zFront, zBack]) {
+    for (const side of [-1, 1]) {
+      const x = side * (wd / 2 - width * 0.35);
+      m.compose(new THREE.Vector3(x, radius, z), q, new THREE.Vector3(radius * 2, width, radius * 2));
+      batchAddGeometry(batch, unitGeometry('cyl'), m, 0x17181b);
+      m.compose(new THREE.Vector3(x + side * width * 0.3, radius, z), q, new THREE.Vector3(radius * 1.05, width * 0.5, radius * 1.05));
+      batchAddGeometry(batch, unitGeometry('cyl'), m, 0xb9bec7);
+    }
+  }
+}
+
+function addCabin(batch, wBase, wTop, yBase, yTop, zRear, zFront, slopeRear, slopeFront, roofColor) {
+  const glass = 0x1c2733;
+  const a = wBase / 2, t = wTop / 2, zr = zRear + slopeRear, zf = zFront - slopeFront;
+  batchAddQuad(batch, [-t, yTop, zr], [-t, yTop, zf], [t, yTop, zf], [t, yTop, zr], roofColor);
+  batchAddQuad(batch, [-a, yBase, zFront], [a, yBase, zFront], [t, yTop, zf], [-t, yTop, zf], glass);
+  batchAddQuad(batch, [a, yBase, zRear], [-a, yBase, zRear], [-t, yTop, zr], [t, yTop, zr], glass);
+  batchAddQuad(batch, [a, yBase, zFront], [a, yBase, zRear], [t, yTop, zr], [t, yTop, zf], glass);
+  batchAddQuad(batch, [-a, yBase, zRear], [-a, yBase, zFront], [-t, yTop, zf], [-t, yTop, zr], glass);
+  // Roof pillars in the body colour so the glass reads as windows.
+  for (const side of [-1, 1]) {
+    const mid = (zr + zf) / 2;
+    batchAddBox(batch, side * (a + t) / 2, (yBase + yTop) / 2, mid, 0.07, yTop - yBase, 0.12, roofColor, 0);
+  }
+}
+
+function addSaloonBody(batch, L, wd, color, style) {
+  const coupe = style === 'coupe';
+  const dark = 0x1d1f24;
+  const bodyTop = coupe ? 0.8 : 0.9;
+  batchAddBox(batch, 0, (0.3 + bodyTop) / 2, 0, wd, bodyTop - 0.3, L - 0.2, color, 0);
+  batchAddBox(batch, 0, bodyTop - 0.11, L / 2 - 0.2, wd - 0.1, 0.2, 0.4, color, 0);
+  batchAddBox(batch, 0, bodyTop - 0.11, -L / 2 + 0.2, wd - 0.1, 0.2, 0.4, color, 0);
+  if (coupe) addCabin(batch, wd - 0.14, wd - 0.6, bodyTop, 1.2, -L * 0.36, L * 0.06, 0.55, 0.62, color);
+  else addCabin(batch, wd - 0.12, wd - 0.46, bodyTop, 1.44, -L * 0.3, L * 0.16, 0.42, 0.56, color);
+  batchAddBox(batch, 0, 0.4, L / 2 - 0.04, wd + 0.04, 0.22, 0.2, dark, 0);
+  batchAddBox(batch, 0, 0.4, -L / 2 + 0.04, wd + 0.04, 0.22, 0.2, dark, 0);
+  batchAddBox(batch, 0, 0.62, L / 2 + 0.01, wd * 0.46, 0.16, 0.06, dark, 0);
+  for (const side of [-1, 1]) {
+    batchAddBox(batch, side * (wd / 2 - 0.3), bodyTop - 0.2, L / 2 + 0.005, 0.44, 0.15, 0.07, 0xfff3c4, 0);
+    batchAddBox(batch, side * (wd / 2 - 0.3), bodyTop - 0.2, -L / 2 - 0.005, 0.44, 0.13, 0.07, 0xd91f26, 0);
+    batchAddBox(batch, side * (wd / 2 + 0.07), bodyTop + 0.06, L * 0.12, 0.16, 0.1, 0.12, color, 0);
+    batchAddBox(batch, side * (wd / 2 + 0.005), 0.36, 0, 0.04, 0.12, L * 0.5, dark, 0);
+  }
+  if (coupe) {
+    batchAddBox(batch, 0, bodyTop + 0.012, L * 0.28, 0.42, 0.02, L * 0.36, 0xfdf6e3, 0);
+    batchAddBox(batch, 0, 1.212, -L * 0.15, 0.42, 0.02, L * 0.16, 0xfdf6e3, 0);
+    batchAddBox(batch, 0, 1.06, -L / 2 + 0.16, wd - 0.1, 0.05, 0.3, dark, 0);
+    for (const side of [-1, 1]) batchAddBox(batch, side * (wd / 2 - 0.3), 0.94, -L / 2 + 0.18, 0.07, 0.22, 0.1, dark, 0);
+    batchAddBox(batch, 0, 0.66, L * 0.36, 0.5, 0.08, 0.5, dark, 0);
+  }
+  if (style === 'taxi') {
+    batchAddBox(batch, 0, 1.52, -0.25, 0.94, 0.16, 0.34, 0x1b1b1b, 0);
+    for (const side of [-1, 1]) for (let i = 0; i < 6; i++) batchAddBox(batch, side * (wd / 2 + 0.008), 0.62, -1.25 + i * 0.5, 0.02, 0.14, 0.25, i % 2 ? 0x1b1b1b : 0xfdf6e3, 0);
+  }
+  if (style === 'cruiser') {
+    for (const side of [-1, 1]) batchAddBox(batch, side * (wd / 2 + 0.008), 0.66, 0, 0.02, 0.2, L - 0.5, 0x1c4fa3, 0);
+    batchAddBox(batch, 0, 0.58, L / 2 + 0.16, wd * 0.7, 0.46, 0.08, dark, 0);
+    batchAddBox(batch, 0, bodyTop + 0.01, -L * 0.4, wd - 0.2, 0.02, 0.5, 0x1c4fa3, 0);
+  }
+  addWheels(batch, wd, L * 0.31, -L * 0.31, 0.34, 0.26);
+}
+
+function addVanBody(batch, L, wd, color, top) {
+  const dark = 0x1d1f24, glass = 0x1c2733;
+  batchAddBox(batch, 0, (0.34 + top) / 2, -0.25, wd, top - 0.34, L - 0.7, color, 0);
+  batchAddBox(batch, 0, 0.74, L / 2 - 0.4, wd, 0.8, 0.9, color, 0);
+  batchAddQuad(batch, [-wd / 2, 1.14, L / 2 + 0.05], [wd / 2, 1.14, L / 2 + 0.05], [wd / 2, top, L / 2 - 0.6], [-wd / 2, top, L / 2 - 0.6], glass);
+  for (const side of [-1, 1]) {
+    batchAddBox(batch, side * (wd / 2 + 0.01), top - 0.45, L * 0.05, 0.03, 0.5, L * 0.62, top > 2.2 ? 0x16223d : glass, 0);
+    batchAddBox(batch, side * (wd / 2 - 0.32), 0.86, L / 2 + 0.055, 0.42, 0.16, 0.06, 0xfff3c4, 0);
+    batchAddBox(batch, side * (wd / 2 - 0.25), 0.9, -L / 2 + 0.09, 0.3, 0.3, 0.06, 0xd91f26, 0);
+  }
+  batchAddBox(batch, 0, 0.44, L / 2 + 0.06, wd + 0.06, 0.26, 0.2, dark, 0);
+  batchAddBox(batch, 0, 0.44, -L / 2 + 0.06, wd + 0.06, 0.26, 0.2, dark, 0);
+  if (top > 2.2) {
+    batchAddBox(batch, 0, 0.8, L / 2 + 0.2, wd * 0.8, 0.7, 0.1, dark, 0);
+    batchAddBox(batch, 0, top + 0.05, -0.6, wd * 0.5, 0.1, L * 0.3, 0x16223d, 0);
+  }
+  addWheels(batch, wd, L * 0.32, -L * 0.3, top > 2.2 ? 0.5 : 0.36, 0.3);
+}
+
+function addTruckBody(batch, L, wd, color) {
+  const dark = 0x1d1f24;
+  batchAddBox(batch, 0, 0.72, 0, wd - 0.3, 0.3, L - 0.2, dark, 0);
+  batchAddBox(batch, 0, 1.75, L / 2 - 1.05, wd, 1.9, 1.9, color, 0);
+  batchAddBox(batch, 0, 2.2, L / 2 - 0.09, wd - 0.3, 0.75, 0.04, 0x1c2733, 0);
+  for (const side of [-1, 1]) {
+    batchAddBox(batch, side * (wd / 2 + 0.005), 2.15, L / 2 - 0.9, 0.03, 0.7, 1.0, 0x1c2733, 0);
+    batchAddBox(batch, side * (wd / 2 - 0.35), 1.1, L / 2 - 0.08, 0.44, 0.2, 0.06, 0xfff3c4, 0);
+    batchAddBox(batch, side * (wd / 2 - 0.3), 1.0, -L / 2 + 0.08, 0.3, 0.2, 0.06, 0xd91f26, 0);
+  }
+  batchAddBox(batch, 0, 2.2, -1.05, wd, 2.6, L - 2.3, 0xd9d2c0, 0);
+  batchAddBox(batch, 0, 2.2, -1.05, wd + 0.04, 0.5, L - 2.4, color, 0);
+  batchAddBox(batch, 0, 0.7, L / 2 + 0.05, wd, 0.4, 0.2, dark, 0);
+  addWheels(batch, wd, L * 0.33, -L * 0.2, 0.5, 0.34);
+  addWheels(batch, wd, L * 0.33, -L * 0.36, 0.5, 0.34);
+}
+
+function addScooterBody(batch, L, color) {
+  const dark = 0x1d1f24;
+  const m = new THREE.Matrix4(), q = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, Math.PI / 2));
+  for (const z of [L * 0.36, -L * 0.36]) {
+    m.compose(new THREE.Vector3(0, 0.28, z), q, new THREE.Vector3(0.56, 0.14, 0.56));
+    batchAddGeometry(batch, unitGeometry('cyl'), m, 0x17181b);
+  }
+  batchAddBox(batch, 0, 0.5, -0.1, 0.36, 0.3, 1.1, color, 0);
+  batchAddBox(batch, 0, 0.74, -0.3, 0.34, 0.12, 0.7, dark, 0);
+  batchAddBox(batch, 0, 0.7, L * 0.3, 0.3, 0.75, 0.12, color, 0);
+  batchAddBox(batch, 0, 1.08, L * 0.28, 0.66, 0.06, 0.08, dark, 0);
+  batchAddBox(batch, 0, 0.95, L * 0.35, 0.16, 0.14, 0.06, 0xfff3c4, 0);
+}
+
+// ---- batching helpers -------------------------------------------------------------------------
+
+function createGeometryBatch() {
+  return { pos: [], nor: [], col: [], uv: [] };
+}
+
+function batchAddGeometry(batch, geometry, matrix, colorHex, uvScaleX, uvScaleY) {
+  if (geometry.index && !geometry.userData.flat) geometry.userData.flat = geometry.toNonIndexed();
+  const g = geometry.index ? geometry.userData.flat : geometry;
+  const pos = g.attributes.position, nor = g.attributes.normal, uv = g.attributes.uv;
+  const nm = SCRATCH.normalMatrix.getNormalMatrix(matrix), v = SCRATCH.v, c = SCRATCH.color.setHex(colorHex);
+  const ux = uvScaleX || 0, uy = uvScaleY || 0;
+  for (let i = 0; i < pos.count; i++) {
+    v.fromBufferAttribute(pos, i).applyMatrix4(matrix);
+    batch.pos.push(v.x, v.y, v.z);
+    v.fromBufferAttribute(nor, i).applyMatrix3(nm).normalize();
+    batch.nor.push(v.x, v.y, v.z);
+    batch.col.push(c.r, c.g, c.b);
+    batch.uv.push(uv ? uv.getX(i) * ux : 0, uv ? uv.getY(i) * uy : 0);
+  }
+}
+
+function batchAddBox(batch, x, y, z, sx, sy, sz, colorHex, ry) {
+  SCRATCH.q.setFromAxisAngle(SCRATCH.up, ry || 0);
+  SCRATCH.m.compose(SCRATCH.p.set(x, y, z), SCRATCH.q, SCRATCH.s.set(sx, sy, sz));
+  batchAddGeometry(batch, unitGeometry('box'), SCRATCH.m, colorHex);
+}
+
+function batchAddQuad(batch, a, b, c, d, colorHex, uvs) {
+  const col = SCRATCH.color.setHex(colorHex);
+  const e1 = SCRATCH.v.set(b[0] - a[0], b[1] - a[1], b[2] - a[2]);
+  const e2 = SCRATCH.p.set(d[0] - a[0], d[1] - a[1], d[2] - a[2]);
+  const n = SCRATCH.s.crossVectors(e1, e2).normalize();
+  const pts = [a, b, c, a, c, d], uvIdx = [0, 1, 2, 0, 2, 3];
+  for (let i = 0; i < 6; i++) {
+    batch.pos.push(pts[i][0], pts[i][1], pts[i][2]);
+    batch.nor.push(n.x, n.y, n.z);
+    batch.col.push(col.r, col.g, col.b);
+    if (uvs) batch.uv.push(uvs[uvIdx[i]][0], uvs[uvIdx[i]][1]); else batch.uv.push(0.02, 0.02);
+  }
+}
+
+function batchAddBeam(batch, ax, ay, az, bx, by, bz, thickness, colorHex) {
+  const dir = SCRATCH.v.set(bx - ax, by - ay, bz - az);
+  const len = dir.length();
+  SCRATCH.q.setFromUnitVectors(SCRATCH.up, dir.normalize());
+  SCRATCH.m.compose(SCRATCH.p.set((ax + bx) / 2, (ay + by) / 2, (az + bz) / 2), SCRATCH.q, SCRATCH.s.set(thickness, len, thickness));
+  batchAddGeometry(batch, unitGeometry('box'), SCRATCH.m, colorHex);
+}
+
+function batchToGeometry(batch) {
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(batch.pos, 3));
+  g.setAttribute('normal', new THREE.Float32BufferAttribute(batch.nor, 3));
+  g.setAttribute('color', new THREE.Float32BufferAttribute(batch.col, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(batch.uv, 2));
+  return g;
+}
+
+function batchToMesh(batch, material, castShadow, receiveShadow) {
+  const mesh = new THREE.Mesh(batchToGeometry(batch), material);
+  mesh.castShadow = !!castShadow;
+  mesh.receiveShadow = !!receiveShadow;
+  return mesh;
+}
+
+function unitGeometry(name) {
+  if (!UNIT_GEOMETRY[name]) {
+    if (name === 'box') UNIT_GEOMETRY.box = new THREE.BoxGeometry(1, 1, 1);
+    else if (name === 'cyl') UNIT_GEOMETRY.cyl = new THREE.CylinderGeometry(0.5, 0.5, 1, 12);
+    else if (name === 'cyl6') UNIT_GEOMETRY.cyl6 = new THREE.CylinderGeometry(0.5, 0.5, 1, 6);
+    else if (name === 'cone') UNIT_GEOMETRY.cone = new THREE.ConeGeometry(0.5, 1, 12);
+    else UNIT_GEOMETRY[name] = new THREE.IcosahedronGeometry(0.5, 1);
+  }
+  return UNIT_GEOMETRY[name];
+}
+
+function sharedMaterial(name) {
+  if (!W.mat[name]) {
+    if (name === 'flat') W.mat.flat = new THREE.MeshLambertMaterial({ vertexColors: true });
+    else if (name === 'double') W.mat.double = new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide });
+    else if (name === 'windows') W.mat.windows = new THREE.MeshLambertMaterial({ vertexColors: true, map: sharedTexture('windows') });
+    else if (name === 'paint') W.mat.paint = new THREE.MeshLambertMaterial({ vertexColors: true, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+    else if (name === 'shadow') W.mat.shadow = new THREE.MeshBasicMaterial({ map: sharedTexture('blob'), transparent: true, depthWrite: false, opacity: 0.5, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 });
+  }
+  return W.mat[name];
+}
+
+// ---- canvas textures --------------------------------------------------------------------------
+
+function sharedTexture(name) {
+  if (W.tex[name]) return W.tex[name];
+  const c = document.createElement('canvas');
+  const g = c.getContext('2d');
+  if (name === 'glow' || name === 'blob') {
+    c.width = c.height = 64;
+    const grad = g.createRadialGradient(32, 32, 2, 32, 32, 32);
+    if (name === 'glow') { grad.addColorStop(0, 'rgba(255,255,255,1)'); grad.addColorStop(0.35, 'rgba(255,255,255,0.45)'); grad.addColorStop(1, 'rgba(255,255,255,0)'); }
+    else { grad.addColorStop(0, 'rgba(0,0,0,0.95)'); grad.addColorStop(0.55, 'rgba(0,0,0,0.6)'); grad.addColorStop(1, 'rgba(0,0,0,0)'); }
+    g.fillStyle = grad;
+    g.fillRect(0, 0, 64, 64);
+  } else if (name === 'windows') {
+    // A 4x4 atlas of window cells on a white wall (tinted by vertex colour); a few cells are warmly lit.
+    c.width = c.height = 256;
+    g.fillStyle = '#f4efe6';
+    g.fillRect(0, 0, 256, 256);
+    const lit = [1, 6, 8, 15, 10];
+    for (let i = 0; i < 16; i++) {
+      const x = (i % 4) * 64, y = Math.floor(i / 4) * 64;
+      g.fillStyle = '#c9c1b3';
+      g.fillRect(x + 11, y + 13, 42, 42);
+      g.fillStyle = lit.includes(i) ? '#ffd27a' : (i % 3 === 0 ? '#3d5a78' : '#2e4560');
+      g.fillRect(x + 14, y + 16, 36, 36);
+      g.fillStyle = lit.includes(i) ? '#ffe7ad' : '#6f93b5';
+      g.fillRect(x + 14, y + 16, 36, 9);
+      g.fillStyle = '#c9c1b3';
+      g.fillRect(x + 31, y + 16, 2, 36);
+    }
+  } else if (name === 'sea') {
+    c.width = c.height = 256;
+    g.fillStyle = '#ffffff';
+    g.fillRect(0, 0, 256, 256);
+    g.strokeStyle = 'rgba(120,170,190,0.55)';
+    g.lineWidth = 3;
+    for (let i = 0; i < 9; i++) {
+      const y = 14 + i * 28, off = (i * 67) % 256;
+      g.beginPath();
+      for (let x = -40; x <= 300; x += 8) g.lineTo(x, y + Math.sin((x + off) * 0.06) * 4);
+      g.setLineDash([60 + (i % 3) * 30, 50]);
+      g.lineDashOffset = off;
+      g.stroke();
+    }
+  } else if (name === 'plaza') {
+    c.width = c.height = 128;
+    g.fillStyle = '#6f6a66';
+    g.fillRect(0, 0, 128, 128);
+    for (let i = 0; i < 4; i++) for (let k = 0; k < 4; k++) {
+      g.fillStyle = (i + k) % 2 ? '#5d5957' : '#7c7570';
+      g.fillRect(i * 32 + 1, k * 32 + 1, 30, 30);
+    }
+    g.strokeStyle = '#a5957c';
+    g.lineWidth = 3;
+    g.strokeRect(1.5, 1.5, 125, 125);
+  }
+  const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
-  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  if (name === 'windows' || name === 'sea' || name === 'plaza') { tex.wrapS = tex.wrapT = THREE.RepeatWrapping; tex.anisotropy = 4; }
+  W.tex[name] = tex;
+  return tex;
+}
+
+function makeSignTexture(text, opts) {
+  const c = document.createElement('canvas');
+  const lines = String(text).split('|');
+  c.width = opts.pxW || 256;
+  c.height = opts.pxH || Math.round(c.width * (opts.aspect || 0.3));
+  const g = c.getContext('2d');
+  g.fillStyle = opts.bg || '#1b1f2a';
+  g.fillRect(0, 0, c.width, c.height);
+  if (opts.border) { g.strokeStyle = opts.border; g.lineWidth = Math.max(4, c.height * 0.07); g.strokeRect(g.lineWidth / 2, g.lineWidth / 2, c.width - g.lineWidth, c.height - g.lineWidth); }
+  g.fillStyle = opts.fg || '#ffffff';
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  let size = opts.size || 48;
+  g.font = 'italic 900 ' + size + 'px "Arial Black", Arial, Helvetica, sans-serif';
+  let widest = 0;
+  for (const line of lines) widest = Math.max(widest, g.measureText(line).width);
+  const fit = Math.min(1, (c.width * 0.9) / widest, (c.height * 0.86) / (size * lines.length));
+  size = size * fit;
+  g.font = 'italic 900 ' + size + 'px "Arial Black", Arial, Helvetica, sans-serif';
+  lines.forEach((line, i) => g.fillText(line, c.width / 2, c.height / 2 + (i - (lines.length - 1) / 2) * size * 1.05 + size * 0.04));
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
   tex.anisotropy = 4;
   return tex;
-};
+}
 
-// One wall cell with windows; the building's pastel colour is multiplied in through vertex colours.
-TA.facadeTexture = function (variant) {
-  return TA.canvasTexture(64, 64, function (g) {
-    g.fillStyle = '#ffffff'; g.fillRect(0, 0, 64, 64);
-    var grad = g.createLinearGradient(0, 0, 0, 64);
-    grad.addColorStop(0, '#9fd0ea'); grad.addColorStop(0.55, '#4f86a8'); grad.addColorStop(1, '#2f5d7c');
-    g.fillStyle = grad;
-    if (variant === 0) { g.fillRect(9, 12, 46, 36); g.fillStyle = '#e8eef2'; g.fillRect(31, 12, 2, 36); }
-    else if (variant === 1) { g.fillRect(0, 10, 64, 40); g.fillStyle = '#dfe7ec'; g.fillRect(0, 28, 64, 2); g.fillRect(30, 10, 3, 40); }
-    else { g.fillRect(7, 14, 20, 30); g.fillRect(37, 14, 20, 30); g.fillStyle = '#d9d2c5'; g.fillRect(3, 48, 58, 5); }
-    g.fillStyle = 'rgba(255,255,255,0.35)'; g.fillRect(12, 14, 10, 6);
-    g.fillStyle = 'rgba(0,0,0,0.10)'; g.fillRect(0, 60, 64, 4);
-  });
-};
-
-TA.facadeMaterial = function (variant) {
-  TA._facades = TA._facades || [];
-  if (!TA._facades[variant]) TA._facades[variant] = new THREE.MeshLambertMaterial({ vertexColors: true, map: TA.facadeTexture(variant) });
-  return TA._facades[variant];
-};
-
-// A flat sign with text (shop names, billboards, door decals). Unlit so it always reads.
-TA.makeSign = function (text, w, h, bg, fg, sub) {
-  var tex = TA.canvasTexture(256, Math.max(32, Math.round(256 * h / w / 8) * 8), function (g, cw, ch) {
-    g.fillStyle = bg; g.fillRect(0, 0, cw, ch);
-    g.strokeStyle = fg; g.lineWidth = 4; g.strokeRect(4, 4, cw - 8, ch - 8);
-    g.fillStyle = fg; g.textAlign = 'center'; g.textBaseline = 'middle';
-    var size = Math.min(ch * (sub ? 0.46 : 0.62), cw / (text.length * 0.6));
-    g.font = 'italic 900 ' + Math.round(size) + 'px Arial, Helvetica, sans-serif';
-    g.fillText(text, cw / 2, sub ? ch * 0.4 : ch / 2 + 2);
-    if (sub) { g.font = '700 ' + Math.round(ch * 0.2) + 'px Arial, Helvetica, sans-serif'; g.fillText(sub, cw / 2, ch * 0.76); }
-  });
-  var mesh = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ map: tex, side: THREE.DoubleSide }));
+function makeSignMesh(text, width, height, opts) {
+  const o = Object.assign({ aspect: height / width }, opts);
+  const key = text + '|' + (o.bg || '') + (o.fg || '') + o.aspect.toFixed(2);
+  if (!SIGN_CACHE[key]) SIGN_CACHE[key] = makeSignTexture(text, o);
+  const material = o.lit ? new THREE.MeshLambertMaterial({ map: SIGN_CACHE[key], emissive: 0xffffff, emissiveMap: SIGN_CACHE[key], emissiveIntensity: 0.25 }) : new THREE.MeshLambertMaterial({ map: SIGN_CACHE[key] });
+  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(width, height), material);
   return mesh;
-};
+}
 
-// ---- vehicles ---------------------------------------------------------------
-TA.GLASS = 0x1c2b3a; TA.TYRE = 0x16181b; TA.CHROME = 0xc9ced4;
+function makeContactShadow(width, length) {
+  const mesh = new THREE.Mesh(SHADOW_PLANE.geo || (SHADOW_PLANE.geo = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2)), sharedMaterial('shadow'));
+  mesh.scale.set(width, 1, length);
+  mesh.position.y = 0.035;
+  mesh.renderOrder = 2;
+  return mesh;
+}
 
-TA.addWheels = function (b, wid, len, r, axles) {
-  axles.forEach(function (az) {
-    b.cyl(-wid / 2 + 0.08, r, az, r, r, 0.26, TA.TYRE, 10, 0, Math.PI / 2);
-    b.cyl(wid / 2 - 0.08, r, az, r, r, 0.26, TA.TYRE, 10, 0, Math.PI / 2);
-    b.cyl(-wid / 2 - 0.06, r, az, r * 0.5, r * 0.5, 0.04, TA.CHROME, 8, 0, Math.PI / 2);
-    b.cyl(wid / 2 + 0.06, r, az, r * 0.5, r * 0.5, 0.04, TA.CHROME, 8, 0, Math.PI / 2);
-  });
-};
+// A small drawn portrait (face, hair, shirt) used by crew cards, chatter and story dialogue.
+function makePortraitCanvas(face, size) {
+  const c = document.createElement('canvas');
+  c.width = c.height = size;
+  const g = c.getContext('2d'), u = size / 64;
+  g.fillStyle = face.color;
+  g.fillRect(0, 0, size, size);
+  g.fillStyle = 'rgba(0,0,0,0.25)';
+  g.fillRect(0, 0, size, size * 0.5);
+  g.fillStyle = face.shirt;
+  g.beginPath(); g.ellipse(32 * u, 68 * u, 27 * u, 22 * u, 0, 0, Math.PI * 2); g.fill();
+  g.fillStyle = face.skin;
+  g.fillRect(27 * u, 40 * u, 10 * u, 10 * u);
+  g.beginPath(); g.ellipse(32 * u, 29 * u, 13 * u, 15.5 * u, 0, 0, Math.PI * 2); g.fill();
+  g.fillStyle = face.hair;
+  g.beginPath(); g.ellipse(32 * u, 19 * u, 14.5 * u, 10 * u, 0, Math.PI, Math.PI * 2); g.fill();
+  g.fillRect(17.5 * u, 18 * u, 4 * u, 12 * u);
+  g.fillRect(42.5 * u, 18 * u, 4 * u, 12 * u);
+  if (face.name === 'SARI') { g.fillRect(15 * u, 20 * u, 5 * u, 30 * u); g.fillRect(44 * u, 20 * u, 5 * u, 30 * u); }
+  if (face.name === 'RAKA') { g.fillStyle = '#0f8f7f'; g.fillRect(17 * u, 12 * u, 30 * u, 8 * u); g.fillRect(30 * u, 17 * u, 22 * u, 4 * u); }
+  if (face.name === 'DARMA WIJAYA' || face.name === 'PAK AMIR') { g.fillStyle = face.hair; g.fillRect(25 * u, 37 * u, 14 * u, 3 * u); }
+  if (face.name === 'AGUS') { g.strokeStyle = '#111'; g.lineWidth = 1.6 * u; g.strokeRect(22 * u, 26 * u, 8 * u, 6 * u); g.strokeRect(34 * u, 26 * u, 8 * u, 6 * u); }
+  g.fillStyle = '#1b1b1b';
+  g.fillRect(25 * u, 28 * u, 3 * u, 3 * u);
+  g.fillRect(36 * u, 28 * u, 3 * u, 3 * u);
+  g.fillRect(28 * u, 37.5 * u, 8 * u, 1.6 * u);
+  return c;
+}
 
-TA.addCarLamps = function (b, wid, len, y) {
-  b.box(-wid * 0.32, y, len / 2 + 0.01, 0.34, 0.16, 0.06, 0xfff4c2); b.box(wid * 0.32, y, len / 2 + 0.01, 0.34, 0.16, 0.06, 0xfff4c2);
-  b.box(-wid * 0.32, y, -len / 2 - 0.01, 0.36, 0.14, 0.06, 0xe5383b); b.box(wid * 0.32, y, -len / 2 - 0.01, 0.36, 0.14, 0.06, 0xe5383b);
-  b.box(0, 0.36, len / 2 + 0.05, wid * 0.96, 0.2, 0.14, 0x2b2f36); b.box(0, 0.36, -len / 2 - 0.05, wid * 0.96, 0.2, 0.14, 0x2b2f36);
-};
+// ---- street props (all merged into a district batch) --------------------------------------------
 
-// Builds the merged, vertex-coloured body of one car model facing +z.
-TA.buildCarGeometry = function (key, color) {
-  var m = TA.CAR_MODELS[key], b = TA.Batch(), w = m.wid, l = m.len;
-  if (key === 'gt') {
-    b.box(0, 0.5, 0, w, 0.42, l, color); b.box(0, 0.62, l * 0.3, w * 0.96, 0.2, l * 0.36, color, 0, 0.1);
-    b.box(0, 0.92, -0.25, w * 0.84, 0.44, l * 0.4, TA.GLASS); b.box(0, 1.16, -0.25, w * 0.8, 0.06, l * 0.34, color);
-    b.box(0, 1.0, -l / 2 + 0.2, w * 0.98, 0.06, 0.34, 0x22252a); b.box(-w * 0.4, 0.86, -l / 2 + 0.2, 0.08, 0.3, 0.2, 0x22252a); b.box(w * 0.4, 0.86, -l / 2 + 0.2, 0.08, 0.3, 0.2, 0x22252a);
-    b.box(0, 0.74, 0.1, 0.3, 0.02, l * 0.9, 0xffffff);
-    TA.addWheels(b, w, l, 0.36, [l * 0.31, -l * 0.31]); TA.addCarLamps(b, w, l, 0.58);
-  } else if (key === 'hauler') {
-    b.box(0, 1.5, l / 2 - 1.1, w, 2.1, 2.2, color); b.box(0, 2.0, l / 2 - 0.02, w * 0.86, 0.8, 0.06, TA.GLASS);
-    b.box(0, 0.75, -0.9, w * 0.9, 0.3, l - 2.2, 0x2b2f36); b.box(0, 2.05, -1.15, w, 2.3, l - 2.6, 0xdde1e6);
-    b.box(0, 2.05, -1.15, w + 0.02, 0.5, l - 2.6, color);
-    TA.addWheels(b, w, l, 0.52, [l / 2 - 1.2, -l / 2 + 1.0, -l / 2 + 2.2]); TA.addCarLamps(b, w, l, 0.95);
-  } else if (key === 'angkot' || key === 'van' || key === 'swatvan') {
-    var hgt = m.hgt;
-    b.box(0, 0.36 + (hgt - 0.4) / 2, -0.1, w, hgt - 0.4, l * 0.94, color);
-    b.box(0, hgt * 0.72, l * 0.47 - 0.1, w * 0.88, hgt * 0.26, 0.08, TA.GLASS);
-    b.box(0, hgt * 0.7, -0.3, w + 0.02, hgt * 0.22, l * 0.6, key === 'swatvan' ? 0x0b132b : TA.GLASS);
-    if (key === 'angkot') b.box(0, hgt * 0.42, -0.1, w + 0.03, 0.14, l * 0.94, 0xffffff);
-    if (key === 'swatvan') { b.box(0, 0.5, l / 2, w * 1.02, 0.5, 0.3, 0x30343b); b.box(0, hgt + 0.06, 0, w * 0.5, 0.12, 0.5, 0x30343b); b.box(0, hgt * 0.42, -0.1, w + 0.03, 0.2, l * 0.94, 0xf1f3f5); }
-    TA.addWheels(b, w, l, key === 'swatvan' ? 0.5 : 0.38, [l * 0.32, -l * 0.32]); TA.addCarLamps(b, w, l, 0.7);
-  } else if (key === 'komet') {
-    b.box(0, 0.55, 0, 0.34, 0.3, 1.3, color); b.box(0, 0.86, 0.5, 0.3, 0.6, 0.12, color); b.box(0, 1.16, 0.5, 0.62, 0.06, 0.08, 0x2b2f36);
-    b.box(0, 0.74, -0.3, 0.36, 0.1, 0.62, 0x22252a);
-    b.cyl(0, 0.3, 0.72, 0.3, 0.3, 0.12, TA.TYRE, 10, 0, Math.PI / 2); b.cyl(0, 0.3, -0.72, 0.3, 0.3, 0.12, TA.TYRE, 10, 0, Math.PI / 2);
-    // rider
-    b.box(0, 1.2, -0.2, 0.46, 0.56, 0.26, 0x457b9d); b.box(0, 1.63, -0.16, 0.28, 0.28, 0.28, 0xf2f2f2); b.box(0, 1.62, 0.0, 0.24, 0.12, 0.04, TA.GLASS);
-    b.box(-0.2, 0.86, 0.02, 0.14, 0.2, 0.5, 0x2f3e46); b.box(0.2, 0.86, 0.02, 0.14, 0.2, 0.5, 0x2f3e46);
-    b.box(0, 0.86, 0.9, 0.16, 0.12, 0.05, 0xfff4c2); b.box(0, 0.7, -0.96, 0.16, 0.1, 0.05, 0xe5383b);
+function addStreetLamp(batch, x, z, ry) {
+  const dx = Math.sin(ry), dz = Math.cos(ry);
+  batchAddBox(batch, x, 3.6, z, 0.18, 7.2, 0.18, 0x3c4a52, 0);
+  batchAddBox(batch, x, 0.3, z, 0.4, 0.6, 0.4, 0x2f3a41, 0);
+  batchAddBox(batch, x + dx * 1.0, 7.1, z + dz * 1.0, 0.14, 0.14, 2.1, 0x3c4a52, ry);
+  batchAddBox(batch, x + dx * 1.9, 7.0, z + dz * 1.9, 0.5, 0.16, 0.9, 0xfff0b8, ry);
+}
+
+function addBench(batch, x, z, ry) {
+  batchAddBox(batch, x, 0.6, z, 1.8, 0.08, 0.5, 0x9b6b43, ry);
+  batchAddBox(batch, x - Math.sin(ry) * 0.24, 0.95, z - Math.cos(ry) * 0.24, 1.8, 0.5, 0.07, 0x9b6b43, ry);
+  batchAddBox(batch, x, 0.36, z, 1.6, 0.42, 0.34, 0x3c4a52, ry);
+}
+
+function addHydrantBinPlanter(batch, kind, x, z) {
+  const m = SCRATCH.m;
+  if (kind === 'hydrant') {
+    m.compose(SCRATCH.p.set(x, 0.5, z), SCRATCH.q.identity(), SCRATCH.s.set(0.34, 0.7, 0.34));
+    batchAddGeometry(batch, unitGeometry('cyl'), m, 0xd6332a);
+    batchAddBox(batch, x, 0.6, z, 0.56, 0.14, 0.14, 0xd6332a, 0);
+  } else if (kind === 'bin') {
+    m.compose(SCRATCH.p.set(x, 0.62, z), SCRATCH.q.identity(), SCRATCH.s.set(0.6, 0.95, 0.6));
+    batchAddGeometry(batch, unitGeometry('cyl'), m, 0x2b8a5a);
+    batchAddBox(batch, x, 1.12, z, 0.66, 0.06, 0.66, 0x1f2a30, 0);
   } else {
-    // sedan family: sedan, taxi, cruiser
-    b.box(0, 0.62, 0, w, 0.52, l, color);
-    b.box(0, 1.12, -0.2, w * 0.86, 0.5, l * 0.52, TA.GLASS); b.box(0, 1.39, -0.2, w * 0.84, 0.07, l * 0.46, color);
-    b.box(-w * 0.43, 1.12, -0.2, 0.05, 0.5, 0.1, color); b.box(w * 0.43, 1.12, -0.2, 0.05, 0.5, 0.1, color);
-    if (key === 'cruiser') {
-      b.box(0, 0.66, 0, w + 0.03, 0.16, l * 0.98, 0x1d4ed8); b.box(0, 0.62, l * 0.36, w + 0.02, 0.5, l * 0.26, 0x1b263b);
-      b.box(0, 1.46, -0.2, 1.2, 0.08, 0.34, 0x2b2f36); b.box(0, 0.5, l / 2 + 0.12, w * 0.8, 0.34, 0.1, 0x2b2f36);
-    }
-    if (key === 'taxi') { b.box(0, 0.7, 0, w + 0.03, 0.12, l * 0.6, 0x1b1b1b); b.box(0, 1.5, -0.2, 0.7, 0.2, 0.3, 0xfff8dc); }
-    TA.addWheels(b, w, l, 0.34, [l * 0.31, -l * 0.31]); TA.addCarLamps(b, w, l, 0.7);
+    batchAddBox(batch, x, 0.5, z, 1.5, 0.7, 1.5, 0xcbb9a0, 0);
+    m.compose(SCRATCH.p.set(x, 1.3, z), SCRATCH.q.identity(), SCRATCH.s.set(1.8, 1.5, 1.8));
+    batchAddGeometry(batch, unitGeometry('sphere'), m, 0x3fa35c);
+    m.compose(SCRATCH.p.set(x + 0.4, 1.75, z - 0.2), SCRATCH.q.identity(), SCRATCH.s.set(0.7, 0.6, 0.7));
+    batchAddGeometry(batch, unitGeometry('sphere'), m, 0xf06595);
   }
-  return b.geometry();
-};
+}
 
-TA.carGeoCache = {};
-TA.makeCar = function (key, color) {
-  var id = key + ':' + color, model = TA.CAR_MODELS[key];
-  if (!TA.carGeoCache[id]) TA.carGeoCache[id] = TA.buildCarGeometry(key, color);
-  var group = new THREE.Group(), body = new THREE.Mesh(TA.carGeoCache[id], TA.flatMaterial());
-  body.castShadow = true; body.receiveShadow = true;
-  group.add(body);
-  group.userData.bars = [];
-  if (key === 'cruiser' || key === 'swatvan') {
-    var y = key === 'cruiser' ? 1.56 : model.hgt + 0.2, z = key === 'cruiser' ? -0.2 : 0;
-    var geo = TA._barGeo || (TA._barGeo = new THREE.BoxGeometry(0.52, 0.16, 0.3));
-    var red = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: 0xff2a2a })), blue = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: 0x2a6bff }));
-    red.position.set(-0.32, y, z); blue.position.set(0.32, y, z);
-    group.add(red, blue); group.userData.bars = [red, blue];
-    var label = key === 'cruiser' ? 'TAPD' : 'BADAK-2', dark = key === 'swatvan';
-    [-1, 1].forEach(function (side) {
-      var sign = TA.makeSign(label, key === 'cruiser' ? 1.1 : 2.2, key === 'cruiser' ? 0.34 : 0.5, dark ? '#14213d' : '#ffffff', dark ? '#ffffff' : '#1d4ed8');
-      sign.position.set(side * (model.wid / 2 + 0.03), key === 'cruiser' ? 0.86 : 1.2, key === 'cruiser' ? -0.5 : -0.4);
-      sign.rotation.y = side * Math.PI / 2;
-      group.add(sign);
-    });
+function addBusStop(batch, x, z, ry) {
+  const dx = Math.sin(ry), dz = Math.cos(ry), sx = Math.cos(ry), sz = -Math.sin(ry);
+  for (const s of [-1.7, 1.7]) batchAddBox(batch, x + sx * s - dx * 0.7, 1.4, z + sz * s - dz * 0.7, 0.12, 2.5, 0.12, 0x3c4a52, 0);
+  batchAddBox(batch, x - dx * 0.1, 2.72, z - dz * 0.1, 3.9, 0.14, 1.8, 0x1aa7a1, ry);
+  batchAddBox(batch, x - dx * 0.74, 1.5, z - dz * 0.74, 3.4, 1.7, 0.06, 0x9fd3e6, ry);
+  batchAddBox(batch, x - dx * 0.4, 0.6, z - dz * 0.4, 2.8, 0.1, 0.45, 0xe9a23b, ry);
+  batchAddBox(batch, x + sx * 2.3, 1.5, z + sz * 2.3, 0.1, 2.7, 0.1, 0x3c4a52, 0);
+  batchAddBox(batch, x + sx * 2.3, 2.7, z + sz * 2.3, 0.7, 0.7, 0.08, 0x1c4fa3, ry);
+}
+
+function addBeachUmbrella(batch, x, z, colorHex, y) {
+  const base = y || 0;
+  batchAddBox(batch, x, base + 1.2, z, 0.09, 2.4, 0.09, 0xf1ede2, 0);
+  const m = SCRATCH.m;
+  m.compose(SCRATCH.p.set(x, base + 2.5, z), SCRATCH.q.identity(), SCRATCH.s.set(3.4, 0.8, 3.4));
+  batchAddGeometry(batch, unitGeometry('cone'), m, colorHex);
+  m.compose(SCRATCH.p.set(x, base + 2.76, z), SCRATCH.q.identity(), SCRATCH.s.set(1.5, 0.36, 1.5));
+  batchAddGeometry(batch, unitGeometry('cone'), m, 0xfdf6e3);
+  batchAddBox(batch, x + 0.9, base + 0.28, z + 0.4, 0.7, 0.12, 1.9, 0xfdf6e3, 0.3);
+}
+
+function addMarketStall(batch, x, z, ry, colorHex) {
+  const dx = Math.sin(ry), dz = Math.cos(ry), sx = Math.cos(ry), sz = -Math.sin(ry);
+  batchAddBox(batch, x, 0.5, z, 3.0, 1.0, 1.3, 0xa9764a, ry);
+  for (const a of [-1.45, 1.45]) for (const b of [-0.6, 0.6]) batchAddBox(batch, x + sx * a + dx * b, 1.4, z + sz * a + dz * b, 0.09, 2.8, 0.09, 0x6b4a2f, 0);
+  for (let i = 0; i < 6; i++) {
+    const off = -1.375 + i * 0.55;
+    batchAddBox(batch, x + sx * off + dx * 0.25, 2.85, z + sz * off + dz * 0.25, 0.55, 0.1, 2.3, i % 2 ? 0xfdf6e3 : colorHex, ry);
   }
-  if (key === 'taxi') {
-    var ts = TA.makeSign('TAKSI', 0.66, 0.2, '#fff8dc', '#1b1b1b');
-    ts.position.set(0, 1.5, -0.04); ts.rotation.y = Math.PI; group.add(ts);
+  const fruit = [0xff922b, 0xe03131, 0x94d82d, 0xffd43b];
+  for (let i = 0; i < 4; i++) {
+    const off = -1.05 + i * 0.7;
+    batchAddBox(batch, x + sx * off + dx * 0.1, 1.12, z + sz * off + dz * 0.1, 0.56, 0.24, 0.8, fruit[i], ry);
   }
-  return group;
-};
+}
 
-// Flash the red and blue lamps of a light bar (alternating, about four times a second).
-TA.flashBars = function (group, time, on) {
-  var bars = group.userData.bars;
-  if (!bars || !bars.length) return;
-  var phase = Math.floor(time * 8) % 2;
-  bars[0].material.color.setHex(on && phase === 0 ? 0xff2a2a : 0x551010);
-  bars[1].material.color.setHex(on && phase === 1 ? 0x3d7bff : 0x101c55);
-  bars[0].scale.setScalar(on && phase === 0 ? 1.5 : 1); bars[1].scale.setScalar(on && phase === 1 ? 1.5 : 1);
-};
+function addShippingContainer(batch, x, y, z, ry, colorHex) {
+  batchAddBox(batch, x, y + 1.3, z, 2.44, 2.6, 6.06, colorHex, ry);
+  const dx = Math.sin(ry), dz = Math.cos(ry);
+  batchAddBox(batch, x + dx * 3.04, y + 1.3, z + dz * 3.04, 2.2, 2.3, 0.04, 0x2b2f36, ry);
+  for (let i = -2; i <= 2; i++) batchAddBox(batch, x + dx * i * 1.1, y + 1.3, z + dz * i * 1.1, 2.5, 2.3, 0.08, shadeColor(colorHex, 0.8), ry);
+}
 
-// ELANG-1: white and blue police helicopter with a rotor disc and a searchlight cone.
-TA.makeHelicopter = function () {
-  var b = TA.Batch(), group = new THREE.Group();
-  b.sphere(0, 0, 0.4, 1.25, 1.15, 2.4, 0xf8f9fa); b.sphere(0, 0.25, 1.75, 0.95, 0.75, 0.9, TA.GLASS);
-  b.box(0, -0.15, 0.2, 2.56, 0.3, 3.2, 0x1d4ed8); b.box(0, 0.25, -3.4, 0.36, 0.4, 4.4, 0xf8f9fa);
-  b.box(0, 0.95, -5.3, 0.1, 1.5, 0.8, 0x1d4ed8); b.box(0, 0.3, -5.3, 1.6, 0.08, 0.5, 0x1d4ed8);
-  b.cyl(0, 1.3, 0.2, 0.14, 0.14, 0.6, 0x495057, 6);
-  b.box(-1.0, -1.45, 0.3, 0.1, 0.1, 3.4, 0x343a40); b.box(1.0, -1.45, 0.3, 0.1, 0.1, 3.4, 0x343a40);
-  b.box(-1.0, -1.1, 1.0, 0.07, 0.7, 0.07, 0x343a40); b.box(1.0, -1.1, 1.0, 0.07, 0.7, 0.07, 0x343a40);
-  b.box(-1.0, -1.1, -0.5, 0.07, 0.7, 0.07, 0x343a40); b.box(1.0, -1.1, -0.5, 0.07, 0.7, 0.07, 0x343a40);
-  b.sphere(0, -1.0, 1.5, 0.3, 0.3, 0.3, 0xfff6bf);
-  group.add(b.build());
-  var rotor = new THREE.Group();
-  var disc = new THREE.Mesh(new THREE.CylinderGeometry(5.6, 5.6, 0.04, 24), new THREE.MeshBasicMaterial({ color: 0x8d99ae, transparent: true, opacity: 0.28, depthWrite: false }));
-  var bladeMat = new THREE.MeshLambertMaterial({ color: 0x343a40 });
-  var b1 = new THREE.Mesh(new THREE.BoxGeometry(11.2, 0.06, 0.34), bladeMat), b2 = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.06, 11.2), bladeMat);
-  rotor.add(disc, b1, b2); rotor.position.set(0, 1.62, 0.2);
-  var tail = new THREE.Mesh(new THREE.CylinderGeometry(0.85, 0.85, 0.04, 14), disc.material);
-  tail.rotation.z = Math.PI / 2; tail.position.set(0.22, 0.95, -5.3);
-  var sign = TA.makeSign('ELANG-1', 1.9, 0.42, '#1d4ed8', '#ffffff');
-  sign.position.set(1.27, 0.2, 0.2); sign.rotation.y = Math.PI / 2;
-  group.add(rotor, tail, sign);
-  group.userData.rotor = rotor; group.userData.tail = tail;
-  return group;
-};
+function shadeColor(colorHex, factor) {
+  const r = Math.min(255, Math.round(((colorHex >> 16) & 255) * factor));
+  const g = Math.min(255, Math.round(((colorHex >> 8) & 255) * factor));
+  const b = Math.min(255, Math.round((colorHex & 255) * factor));
+  return (r << 16) | (g << 8) | b;
+}
 
-// Translucent searchlight cone ending in a bright disc on the ground.
-TA.makeSearchlight = function () {
-  var coneGeo = new THREE.CylinderGeometry(0.06, 1, 1, 24, 1, true);
-  coneGeo.translate(0, -0.5, 0);   // apex at the origin, opening downward along -y
-  var cone = new THREE.Mesh(coneGeo, new THREE.MeshBasicMaterial({ color: 0xfff7cf, transparent: true, opacity: 0.2, side: THREE.DoubleSide, depthWrite: false }));
-  var disc = new THREE.Mesh(new THREE.CircleGeometry(1, 24), new THREE.MeshBasicMaterial({ color: 0xfffbe0, transparent: true, opacity: 0.42, depthWrite: false }));
-  disc.rotation.x = -Math.PI / 2;
-  cone.renderOrder = 5; disc.renderOrder = 4;
-  return { cone: cone, disc: disc };
-};
-
-// ---- people -----------------------------------------------------------------
-TA.SHIRTS = [0xef476f, 0xffd166, 0x06d6a0, 0x118ab2, 0xf78c6b, 0xffffff, 0x9b5de5, 0xf15bb5, 0x80ed99, 0xff9f1c, 0x3a86ff, 0xe76f51];
-TA.SKINS = [0xc68642, 0xb9793f, 0xd9a066, 0x8d5524, 0xe0ac69];
-TA.LOOKS = {
-  raka: { shirt: 0x12b5a5, pants: 0x2b3a55, skin: 0xc68642, hair: 0x1b1b1b, hat: 'cap', hatColor: 0xf8f9fa },
-  cop: { shirt: 0x1b2a4a, pants: 0x14203a, skin: 0xb9793f, hair: 0x111111, hat: 'cap', hatColor: 0x14203a },
-  swat: { shirt: 0x15171a, pants: 0x15171a, skin: 0xb9793f, hair: 0x111111, hat: 'helmet', hatColor: 0x0d0f12 },
-  guard: { shirt: 0x8d99ae, pants: 0x5c677d, skin: 0xc68642, hair: 0x222222, hat: 'cap', hatColor: 0x5c677d },
-  thug: { shirt: 0x7f1d1d, pants: 0x1f2937, skin: 0xb9793f, hair: 0x111111, hat: 'none', hatColor: 0 }
-};
-
-TA.randomLook = function (rng) {
-  var hats = ['none', 'none', 'none', 'cap', 'straw'];
-  return {
-    shirt: TA.SHIRTS[Math.floor(rng() * TA.SHIRTS.length)], pants: [0x2b3a55, 0x3d405b, 0x6b705c, 0x264653, 0xf4f1de][Math.floor(rng() * 5)],
-    skin: TA.SKINS[Math.floor(rng() * TA.SKINS.length)], hair: [0x1b1b1b, 0x3b2f2f, 0x5c4033][Math.floor(rng() * 3)],
-    hat: hats[Math.floor(rng() * hats.length)], hatColor: [0xffffff, 0xe63946, 0xf2cc8f][Math.floor(rng() * 3)]
-  };
-};
-
-TA.limbMaterial = function (color) {
-  TA._limbMats = TA._limbMats || {};
-  return TA._limbMats[color] || (TA._limbMats[color] = new THREE.MeshLambertMaterial({ color: color }));
-};
-
-// Blocky but proportioned person, 1.8 m tall, facing +z. Arms and legs swing from the shoulder and hip.
-TA.makePerson = function (look) {
-  var b = TA.Batch(), group = new THREE.Group();
-  b.box(0, 1.17, 0, 0.56, 0.62, 0.3, look.shirt); b.box(0, 0.9, 0, 0.5, 0.12, 0.28, look.pants);
-  b.box(0, 1.52, 0, 0.14, 0.1, 0.14, look.skin); b.box(0, 1.69, 0, 0.3, 0.28, 0.3, look.skin);
-  b.box(0, 1.72, 0.155, 0.2, 0.05, 0.01, 0x222222);
-  if (look.hat === 'cap') { b.box(0, 1.86, 0, 0.32, 0.1, 0.32, look.hatColor); b.box(0, 1.83, 0.22, 0.28, 0.03, 0.18, look.hatColor); }
-  else if (look.hat === 'helmet') { b.box(0, 1.8, 0, 0.36, 0.24, 0.36, look.hatColor); b.box(0, 1.7, 0.17, 0.3, 0.1, 0.03, 0x3a506b); }
-  else if (look.hat === 'straw') { b.cyl(0, 1.85, 0, 0.12, 0.42, 0.14, 0xf2cc8f, 10); }
-  else { b.box(0, 1.85, -0.02, 0.32, 0.08, 0.32, look.hair); b.box(0, 1.72, -0.15, 0.32, 0.22, 0.04, look.hair); }
-  var body = b.build(); group.add(body);
-  var armGeo = TA._armGeo || (TA._armGeo = new THREE.BoxGeometry(0.15, 0.62, 0.17).translate(0, -0.27, 0));
-  var legGeo = TA._legGeo || (TA._legGeo = new THREE.BoxGeometry(0.22, 0.86, 0.24).translate(0, -0.43, 0));
-  var parts = {};
-  [['armL', armGeo, -0.36, 1.44, look.shirt], ['armR', armGeo, 0.36, 1.44, look.shirt], ['legL', legGeo, -0.14, 0.86, look.pants], ['legR', legGeo, 0.14, 0.86, look.pants]].forEach(function (d) {
-    var mesh = new THREE.Mesh(d[1], TA.limbMaterial(d[4]));
-    mesh.position.set(d[2], d[3], 0); mesh.castShadow = true;
-    group.add(mesh); parts[d[0]] = mesh;
-  });
-  group.userData.parts = parts;
-  return group;
-};
-
-// Walk cycle; pose 'aim' raises the right arm, 'down' lays the body flat, 'sit' hides it inside a car.
-TA.animatePerson = function (group, phase, amount, pose) {
-  var p = group.userData.parts, s = Math.sin(phase) * amount;
-  p.legL.rotation.x = s; p.legR.rotation.x = -s;
-  p.armL.rotation.x = -s * 0.8; p.armR.rotation.x = pose === 'aim' ? -1.45 : s * 0.8;
-  if (pose === 'aim') p.armL.rotation.x = -1.2;
-  group.rotation.x = pose === 'down' ? -Math.PI / 2 : 0;
-  group.position.y += pose === 'down' ? 0.2 : 0;
-};
-
-// ---- street props, all added to a batch -----------------------------------
-TA.addPalm = function (b, x, z, rng) {
-  var h = 7 + rng() * 4, lean = (rng() - 0.5) * 0.9, ang = rng() * 6.28, lx = Math.sin(ang) * lean, lz = Math.cos(ang) * lean;
-  for (var i = 0; i < 4; i++) {
-    var t = (i + 0.5) / 4;
-    b.cyl(x + lx * t * t * 2, h * t, z + lz * t * t * 2, 0.2 - i * 0.02, 0.27 - i * 0.02, h / 4 + 0.1, i % 2 ? 0x9c7a55 : 0x8a6a48, 6);
-  }
-  var tx = x + lx * 2, tz = z + lz * 2;
-  for (var f = 0; f < 8; f++) {
-    var a = f / 8 * 6.283 + rng() * 0.4, len = 3 + rng() * 1.2, droop = 0.45 + rng() * 0.3;
-    b.box(tx + Math.sin(a) * len * 0.45, h - Math.sin(droop) * len * 0.3 + 0.2, tz + Math.cos(a) * len * 0.45, 0.9, 0.08, len, f % 2 ? 0x2f9e44 : 0x3fb950, a, droop);
-  }
-  b.sphere(tx, h - 0.1, tz, 0.45, 0.4, 0.45, 0x6b4f2a);
-};
-
-TA.addLamp = function (b, x, z, dx, dz) {
-  b.cyl(x, 3.4, z, 0.09, 0.13, 6.8, 0x6c757d, 6);
-  b.box(x + dx * 0.9, 6.8, z + dz * 0.9, dx ? 2 : 0.14, 0.12, dz ? 2 : 0.14, 0x6c757d);
-  b.box(x + dx * 1.8, 6.66, z + dz * 1.8, 0.5, 0.14, 0.5, 0xfff3bf);
-};
-
-TA.addTrafficPole = function (b, x, z) {
-  b.cyl(x, 2.6, z, 0.1, 0.1, 5.2, 0x343a40, 6);
-  b.box(x, 4.7, z, 0.44, 1.1, 0.44, 0x212529);
-};
-
-TA.addBench = function (b, x, z, ry) {
-  b.box(x, 0.6, z, 1.8, 0.08, 0.5, 0xa47148, ry); b.box(x, 0.95, z, 1.8, 0.4, 0.07, 0xa47148, ry);
-  b.box(x, 0.38, z, 1.6, 0.36, 0.1, 0x495057, ry);
-};
-
-TA.addHydrant = function (b, x, z) {
-  b.cyl(x, 0.5, z, 0.16, 0.2, 0.7, 0xe63946, 8); b.sphere(x, 0.9, z, 0.18, 0.14, 0.18, 0xe63946);
-};
-
-TA.addBusStop = function (b, x, z, ry) {
-  b.box(x, 2.6, z, 4.2, 0.12, 1.6, 0x118ab2, ry); b.box(x, 1.45, z, 4.0, 2.1, 0.08, 0xbde0fe, ry);
-  var s = Math.sin(ry), c = Math.cos(ry);
-  b.cyl(x - c * 1.9, 1.4, z + s * 1.9, 0.06, 0.06, 2.5, 0x495057, 6); b.cyl(x + c * 1.9, 1.4, z - s * 1.9, 0.06, 0.06, 2.5, 0x495057, 6);
-  b.box(x, 0.62, z, 3.0, 0.1, 0.5, 0xf8f9fa, ry);
-};
-
-// Striped umbrella (beach or market stall).
-TA.addUmbrella = function (b, x, z, c1, c2, size) {
-  var r = size || 1.7;
-  b.cyl(x, 1.25, z, 0.04, 0.04, 2.5, 0xf8f9fa, 5);
-  b.cyl(x, 2.55, z, 0.08, r, 0.6, c1, 10); b.cyl(x, 2.3, z, r, r * 1.04, 0.1, c2, 10);
-};
-
-TA.addStall = function (b, x, z, ry, c1, c2, rng) {
-  b.box(x, 0.55, z, 2.6, 1.0, 1.2, 0xb08968, ry); b.box(x, 1.08, z, 2.7, 0.08, 1.3, 0xe6ccb2, ry);
-  var fruit = [0xff595e, 0xffca3a, 0x8ac926, 0xff924c];
-  for (var i = 0; i < 4; i++) {
-    var o = (i - 1.5) * 0.6;
-    b.box(x + Math.cos(ry) * o, 1.22, z - Math.sin(ry) * o, 0.5, 0.22, 0.8, fruit[Math.floor(rng() * 4)], ry);
-  }
-  TA.addUmbrella(b, x, z, c1, c2, 2.0);
-};
-
-TA.CONTAINER_COLORS = [0xd62828, 0x1d70b8, 0xf77f00, 0x2a9d8f, 0xfcbf49, 0x6a4c93, 0xe9ecef, 0x386641];
-TA.addContainer = function (b, x, y, z, ry, color) {
-  b.box(x, y + 1.3, z, 2.44, 2.6, 12.2, color, ry);
-  b.box(x, y + 1.3, z, 2.5, 2.3, 0.3, 0xffffff, ry);
-};
-
-// Gantry crane on the quay: two legs, a boom reaching over the water, a hanging container.
-TA.addCrane = function (b, x, z) {
-  var c = 0xf4a100, d = 0xd00000;
-  [[-7, -5], [7, -5], [-7, 5], [7, 5]].forEach(function (o) { b.box(x + o[0], 17, z + o[1], 1.2, 34, 1.2, c); });
-  b.box(x, 34, z - 5, 15.2, 1.4, 1.4, c); b.box(x, 34, z + 5, 15.2, 1.4, 1.4, c);
-  b.box(x, 12, z - 5, 15.2, 0.8, 0.8, c); b.box(x, 12, z + 5, 15.2, 0.8, 0.8, c);
-  b.box(x, 36, z + 16, 2.2, 2.2, 62, d); b.box(x, 44, z - 4, 1.2, 16, 1.2, d);
-  b.box(x, 43, z + 14, 0.3, 0.3, 40, 0x343a40, 0, 0.36);
-  b.box(x, 33.5, z + 2, 4, 3, 4, 0xf8f9fa);
-  b.box(x, 27, z + 26, 0.12, 16, 0.12, 0x212529); TA.addContainer(b, x, 17.6, z + 26, Math.PI / 2, 0x1d70b8);
-};
-
-TA.addShip = function (b, x, z) {
-  b.box(x, 2.2, z, 130, 9, 22, 0x1d3557); b.box(x, -1.2, z, 130, 2.2, 22.2, 0xc1121f); b.box(x, 6.9, z, 131, 0.5, 22.6, 0xf1faee);
-  b.box(x - 52, 14, z, 14, 14, 18, 0xf8f9fa); b.box(x - 52, 22, z, 16, 2.4, 20, 0xf8f9fa); b.box(x - 52, 18.4, z, 14.2, 1.4, 18.2, TA.GLASS);
-  b.cyl(x - 56, 27, z, 1.6, 1.8, 7, 0xd00000, 10);
-  for (var i = 0; i < 7; i++) for (var j = 0; j < 5; j++) for (var k = 0; k < 1 + ((i * 3 + j * 5) % 3); k++) {
-    TA.addContainer(b, x - 34 + i * 12.6, 7.1 + k * 2.6, z - 8.2 + j * 4.1, Math.PI / 2, TA.CONTAINER_COLORS[(i + j * 2 + k * 3) % 8]);
-  }
-};
-
-TA.addBoat = function (b, x, z, ry, color) {
-  b.box(x, 0.1, z, 2.4, 1.2, 7, color, ry); b.box(x, 0.9, z, 2.6, 0.2, 7.2, 0xffffff, ry);
-  b.box(x - Math.sin(ry) * 1, 1.7, z - Math.cos(ry) * 1, 1.8, 1.4, 2.4, 0xf8f9fa, ry);
-  b.cyl(x, 3.4, z, 0.05, 0.05, 4, 0xadb5bd, 5);
-};
-
-TA.addBillboard = function (b, x, z, ry, w, h, base) {
-  var s = Math.sin(ry), c = Math.cos(ry);
-  b.cyl(x - c * w * 0.3, base / 2, z + s * w * 0.3, 0.2, 0.2, base, 0x495057, 6); b.cyl(x + c * w * 0.3, base / 2, z - s * w * 0.3, 0.2, 0.2, base, 0x495057, 6);
-  b.box(x, base + h / 2, z, w + 0.4, h + 0.4, 0.3, 0x343a40, ry);
-};
-
-// Stunt ramp wedge.
-TA.addRamp = function (b, x, z, ry) {
-  b.box(x, 0.75, z, 5, 0.25, 7.5, 0xff9f1c, ry, -0.22);
-  b.box(x + Math.sin(ry) * 3.4, 0.75, z + Math.cos(ry) * 3.4, 5, 1.5, 0.3, 0xf8f9fa, ry);
+const UNIT_GEOMETRY = {};
+const SIGN_CACHE = {};
+const SHADOW_PLANE = { geo: null };
+const SCRATCH = { m: new THREE.Matrix4(), q: new THREE.Quaternion(), p: new THREE.Vector3(), s: new THREE.Vector3(), v: new THREE.Vector3(), up: new THREE.Vector3(0, 1, 0), color: new THREE.Color(), normalMatrix: new THREE.Matrix3() };
+const PED_SHIRTS = [0xff6b6b, 0xffd43b, 0x4dabf7, 0x69db7c, 0xf783ac, 0xffa94d, 0xb197fc, 0xf8f9fa, 0x38d9a9, 0xe8590c];
+const PED_PANTS = [0x2b3a55, 0x3d3d45, 0x6b4f3a, 0x1f4e79, 0x555b66, 0xd9c8a9];
+const PED_SKINS = [0xc68e63, 0xa8754c, 0xd6a57c, 0x8d5a3a, 0xe0b48c];
+const PED_HAIR = [0x1a120d, 0x2a1b14, 0x3b2a20, 0x111111, 0x5a3d28];
+const PERSON_LOOKS = {
+  raka: { shirt: 0x12b5a0, pants: 0x27344d, skin: 0xc68e63, hair: 0x1a120d, hat: 'cap', hatColor: 0x0f8f7f, shoes: 0xf1ede2 },
+  cop: { shirt: 0x1b2f5c, pants: 0x162446, skin: 0xb98a63, hair: 0x111111, hat: 'cap', hatColor: 0x162446, weapon: 'baton' },
+  swat: { shirt: 0x15171c, pants: 0x15171c, skin: 0xb98a63, hair: 0x111111, hat: 'helmet', hatColor: 0x1d2026, vest: 0x2a2e36, weapon: 'rifle' },
+  guard: { shirt: 0x8c929c, pants: 0x4a4f58, skin: 0xb98a63, hair: 0x111111, hat: 'cap', hatColor: 0x4a4f58, weapon: 'pistol' },
+  thug: { shirt: 0x7a1f2b, pants: 0x1f1f24, skin: 0xa8754c, hair: 0x111111, hat: null, weapon: 'smg' }
 };

@@ -1,54 +1,61 @@
-// Career: rank points, the five ranks and their perks, district standing, and the statistics block.
-TA.rankInfo = function () {
-  var rp = TA.state.rp, R = TA.RANKS, i = 0;
-  while (i < R.length - 1 && rp >= R[i + 1].rp) i++;
-  var cur = R[i], next = R[i + 1] || null;
-  return {
-    n: cur.n, name: cur.name, perk: cur.perk, rp: rp, floor: cur.rp, ceil: next ? next.rp : cur.rp,
-    frac: next ? (rp - cur.rp) / (next.rp - cur.rp) : 1,
-    line: 'RANK ' + cur.n + ' · ' + cur.name, numbers: next ? rp + ' / ' + next.rp + ' RP' : rp + ' RP · MAX'
-  };
-};
+// Career: rank points and five ranks, district standing, money, and the seven-day debt clock.
 
-TA.addRP = function (n) {
-  var before = TA.rankInfo().n;
-  TA.state.rp = Math.max(0, TA.state.rp + Math.round(n));
-  var after = TA.rankInfo();
-  if (after.n > before) {
-    TA.showBanner('RANK UP', after.line + ' — PERK: ' + after.perk.toUpperCase(), '#ffd166');
-    if (TA.sfx) TA.sfx('win', 0.7);
+function awardRankPoints(points, reason) {
+  const before = currentRankIndex();
+  G.rp += points;
+  const after = currentRankIndex();
+  if (after > before) {
+    showBanner('RANK UP - ' + RANKS[after].name, RANKS[after].perk, 3.5);
+    playUiSound('complete');
+    if (after >= 2) G.armour = Math.max(G.armour, 25);
+  } else if (points >= 20) W.lastAward = { text: '+' + points + ' RP ' + reason, t: 3 };
+}
+
+function changeDistrictStanding(districtId, delta) {
+  const before = G.standing[districtId];
+  G.standing[districtId] = clamp(before + delta, 0, 100);
+  const a = standingWord(before), b = standingWord(G.standing[districtId]);
+  if (a !== b) showBanner(DISTRICTS.find((d) => d.id === districtId).name + ': ' + b, delta > 0 ? 'The district has your back' : 'People here remember what you did', 2.4);
+}
+
+function advanceDebtDay() {
+  G.day++;
+  // Darma adds interest every morning the debt is still open.
+  if (G.debt > 0) G.debt = Math.round(G.debt * 1.02);
+  if (G.day > 7 && G.debt > 0 && G.contractsDone < CONTRACTS.length) {
+    G.day = 7;
+    G.mode = 'ending';
+    G.ending = 'lost';
+    showEndingScreen(ENDINGS.lost);
+    return;
   }
-};
+  showBanner('DAY ' + G.day + ' OF 7', G.debt > 0 ? 'Debt with interest: ' + formatMoney(G.debt) : 'The debt is cleared', 3);
+  sayChatter('darma', G.day >= 6 ? 'The week is almost gone, Raka. So is my patience.' : 'Another sunrise, another two percent. Tick tock.', 4);
+}
 
-TA.addStanding = function (districtId, n) {
-  var st = TA.state.standing;
-  st[districtId] = TA.clamp((st[districtId] || 0) + n, 0, 100);
-};
+function currentRankIndex() {
+  let r = 0;
+  for (let i = 0; i < RANKS.length; i++) if (G.rp >= RANKS[i].rp) r = i;
+  return r;
+}
 
-TA.standingWord = function (value) { return TA.STANDING_WORDS[Math.min(4, Math.floor(value / 20.01))]; };
+function standingWord(value) {
+  return STANDING_WORDS[Math.min(5, Math.floor(value / 18))];
+}
 
-// Location banner data: district, street and the player's standing there.
-TA.locationInfo = function () {
-  var p = TA.player, d = TA.districtAt(p.x, p.z), v = Math.round(TA.state.standing[d.id] || 0);
-  return { district: d.name, street: TA.streetAt(p.x, p.z), standing: v, word: TA.standingWord(v), tint: d.tint, id: d.id };
-};
+function addMoney(amount, reason) {
+  G.money = Math.max(0, G.money + amount);
+  if (amount > 0) G.stats.earned += amount;
+  W.lastMoney = { text: (amount >= 0 ? '+' : '-') + formatMoney(Math.abs(amount)) + ' ' + reason, t: 3 };
+}
 
-// Rows for the career / statistics block on the map screen.
-TA.careerStats = function () {
-  var s = TA.state, st = s.stats;
-  return [
-    ['Contracts done', s.missionsDone + ' / 10'], ['Debt remaining', TA.fmtMoney(s.debt)], ['Total earned', TA.fmtMoney(st.earned)],
-    ['Distance', (st.distance / 1000).toFixed(1) + ' km'], ['Cars stolen', String(st.carsStolen)], ['Takedowns', String(st.kills)],
-    ['Stars escaped', String(st.starsEscaped)], ['Busted / wasted', st.busted + ' / ' + st.wasted], ['Coins / stunts', s.coins.length + '/12 · ' + s.ramps.length + '/5'],
-    ['Races best', s.bestRace.map(function (t) { return t ? t + 's' : '—'; }).join(' · ')], ['Fares · exports · wrecks', s.fares + ' · ' + s.exports + ' · ' + s.wrecks],
-    ['Play time', Math.floor(st.playMinutes) + ' min']
-  ];
-};
-
-// Standing drifts back toward neutral very slowly, and rises a little wherever the player spends time lawfully.
-TA.updateCareer = function (dt) {
-  if (TA.run.frame % 600 !== 0) return;
-  var here = TA.districtAt(TA.player.x, TA.player.z).id;
-  if (TA.run.wanted === 0) TA.addStanding(here, 1);
-  else TA.addStanding(here, -1);
-};
+function updateDayClock(dt) {
+  // One game day lasts 24 real minutes; midnight rolls the debt clock.
+  const before = G.clock;
+  G.clock = (G.clock + dt) % 1440;
+  G.playTime += dt;
+  if (G.clock < before) advanceDebtDay();
+  if (Math.floor(G.clock / 5) !== Math.floor(before / 5)) applyTimeOfDay(G.clock);
+  if (W.lastAward) { W.lastAward.t -= dt; if (W.lastAward.t <= 0) W.lastAward = null; }
+  if (W.lastMoney) { W.lastMoney.t -= dt; if (W.lastMoney.t <= 0) W.lastMoney = null; }
+}

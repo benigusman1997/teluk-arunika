@@ -1,145 +1,140 @@
-// Boot, world reset, the fixed-step loop and top-level key routing.
-TA.query = function (name) {
-  var m = new RegExp('[?&]' + name + '=([^&]*)').exec(window.location.search);
-  return m ? decodeURIComponent(m[1]) : null;
-};
+// Boot, the fixed-step loop, the per-mode update order, new game and world reset.
 
-// Removes every dynamic entity so a new game, a load or a showcase scene starts from a clean city.
-TA.resetWorld = function () {
-  TA.run.mission = null; TA.run.activity = null; TA.run.shop = null;
-  TA.standDownUnits(); TA.heliStandDown();
-  TA.units.slice().forEach(function (u) { TA.removeUnit(u); });
-  TA.cars.slice().forEach(function (c) { TA.removeCar(c); });
-  TA.people.slice().forEach(function (p) { TA.removePerson(p); });
-  TA.pickups.slice().forEach(function (it) { TA.removePickup(it); });
-  TA.clearEffects();
-  TA.dynamicCover = [];
-  var keep = { slot: TA.run.slot, showcase: TA.run.showcase };
-  TA.run = TA.newRun(); TA.run.slot = keep.slot; TA.run.showcase = keep.showcase;
-  TA.CREW.forEach(function (c) { TA.crewRun[c.id].cd = 0; TA.crewRun[c.id].active = 0; });
-};
+function bootGame() {
+  const params = new URLSearchParams(window.location.search);
+  const shot = Number(params.get('shot') || 0), seed = Number(params.get('seed') || 7);
+  const canvas = document.getElementById('game-canvas');
+  W = createWorldRuntime();
+  G = createNewGameState();
+  W.mission = { enemies: [], cars: [], convoy: [], van: null };
+  W.showcase = shot;
+  createRendererAndSky(canvas);
+  buildOpenWorldCity();
+  buildActivityMarkers();
+  buildSeagulls();
+  buildHud();
+  loadSettings();
+  setGraphicsQuality(G.settings.quality);
+  installInputListeners(canvas);
+  rebuildPlayerMesh();
+  resizeRenderer();
+  seedRandom(seed);
+  if (shot) stageShowcaseScene(shot);
+  else { applyTimeOfDay(17 * 60 + 10); populateStreets(); showTitleScreen(); }
+  W.loop = { last: performance.now(), acc: 0, frames: 0 };
+  window.requestAnimationFrame(runFixedStepLoop);
+}
 
-// Puts Raka in the world from TA.state and fills the streets around him.
-TA.enterWorld = function () {
-  var s = TA.state;
-  TA.resetWorld();
-  TA.run.mode = 'playing';
-  TA.spawnPlayer(s.px, s.pz, s.ph);
-  TA.spawnParkedCars();
-  if (!TA.run.showcase) { TA.populateTraffic(s.px, s.pz, 40); TA.populatePedestrians(s.px, s.pz, 12); }
-  TA.setWeather(s.weather === 'rain' ? 'rain' : 'clear');
-  TA.run.banner = null;
-  TA.menu.screen.style.display = 'none';
-  TA.snapCamera();
-};
+function runFixedStepLoop(now) {
+  const loop = W.loop;
+  loop.acc += Math.min(0.1, (now - loop.last) / 1000);
+  loop.last = now;
+  while (loop.acc >= FIXED_STEP) {
+    loop.acc -= FIXED_STEP;
+    if (!W.frozen) stepGame(FIXED_STEP);
+    readKeyboardAndMouse();
+  }
+  if (loop.frames % 4 === 0 || W.frozen) updateHud();
+  updateAudio(FIXED_STEP);
+  renderFrame();
+  loop.frames++;
+  // Screenshot and test tools wait for this flag: world built, HUD laid out, two frames drawn.
+  if (loop.frames === 3) { W.ready = true; window.__sceneReady = true; }
+  window.requestAnimationFrame(runFixedStepLoop);
+}
 
-TA.newGame = function () {
-  TA.state = TA.newState();
-  TA.run.slot = 1;
-  TA.enterWorld();
-  TA.showBanner('TELUK ARUNIKA', 'DAY 1 OF 7 — $50,000 OWED TO DARMA WIJAYA', '#ffd166');
-  TA.say('PAK AMIR', 'Raka! Come to the garage. I have a taxi and you have a debt.');
-};
+function stepGame(dt) {
+  G.frame++;
+  if (G.mode === 'playing') stepPlaying(dt * G.timeScale);
+  else if (G.mode === 'cutscene') { G.time += dt; updateDialogue(dt); stepStreetLife(dt); updateAllCars(dt); updateVisualEffects(dt); updateTimedMessages(dt); }
+  else if (G.mode === 'title') { G.time += dt; stepStreetLife(dt); updateAllCars(dt); updateVisualEffects(dt); }
+  if (W.menu) updateMenuInput();
+  updateActiveCamera(dt);
+}
 
-TA.continueGame = function (slot) {
-  if (!TA.loadGame(slot)) return false;
-  TA.enterWorld();
-  TA.showBanner('GAME LOADED', (slot ? 'SLOT ' + slot : 'AUTOSAVE') + ' — DAY ' + TA.state.day + ' OF 7', '#4895ef');
-  return true;
-};
+function stepPlaying(dt) {
+  const p = G.player;
+  G.time += dt;
+  G.prompt = null;
+  if (W.keysHit.Escape) { releasePointer(); showPauseMenu(); return; }
+  if (W.keysHit.KeyM) { releasePointer(); showTabbedMapScreen(0); return; }
+  if (W.keysHit.F5) { if (saveGameToSlot(1)) showBanner('QUICK SAVE', 'Slot 1', 1.6); }
+  if (W.keysHit.KeyP) toggleRain();
+  updateDayClock(dt);
+  if (p.car) {
+    updatePlayerDriving(dt);
+    updatePlayerMesh();
+  } else updatePlayerOnFoot(dt);
+  updatePlayerWeapons(dt);
+  updateCrewAbilities(dt);
+  stepStreetLife(dt);
+  dispatchPoliceUnits(dt);
+  pursueWithPitAndRamming(dt);
+  escapeByBreakingLineOfSight(dt);
+  updateRoadblocks(dt);
+  flyHelicopterWithSearchlight(dt);
+  deploySwatVanAndOfficers(dt);
+  updateEnemyCoverAI(dt);
+  updateStoryMission(dt);
+  if (G.mode !== 'playing') return;
+  updateSideActivities(dt);
+  // E leaves the car unless a prompt (race, respray, export...) just claimed the key.
+  if (W.keysHit.KeyE && p.car && !G.prompt) enterOrExitVehicle(null);
+  updateAllCars(dt);
+  updateVisualEffects(dt);
+  updateTimedMessages(dt);
+  updateTutorialHints(dt);
+}
 
-// Hooks called by other systems.
-TA.onPersonKilled = function (p, by) {
-  if (by !== 'player') return;
-  TA.state.stats.kills++;
-  if (p.kind === 'thug' || p.kind === 'guard') TA.addRP(4);
-};
-TA.onCarDestroyed = function (car, by) {
-  if (car.kind === 'police' || car.kind === 'swat') { TA.addRP(10); TA.policeSay((car.name || 'Unit') + ' is down! Officer needs assistance!'); }
-};
-TA.onEnterCar = function (car) {
-  if (car.key === 'taxi' && !TA.run.mission && !TA.run.activity) TA.say('sari', 'A taxi? Press F and earn a fare while you are at it.');
-};
+// Traffic, lights and pedestrians: runs under play, cutscenes and the title screen alike.
+function stepStreetLife(dt) {
+  if (G.frame % 20 === 0) {
+    spawnTrafficCars(G.settings.quality === 'low' ? 12 : 20);
+    spawnPedestrians(G.settings.quality === 'low' ? 22 : 40);
+  }
+  updateTrafficLights(dt);
+  driveTrafficAlongLanes(dt);
+  walkPedestriansOnSidewalks(dt);
+  panicPedestriansNearDanger();
+}
 
-// One fixed simulation step.
-TA.step = function (dt) {
-  var r = TA.run, p = TA.player;
-  r.time += dt; r.frame++;
-  r.prompt = '';
-  TA.advanceClock(dt);
-  if (p.dead) TA.updatePlayerDead(dt);
-  else if (p.car) TA.updatePlayerDriving(dt);
-  else TA.updatePlayerOnFoot(dt);
-  TA.updateWeapons(dt);
-  TA.updateTraffic(dt);
-  TA.updateCars(dt);
-  TA.updatePedestrians(dt);
-  TA.updateGunmen(dt);
-  TA.updatePolice(dt);
-  TA.updateHeli(dt);
-  TA.updateSwat(dt);
-  TA.updateMission(dt);
-  TA.updateActivities(dt);
-  TA.updateCrew(dt);
-  TA.updateCareer(dt);
-  TA.updateEffects(dt);
-  TA.updateCity(dt);
-  if (TA.keyHit('KeyV')) TA.setWeather(TA.state.weather === 'rain' ? 'clear' : 'rain');
-  if (r.frame % 3600 === 0) TA.autosave();
-  TA.endInputStep();
-};
+function startNewGame() {
+  const settings = G.settings;
+  resetWorldForNewGame();
+  G = createNewGameState();
+  G.settings = settings;
+  G.mode = 'playing';
+  G.camYaw = Math.PI;
+  G.player.heading = Math.PI;
+  applyTimeOfDay(G.clock);
+  rebuildPlayerMesh();
+  populateStreets();
+  W.cam.snap = true;
+  playCutsceneDialogue([['darma', "Fifty thousand, Raka. Your father's signature, my money. You have seven days."], ['amir', 'I only wanted to keep the workshop open, son. I am sorry.'], ['raka', 'Keep the kettle on, Pak. I will drive until it is paid.']], () => showBanner('DAY 1 OF 7', 'Debt ' + formatMoney(G.debt) + ' - talk to Pak Amir (E)', 4));
+}
 
-// Runs n steps without rendering; used by the self-test and the showcase scenes.
-TA.simulate = function (n) {
-  for (var i = 0; i < n && TA.run.mode === 'playing'; i++) TA.step(TA.CFG.STEP);
-  return TA.run.frame;
-};
+function populateStreets() {
+  spawnParkedCars(30);
+  for (let i = 0; i < 6; i++) { spawnTrafficCars(20); spawnPedestrians(40); }
+}
 
-TA.onKey = function (code, e) {
-  if (TA.run.showcase) return;
-  if (TA.run.mode !== 'playing') { if (TA.menuKey(code) && e) e.preventDefault(); return; }
-  if (code === 'KeyM') TA.openMap(0, false);
-  else if (code === 'KeyP' || code === 'Escape') TA.openMap(0, true);
-};
+function resetWorldForNewGame() {
+  if (G.activity) endActivity(false, 'Cancelled');
+  clearMissionMarkers();
+  clearMissionActors();
+  G.player.car = null;
+  G.wanted = 0;
+  W.units = [];
+  removeRoadblocks();
+  dismissAirAndSwat();
+  while (W.cars.length) removeCar(W.cars[W.cars.length - 1]);
+  while (W.people.length) removePerson(W.people[W.people.length - 1]);
+  for (const e of W.effects) W.scene.remove(e.mesh);
+  W.effects = [];
+  if (W.startBeacon) { W.scene.remove(W.startBeacon); W.startBeacon = null; }
+  for (const mesh of W.coinMeshes) mesh.visible = true;
+  G.dialogue = null; G.chatter = null; G.banner = null; G.hint = null; G.introCard = null; G.prompt = null;
+  W.routeCache = null; W.stunt = null; W.frozen = false;
+}
 
-TA.frame = function (now) {
-  requestAnimationFrame(TA.frame);
-  var r = TA.run, dt = Math.min(0.1, (now - TA.lastNow) / 1000 || 0);
-  TA.lastNow = now;
-  if (r.showcase && r.frozen) return;
-  if (r.mode === 'playing') {
-    TA.acc += dt * r.slowmo;
-    var n = 0;
-    while (TA.acc >= TA.CFG.STEP && n++ < 5) { TA.step(TA.CFG.STEP); TA.acc -= TA.CFG.STEP; if (TA.run.mode !== 'playing') break; }
-    if (n >= 5) TA.acc = 0;
-  } else { r.time += dt; TA.endInputStep(); }
-  TA.updateAudio(dt);
-  TA.updateSky();
-  TA.updateCamera(dt);
-  TA.updateHud(dt);
-  if (!TA.noRender) TA.render();
-};
-
-TA.boot = function () {
-  var scene = +TA.query('scene') || 0, seed = +TA.query('seed') || 20261123;
-  TA.noRender = TA.query('test') === '1';
-  TA.seedRandom(seed);
-  TA.state = TA.newState();
-  TA.run = TA.newRun();
-  TA.initRenderer();
-  TA.buildCity();
-  TA.buildTrafficLamps();
-  TA.initAirUnit();
-  TA.initEffects();
-  TA.buildActivities();
-  TA.buildMapCanvas();
-  TA.initHud();
-  TA.initMenus();
-  TA.initInput(TA.renderer.domElement);
-  TA.acc = 0; TA.lastNow = performance.now();
-  window.__booted = true;
-  if (scene >= 1 && scene <= 4) TA.runShowcase(scene, seed);
-  requestAnimationFrame(TA.frame);
-};
-
-window.addEventListener('load', TA.boot);
+const FIXED_STEP = 1 / 60;

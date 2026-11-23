@@ -1,89 +1,87 @@
-// Takes the four screenshots listed in shots.json: serves game/ locally, opens each showcase scene
-// in headless Chromium at 1280x720, waits for the scene-ready signal and saves the best JPEG under the cap.
-//
-//   node tools/shoot.mjs            all four
-//   node tools/shoot.mjs 1          only shot 1
-//
-// Needs playwright-core and a Chromium build from outside this repository:
-//   PLAYWRIGHT_CORE=/path/to/node_modules/playwright-core  CHROMIUM=/path/to/chrome  node tools/shoot.mjs
+// Takes the four showcase screenshots: serves game/, opens ?shot=N&seed=S in headless Chromium,
+// waits for the scene-ready flag and writes 1280x720 JPEGs under the byte cap into screenshots/.
+// Usage: node tools/shoot.mjs [shotNumber ...]   (PLAYWRIGHT_CORE and CHROMIUM_PATH may override paths)
 import { createServer } from 'node:http';
-import { createRequire } from 'node:module';
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { extname, join } from 'node:path';
-import { homedir } from 'node:os';
-import { fileURLToPath } from 'node:url';
+import { readFile, writeFile, mkdir } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
+import { dirname, extname, join, normalize, resolve } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
-export const repo = join(fileURLToPath(new URL('.', import.meta.url)), '..');
-const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json' };
-const CAP = 262144;
+const repo = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const gameDir = join(repo, 'game');
+const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.jpg': 'image/jpeg' };
 
-// A tiny static server for game/ on a free local port.
-export function serveGame() {
-  return new Promise((resolve) => {
-    const server = createServer((req, res) => {
-      const path = decodeURIComponent(req.url.split('?')[0]);
-      const file = join(repo, 'game', path === '/' ? 'index.html' : path);
-      if (path.includes('..') || !existsSync(file)) { res.writeHead(404); res.end(); return; }
-      res.writeHead(200, { 'Content-Type': TYPES[extname(file)] || 'application/octet-stream' });
-      res.end(readFileSync(file));
-    });
-    server.listen(0, '127.0.0.1', () => resolve({ server, base: 'http://127.0.0.1:' + server.address().port + '/' }));
+export function startStaticServer(root) {
+  const server = createServer(async (req, res) => {
+    const path = normalize(decodeURIComponent(new URL(req.url, 'http://x').pathname)).replace(/^[/\\]+/, '') || 'index.html';
+    const file = join(root, path);
+    if (!file.startsWith(root)) { res.writeHead(403).end(); return; }
+    try {
+      const body = await readFile(file);
+      res.writeHead(200, { 'content-type': TYPES[extname(file)] || 'application/octet-stream', 'cache-control': 'no-store' }).end(body);
+    } catch {
+      res.writeHead(404).end('not found');
+    }
   });
+  return new Promise((done) => server.listen(0, '127.0.0.1', () => done(server)));
 }
 
-// Finds playwright-core and the full Chromium build (not the headless shell) outside the repository.
-export async function launchBrowser() {
-  const core = process.env.PLAYWRIGHT_CORE || join(homedir(), 'workspace/goals/make-gta6-bounty/pw/node_modules/playwright-core');
-  const { chromium } = createRequire(import.meta.url)(core);
-  let exe = process.env.CHROMIUM;
-  if (!exe) {
-    const cache = join(homedir(), '.cache/ms-playwright');
-    const build = readdirSync(cache).filter((d) => /^chromium-\d+$/.test(d)).sort().pop();
-    exe = join(cache, build, 'chrome-linux64', 'chrome');
-    if (!existsSync(exe)) exe = join(cache, build, 'chrome-linux', 'chrome');
-  }
-  return chromium.launch({ executablePath: exe, headless: true, args: ['--headless=new', '--no-sandbox', '--enable-unsafe-swiftshader', '--mute-audio'] });
+export async function loadChromium() {
+  const candidates = [process.env.PLAYWRIGHT_CORE, join(repo, 'node_modules', 'playwright-core'), join(repo, '..', 'pw', 'node_modules', 'playwright-core')].filter(Boolean);
+  const found = candidates.find((dir) => existsSync(join(dir, 'index.mjs')));
+  if (!found) throw new Error('playwright-core not found; set PLAYWRIGHT_CORE to its folder');
+  const { chromium } = await import(pathToFileURL(join(found, 'index.mjs')).href);
+  return chromium;
 }
 
-export async function openPage(browser, url, errors) {
+export async function openGamePage(chromium, base, query) {
+  const browser = await chromium.launch({ headless: true, executablePath: process.env.CHROMIUM_PATH || undefined, args: ['--no-sandbox', '--enable-unsafe-swiftshader', '--use-angle=swiftshader', '--ignore-gpu-blocklist', '--mute-audio'] });
   const page = await browser.newPage({ viewport: { width: 1280, height: 720 }, deviceScaleFactor: 1 });
-  page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
-  page.on('pageerror', (e) => errors.push(String(e && e.stack || e)));
-  await page.goto(url, { waitUntil: 'load' });
-  return page;
+  const problems = [];
+  page.on('pageerror', (err) => problems.push('pageerror: ' + err.message));
+  page.on('console', (msg) => { if (msg.type() === 'error') problems.push('console: ' + msg.text()); });
+  await page.goto(base + '/index.html' + query, { waitUntil: 'load', timeout: 120000 });
+  return { browser, page, problems };
+}
+
+async function captureShot(chromium, base, shot, cap) {
+  const { browser, page, problems } = await openGamePage(chromium, base, shot.query);
+  try {
+    await page.waitForFunction('window.__sceneReady === true', null, { timeout: 180000 });
+    await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
+    if (problems.length) throw new Error(shot.file + ': ' + problems.join(' | '));
+    for (let quality = 92; quality >= 40; quality -= 4) {
+      const jpeg = await page.screenshot({ type: 'jpeg', quality });
+      if (jpeg.length <= cap) {
+        await writeFile(join(repo, 'screenshots', shot.file), jpeg);
+        console.log(shot.file + ' ' + jpeg.length + ' bytes (quality ' + quality + ')');
+        return;
+      }
+    }
+    throw new Error(shot.file + ': could not get under ' + cap + ' bytes');
+  } finally {
+    await browser.close();
+  }
 }
 
 async function main() {
-  const spec = JSON.parse(readFileSync(join(repo, 'shots.json'), 'utf8'));
-  const only = process.argv[2] ? Number(process.argv[2]) : 0;
-  const { server, base } = await serveGame();
-  mkdirSync(join(repo, 'screenshots'), { recursive: true });
-  let failed = 0;
-  for (let i = 0; i < spec.shots.length; i++) {
-    if (only && only !== i + 1) continue;
-    const shot = spec.shots[i], errors = [];
-    const browser = await launchBrowser();            // one browser at a time: the build machine is small
-    try {
-      const page = await openPage(browser, base + shot.query, errors);
-      await page.waitForFunction('window.__sceneReady', null, { timeout: 180000 });
-      const info = await page.evaluate('window.__sceneReady');
-      await page.waitForTimeout(300);
-      let best = null, quality = 95;
-      for (; quality >= 40; quality -= 3) {
-        best = await page.screenshot({ type: 'jpeg', quality });
-        if (best.length <= CAP) break;
-      }
-      writeFileSync(join(repo, 'screenshots', shot.file), best);
-      console.log(shot.file + '  ' + best.length + ' bytes  q' + quality + '  ' + JSON.stringify(info) + (errors.length ? '  ERRORS: ' + errors.join(' | ') : ''));
-      if (errors.length || best.length > CAP) failed++;
-    } catch (e) {
-      failed++;
-      console.log(shot.file + '  FAILED  ' + e.message + '  ' + errors.join(' | '));
+  const config = JSON.parse(await readFile(join(repo, 'shots.json'), 'utf8'));
+  const wanted = process.argv.slice(2).map(Number);
+  await mkdir(join(repo, 'screenshots'), { recursive: true });
+  const chromium = await loadChromium();
+  const server = await startStaticServer(gameDir);
+  const base = 'http://127.0.0.1:' + server.address().port;
+  try {
+    // One browser at a time, closed after every capture, to stay inside a small memory budget.
+    for (let i = 0; i < config.shots.length; i++) {
+      if (wanted.length && !wanted.includes(i + 1)) continue;
+      await captureShot(chromium, base, config.shots[i], config.maxBytes);
     }
-    await browser.close();
+  } finally {
+    server.close();
   }
-  server.close();
-  process.exit(failed ? 1 : 0);
 }
 
-if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) main();
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  main().catch((err) => { console.error(err.message); process.exit(1); });
+}

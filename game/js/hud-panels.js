@@ -1,224 +1,206 @@
-// Every in-play HUD card: mission, dispatch, health / armour / location, clock / money / stars, rank,
-// weapon slots, crew abilities, radio, car, chatter, prompt, banner, weapon wheel, shop.
-TA.hud = {};
+// HUD cards drawn as DOM on a 1280x720 stage: mission, dispatch, money and stars, crew, car, weapons.
 
-TA.el = function (tag, cls, parent, html) {
-  var e = document.createElement(tag);
-  if (cls) e.className = cls;
-  if (html !== undefined) e.innerHTML = html;
-  if (parent) parent.appendChild(e);
-  return e;
-};
-
-// Only touches the DOM when the content really changed.
-TA.setHtml = function (el, html) { if (el._h !== html) { el._h = html; el.innerHTML = html; } };
-TA.show = function (el, on) { var v = on ? '' : 'none'; if (el._d !== v) { el._d = v; el.style.display = v; } };
-TA.markup = function (text) { return text.replace(/\*([^*]+)\*/g, '<b class="hl">$1</b>'); };
-
-// Small weapon silhouettes drawn in code, used as tile backgrounds.
-TA.weaponIcon = function (i) {
-  var cv = document.createElement('canvas'); cv.width = 72; cv.height = 28;
-  var g = cv.getContext('2d'); g.fillStyle = '#e9f1ff';
-  var r = function (x, y, w, h) { g.fillRect(x, y, w, h); };
-  if (i === 0) { r(22, 8, 22, 14); r(44, 10, 8, 10); r(26, 4, 5, 6); r(33, 3, 5, 6); r(40, 4, 5, 6); }
-  if (i === 1) { r(14, 8, 38, 7); r(14, 15, 9, 12); r(50, 6, 3, 3); }
-  if (i === 2) { r(8, 8, 46, 7); r(26, 15, 6, 12); r(12, 15, 8, 9); r(54, 9, 10, 4); }
-  if (i === 3) { r(4, 9, 60, 5); r(4, 14, 16, 7); r(30, 14, 16, 4); }
-  if (i === 4) { r(4, 9, 50, 6); r(54, 10, 14, 3); r(4, 15, 12, 8); r(26, 15, 6, 11); r(38, 5, 10, 4); }
-  if (i === 5) { r(2, 11, 66, 4); r(2, 15, 14, 7); r(26, 4, 22, 5); r(30, 15, 4, 9); }
-  return cv.toDataURL();
-};
-
-TA.initHud = function () {
-  var root = document.getElementById('hud'), H = TA.hud, i;
-  H.root = root;
-  H.play = TA.el('div', 'play', root);
-  H.vignette = TA.el('div', 'vignette', H.play);
-  // left column: mission card, dispatch card
-  H.left = TA.el('div', 'col left', H.play);
-  H.mission = TA.el('div', 'card mission', H.left);
-  H.dispatch = TA.el('div', 'card dispatch', H.left);
-  // bottom-left: minimap, vitals, location
-  H.mapWrap = TA.el('div', 'minimap', H.play);
-  H.mapCanvas = TA.el('canvas', '', H.mapWrap); H.mapCanvas.width = 168; H.mapCanvas.height = 168;
-  TA.el('div', 'north', H.mapWrap, 'N');
-  H.vitals = TA.el('div', 'card vitals', H.play);
-  // right column: clock/money/stars, rank, weapons, crew
-  H.right = TA.el('div', 'col right', H.play);
-  H.status = TA.el('div', 'card status', H.right);
-  H.rank = TA.el('div', 'card rank', H.right);
-  H.weapons = TA.el('div', 'weapons', H.right);
-  H.tiles = [];
-  for (i = 0; i < 6; i++) {
-    var t = TA.el('div', 'tile', H.weapons);
-    TA.el('div', 'icon', t).style.backgroundImage = 'url(' + TA.weaponIcon(i) + ')';
-    t.nameEl = TA.el('div', 'wname', t, TA.WEAPONS[i].name); t.ammoEl = TA.el('div', 'wammo', t, '');
-    H.tiles.push(t);
+function drawMissionCard() {
+  const v = missionCardView();
+  let html = '<div class="row"><span class="cap">' + v.head + '</span><span class="cap gold">' + v.act + '</span></div>';
+  html += '<div class="row"><span class="cap" style="color:#fff">' + v.stage + '</span>' + (v.timer ? '<span class="timer">' + v.timer + '</span>' : '') + '</div>';
+  html += '<div class="big">' + v.title + '</div><div class="txt">' + v.obj + '</div>';
+  if (v.pips) {
+    html += '<div class="row"><span class="cap" style="color:#ff8a80">' + v.pips.label + ' ' + v.pips.left + '/' + v.pips.total + '</span><div class="pips">';
+    for (let i = 0; i < v.pips.total; i++) html += '<div class="pip' + (i < v.pips.left ? ' on' : '') + '"></div>';
+    html += '</div></div>';
   }
-  H.crew = TA.el('div', 'crew', H.right);
-  H.crewCards = TA.CREW.map(function (c) {
-    var card = TA.el('div', 'card ability', H.crew);
-    card.style.borderTopColor = c.color;
-    card.innerHTML = '<span class="key">' + c.key + '</span><b>' + c.name.toUpperCase() + '</b><i>' + c.ability + '</i>';
-    card.stateEl = TA.el('div', 'state', card); card.barEl = TA.el('div', 'bar', card); card.fillEl = TA.el('div', 'fill', card.barEl);
-    card.fillEl.style.background = c.color;
-    return card;
-  });
-  // bottom-right: radio line, car card
-  H.br = TA.el('div', 'col br', H.play);
-  H.radio = TA.el('div', 'card radio', H.br);
-  H.car = TA.el('div', 'card car', H.br);
-  // centre: chatter, prompt, banner, wheel, shop, crosshair
-  H.chatter = TA.el('div', 'card chatter', H.play);
-  H.prompt = TA.el('div', 'prompt', H.play);
-  H.banner = TA.el('div', 'banner', H.play);
-  H.wheel = TA.el('div', 'wheel', H.play);
-  H.wheelItems = [];
-  for (i = 0; i < 6; i++) {
-    var a = i * Math.PI / 3, w = TA.el('div', 'slice', H.wheel);
-    w.style.left = (150 + Math.sin(a) * 112 - 52) + 'px'; w.style.top = (150 - Math.cos(a) * 112 - 27) + 'px';
-    w.innerHTML = '<div class="icon" style="background-image:url(' + TA.weaponIcon(i) + ')"></div><b>' + TA.WEAPONS[i].name + '</b><span></span>';
-    H.wheelItems.push(w);
+  if (v.next) html += '<div class="txt dim">NEXT: ' + v.next + '</div>';
+  if (v.line) html += '<div class="cap" style="margin-top:2px">' + v.line + '</div>';
+  setCardHtml('card-mission', html);
+}
+
+function drawDispatchCard() {
+  if (G.wanted <= 0) { setCardHtml('card-dispatch', ''); return; }
+  const units = W.units.filter((u) => !u.gone);
+  let html = '<div class="row"><span class="cap">TAPD DISPATCH &middot; ' + units.length + ' UNIT' + (units.length === 1 ? '' : 'S') + '</span><span class="stars">' + '&#9733;'.repeat(G.wanted) + '</span></div><div class="big">' + G.incident + '</div>';
+  // Nearest ground units first; the SWAT van, helicopter and roadblock always make the short list.
+  const special = units.filter((u) => u.kind === 'swat' || u.kind === 'heli' || u.kind === 'roadblock').slice(0, 3);
+  const shown = units.filter((u) => !special.includes(u)).slice(0, 5 - special.length).concat(special);
+  for (const u of shown) {
+    const far = u.kind === 'heli' ? '' : Math.round(u.dist) + ' m';
+    html += '<div class="unit"><span class="name">' + u.name + '</span><span class="pill" style="background:' + (DISPATCH_ROLES[u.role] || '#dee2e6') + '">' + u.role + '</span><span class="dist">' + far + '</span></div>';
   }
-  H.wheelCentre = TA.el('div', 'hub', H.wheel);
-  H.shop = TA.el('div', 'card shop', H.play);
-  H.cross = TA.el('div', 'cross', H.play);
-  TA.layoutHud(window.innerWidth, window.innerHeight);
-};
+  if (units.length > shown.length) html += '<div class="unit dim">+' + (units.length - shown.length) + ' more</div>';
+  html += '<div class="sight"><span style="color:' + (G.inSight ? '#ff8a80' : '#8ce99a') + '">' + (G.inSight ? 'IN SIGHT' : 'HIDDEN') + '</span><div class="bar"><i style="width:' + Math.round(G.heat * 100) + '%;background:' + (G.inSight ? '#ff5a4d' : '#8ce99a') + '"></i></div></div>';
+  setCardHtml('card-dispatch', html);
+}
 
-// The HUD is designed at 1280x720 and scaled to the window.
-TA.layoutHud = function (w, h) {
-  if (!TA.hud.root) return;
-  var s = Math.min(w / 1280, h / 720);
-  TA.hud.root.style.transform = 'scale(' + s + ')';
-  TA.hud.root.style.left = Math.round((w - 1280 * s) / 2) + 'px';
-  TA.hud.root.style.top = Math.round((h - 720 * s) / 2) + 'px';
-};
+function drawWantedStarsAndMoney() {
+  let stars = '';
+  for (let i = 0; i < 5; i++) stars += i < G.wanted ? '<em>&#9733;</em>' : '&#9733;';
+  const html = '<div class="money">' + formatMoney(G.money) + '</div><div class="stars">' + stars + '</div>' +
+    (G.wanted > 0 ? '<div class="status">' + WANTED_STATUS[G.wanted] + '</div>' : '<div class="debt">DEBT ' + formatMoney(G.debt) + ' &middot; DAY ' + G.day + '/7</div>');
+  setCardHtml('card-money', html);
+  const r = currentRankIndex(), rank = RANKS[r], next = RANKS[r + 1];
+  const frac = next ? (G.rp - rank.rp) / (next.rp - rank.rp) : 1;
+  setCardHtml('card-rank', '<div class="row"><span>RANK ' + (r + 1) + ' <span class="gold">' + rank.name + '</span></span><span class="dim">' + G.rp + (next ? ' / ' + next.rp : '') + ' RP</span></div><div class="bar" style="margin-top:4px"><i style="width:' + Math.round(frac * 100) + '%;background:#ffd43b"></i></div>');
+}
 
-TA.showBanner = function (title, sub, color) {
-  TA.run.banner = { title: title, sub: sub || '', color: color || '#ffd166' };
-  TA.run.bannerT = 3.6;
-};
-TA.floatText = function (text) { TA.run.subtitle = text; TA.run.subtitleT = 2.5; };
-TA.flashDamage = function () { TA.run.hurtT = 0.5; };
-
-TA.stars = function (n) {
-  var s = '';
-  for (var i = 1; i <= 5; i++) s += '<span class="star' + (i <= n ? ' on' : '') + '">★</span>';
-  return s;
-};
-
-TA.bar = function (frac, color) { return '<div class="bar"><div class="fill" style="width:' + Math.round(TA.clamp(frac, 0, 1) * 100) + '%;background:' + color + '"></div></div>'; };
-
-TA.updateMissionCard = function () {
-  var H = TA.hud, r = TA.run, s = TA.state, p = TA.player, o = TA.missionObjective(), html, a = r.activity;
-  if (o) {
-    html = '<div class="head">' + o.head + '</div><div class="row"><span class="pill">' + o.stage + '</span><span class="title">' + o.title + '</span></div>' +
-      '<div class="obj">' + TA.markup(o.obj) + (o.dist !== null ? ' <span class="dist">' + o.dist + ' m</span>' : '') + '</div>' +
-      (o.progress !== null ? TA.bar(o.progress, '#72efdd') : '') +
-      '<div class="next">NEXT <b>' + o.next + '</b></div><div class="foot">CONTRACT <b>' + o.contract + '</b>' + (o.timer !== null ? '<span class="timer">' + Math.floor(o.timer / 60) + ':' + TA.pad2(o.timer % 60) + '</span>' : '') + '</div>';
-  } else if (a) {
-    var line = a.type === 'race' ? 'CHECKPOINT ' + Math.min(a.cp + 1, a.def.cps.length) + '/' + a.def.cps.length + ' · P' + a.place + ' · ' + a.time.toFixed(1) + 's'
-      : a.type === 'taxi' ? (a.phase === 'pickup' ? 'Pick up the passenger' : 'Drop off · fare ' + TA.fmtMoney(a.fare)) : 'Wreck <b class="hl">' + a.def.name + '</b>';
-    html = '<div class="head">SIDE JOB · ' + (a.type === 'race' ? 'STREET RACE' : a.type === 'taxi' ? 'TAXI FARE' : 'WRECK CONTRACT') + '</div><div class="row"><span class="title">' + (a.def ? a.def.name.toUpperCase() : 'TAKSI KUNING') + '</span></div>' +
-      '<div class="obj">' + line + '</div>' + (a.type === 'wreck' ? TA.bar(a.car.hp / a.car.maxHp, '#f94144') : '') + '<div class="foot">DEBT <b>' + TA.fmtMoney(s.debt) + '</b> · DAY ' + s.day + '/7</div>';
-  } else {
-    var ni = TA.nextMissionIndex(), m = ni >= 0 ? TA.MISSIONS[ni] : null, at = m ? TA.PLACES[m.at] : null;
-    html = '<div class="head">FREE ROAM · ' + (m ? TA.ACTS[m.act] : 'THE BAY IS YOURS') + '</div>' +
-      (m ? '<div class="row"><span class="pill">NEXT ' + (ni + 1) + '/10</span><span class="title">' + m.name.toUpperCase() + '</span></div><div class="obj">Go to <b class="hl">' + at.name + '</b> <span class="dist">' + Math.round(TA.dist(p.x, p.z, at.x, at.z)) + ' m</span></div>'
-        : '<div class="row"><span class="title">DEBT CLEARED</span></div><div class="obj">Races, fares, wrecks and coins are still out there.</div>') +
-      '<div class="foot">DEBT <b>' + TA.fmtMoney(s.debt) + '</b> · ' + Math.max(0, 8 - s.day) + ' DAYS LEFT</div>';
+function drawCrewCards() {
+  let html = '';
+  for (const c of CREW) {
+    const s = G.crew[c.id];
+    const state = !s.recruited ? 'RECRUIT ' + formatMoney(c.cost) : s.active > 0 ? 'ACTIVE' : s.cooldown > 0 ? Math.ceil(s.cooldown) + ' s' : 'READY';
+    const fill = !s.recruited ? 0 : s.active > 0 ? s.active / c.duration : 1 - s.cooldown / c.cooldown;
+    html += '<div class="crew' + (s.active > 0 ? ' active' : '') + (s.recruited ? '' : ' locked') + '"><img src="' + portraitUrl(c) + '" style="border-color:' + c.color + '">' +
+      '<div class="who"><div class="n">' + c.name + ' <span style="color:' + c.color + '">' + c.ability + '</span></div><div class="a">' + c.role + ' &middot; ' + state + '</div></div>' +
+      '<div class="key">' + c.key + '</div><div class="cd"><i style="width:' + Math.round(clamp(fill, 0, 1) * 100) + '%;background:' + (s.active > 0 ? '#ffd43b' : '#63e6be') + '"></i></div></div>';
   }
-  TA.setHtml(H.mission, html);
-};
+  setCardHtml('card-crew', html);
+}
 
-TA.updateDispatchCard = function () {
-  var H = TA.hud, r = TA.run;
-  TA.show(H.dispatch, r.wanted > 0);
-  if (r.wanted <= 0) return;
-  var rows = TA.dispatchRows(), icons = { foot: '●', cruiser: '▲', block: '■', heli: '✚', swatvan: '◆', swat: '●' };
-  var html = '<div class="head red">TAPD DISPATCH — ' + (r.incident || TA.INCIDENTS[r.wanted]) + '</div><div class="sub">' + rows.length + ' UNITS · <span class="ministars">' + '★★★★★'.slice(0, r.wanted) + '</span></div>';
-  rows.slice(0, 6).forEach(function (u) {
-    html += '<div class="unit"><span class="ic t-' + u.type + '">' + icons[u.type] + '</span><span class="un">' + u.name.replace(/b$/, '') + '</span><span class="ud">' + Math.round(u.dist) + ' m</span><span class="role" style="background:' + TA.ROLES[u.role] + '">' + u.role + '</span></div>';
-  });
-  if (rows.length > 6) html += '<div class="more">+' + (rows.length - 6) + ' more</div>';
-  html += '<div class="heat"><span class="' + (r.inSight ? 'sight' : 'losing') + '">' + (r.inSight ? 'IN SIGHT' : 'LOSING THEM') + '</span>' + TA.bar(r.heat, r.inSight ? '#f94144' : '#f9c74f') + '</div>';
-  if (r.policeLine) html += '<div class="ticker">' + r.policeLine + '</div>';
-  TA.setHtml(H.dispatch, html);
-};
+function drawCarSpeedCard() {
+  const car = G.player.car;
+  if (!car) { setCardHtml('card-car', ''); return; }
+  const cond = clamp(car.hp / car.spec.hp, 0, 1);
+  setCardHtml('card-car', '<div class="cap">' + car.spec.name + (car.tyresOut ? ' &middot; <span style="color:#ff8a80">TYRES OUT</span>' : '') + '</div>' +
+    '<div class="cond"><span>CONDITION</span><div class="bar"><i style="width:' + Math.round(cond * 100) + '%;background:' + (cond > 0.4 ? '#ffa94d' : '#ff5a4d') + '"></i></div><span>' + Math.round(cond * 100) + '%</span></div>' +
+    '<div class="speed">' + Math.round(Math.abs(car.speed) * 3.6) + '<small>KM/H</small></div>');
+}
 
-TA.updateRightColumn = function () {
-  var H = TA.hud, r = TA.run, s = TA.state, p = TA.player, rk = TA.rankInfo(), i;
-  TA.setHtml(H.status, '<div class="clock">DAY ' + s.day + '/7 · ' + TA.clockText(s.clock) + '</div><div class="money">' + TA.fmtMoney(s.money) + '</div>' +
-    '<div class="stars">' + TA.stars(r.wanted) + '</div><div class="statusline">' + (r.wanted ? TA.STATUS_LINES[r.wanted] : 'NO HEAT') + '</div>');
-  TA.setHtml(H.rank, '<div class="rl">' + rk.line + '</div>' + TA.bar(rk.frac, '#ffd166') + '<div class="rn">' + rk.numbers + '</div>');
-  for (i = 0; i < 6; i++) {
-    var t = H.tiles[i], a = s.ammo[i], cls = 'tile' + (i === p.weapon ? ' cur' : '') + (s.owned[i] ? '' : ' off');
-    if (t._c !== cls) { t._c = cls; t.className = cls; }
-    TA.setHtml(t.ammoEl, i === 0 ? '∞' : s.owned[i] ? a.mag + '/' + a.res : '—');
-  }
-  TA.CREW.forEach(function (c, k) {
-    var st = TA.abilityState(c.id), card = H.crewCards[k], cls = 'card ability ' + st.cls;
-    if (card._c !== cls) { card._c = cls; card.className = cls; }
-    TA.setHtml(card.stateEl, st.text);
-    card.fillEl.style.width = Math.round(st.frac * 100) + '%';
-  });
-};
+function buildHud() {
+  const root = document.getElementById('hud-root');
+  const ids = ['card-mission', 'card-dispatch', 'card-map', 'card-vitals', 'card-hint', 'card-place', 'card-banner', 'card-money', 'card-rank', 'card-weapons', 'card-crew', 'weapon-wheel', 'card-car', 'card-ammo', 'card-chatter', 'card-radio', 'card-prompt', 'card-dialogue', 'intro-card'];
+  let html = '<div id="hud-play">';
+  for (const id of ids) html += '<div class="card hidden" id="' + id + '"></div>';
+  html += '<div id="crosshair" class="hidden"></div><canvas id="ring" class="hidden" width="80" height="80"></canvas></div><div id="menu-root" class="hidden"></div>';
+  root.innerHTML = html;
+  document.getElementById('card-map').innerHTML = '<canvas id="minimap" width="202" height="202"></canvas>';
+  document.getElementById('weapon-wheel').innerHTML = '<canvas id="wheel" width="226" height="226"></canvas>';
+  W.hudCache = { 'card-map': 'x', 'weapon-wheel': 'x' };
+  W.portraits = {};
+}
 
-TA.updateBottom = function () {
-  var H = TA.hud, r = TA.run, s = TA.state, p = TA.player, loc = TA.locationInfo(), car = p.car;
-  TA.setHtml(H.vitals, '<div class="vt"><span>HEALTH</span><b>' + Math.round(p.hp) + '</b></div>' + TA.bar(p.hp / 100, '#4ade80') +
-    '<div class="vt"><span>ARMOUR</span><b>' + Math.round(p.armour) + '</b></div>' + TA.bar(p.armour / 100, '#4cc9f0') +
-    '<div class="loc"><b style="color:' + loc.tint + '">' + loc.district + '</b><span>' + loc.street + '</span><i>' + loc.word + ' · ' + loc.standing + '</i></div>');
-  TA.show(H.radio, !!(car && r.radioLine));
-  if (car && r.radioLine) TA.setHtml(H.radio, '<span class="note">♪</span> ' + r.radioLine);
-  if (car) {
-    var cond = car.hp / car.maxHp, kmh = Math.round(Math.abs(car.speed) * 3.6);
-    TA.setHtml(H.car, '<div class="cn">' + car.name + (car.tyres ? '' : ' · FLAT TYRES') + '</div><div class="cc"><span>CONDITION</span>' + TA.bar(cond, cond > 0.5 ? '#4ade80' : cond > 0.25 ? '#f9c74f' : '#f94144') + '<b>' + Math.round(cond * 100) + '%</b></div>' +
-      '<div class="speed"><b>' + kmh + '</b><span>KM/H</span></div>');
-  } else {
-    var w = TA.WEAPONS[p.weapon], a = s.ammo[p.weapon];
-    TA.setHtml(H.car, '<div class="cn">ON FOOT · ' + w.label + ' "' + w.name + '"</div><div class="cc"><span>' + (p.reloadT > 0 ? 'RELOADING' : 'MAGAZINE') + '</span>' + TA.bar(w.mag ? a.mag / w.mag : 1, '#ffd166') + '<b>' + (w.mag ? a.res : '∞') + '</b></div>' +
-      '<div class="speed"><b>' + (w.mag ? a.mag : '∞') + '</b><span>ROUNDS</span></div>');
-  }
-};
-
-TA.updateCentre = function (dt) {
-  var H = TA.hud, r = TA.run, s = TA.state, p = TA.player, i;
-  TA.show(H.chatter, !!r.chatter);
-  if (r.chatter) TA.setHtml(H.chatter, '<div class="portrait" style="background:' + r.chatter.color + '">' + r.chatter.initial + '</div><div class="who"><b>' + r.chatter.who + '</b><i>' + r.chatter.role + '</i></div><div class="line">' + r.chatter.line + '</div>');
-  if (r.subtitleT > 0) r.subtitleT -= dt;
-  var prompt = r.prompt || (r.subtitleT > 0 ? '“' + r.subtitle + '”' : '');
-  TA.show(H.prompt, !!prompt && !r.wheelOpen);
-  if (prompt) TA.setHtml(H.prompt, prompt.replace(/\b(Hold E|Press E|Press F)\b/, '<kbd>$1</kbd>'));
-  if (r.bannerT > 0) r.bannerT -= dt;
-  TA.show(H.banner, r.bannerT > 0 && !!r.banner);
-  if (r.banner && r.bannerT > 0) TA.setHtml(H.banner, '<div class="bt" style="color:' + r.banner.color + '">' + r.banner.title + '</div><div class="bs">' + r.banner.sub + '</div>');
-  TA.show(H.wheel, r.wheelOpen);
-  if (r.wheelOpen) {
-    for (i = 0; i < 6; i++) {
-      var it = H.wheelItems[i], cls = 'slice' + (i === p.weapon ? ' cur' : '') + (s.owned[i] ? '' : ' off');
-      if (it._c !== cls) { it._c = cls; it.className = cls; }
-      TA.setHtml(it.lastChild, i === 0 ? '∞' : s.owned[i] ? s.ammo[i].mag + ' / ' + s.ammo[i].res : 'LOCKED');
-    }
-    TA.setHtml(H.wheelCentre, '<i>WEAPON WHEEL</i><b>' + TA.WEAPONS[p.weapon].label + '</b><span>' + TA.WEAPONS[p.weapon].name + '</span>');
-  }
-  TA.show(H.shop, !!r.shop);
-  if (r.shop) TA.setHtml(H.shop, '<div class="head">' + r.shop.title + '</div>' + r.shop.items.map(function (it, k) {
-    return '<div class="item' + (s.money < it.price ? ' poor' : '') + '"><kbd>' + (k + 1) + '</kbd><span>' + it.label + '</span><b>' + TA.fmtMoney(it.price) + '</b></div>';
-  }).join(''));
-  TA.show(H.cross, !p.car && !r.wheelOpen && p.weapon > 0);
-  if (r.hurtT > 0) r.hurtT -= dt;
-  H.vignette.style.opacity = Math.max(r.hurtT > 0 ? r.hurtT * 1.6 : 0, p.hp < 30 ? 0.35 : 0);
-};
-
-// Called from the main loop; the text cards refresh about ten times a second.
-TA.updateHud = function (dt, force) {
-  var H = TA.hud, playing = TA.run.mode === 'playing' && !!TA.player;
-  TA.show(H.play, playing);
+function updateHud() {
+  const playing = G.mode === 'playing' || G.mode === 'cutscene';
+  document.getElementById('hud-play').classList.toggle('hidden', !playing);
   if (!playing) return;
-  TA.updateCentre(dt);
-  if (!force && TA.run.frame % 6 !== 0) return;
-  TA.updateMissionCard(); TA.updateDispatchCard(); TA.updateRightColumn(); TA.updateBottom();
-  TA.drawMinimap();
-};
+  const talking = !!G.dialogue;
+  drawMissionCard();
+  drawDispatchCard();
+  drawWantedStarsAndMoney();
+  drawCrewCards();
+  drawCarSpeedCard();
+  drawWeaponRowAndAmmo();
+  drawVitalsAndPlace();
+  drawTalkCards(talking);
+  drawPromptAndRing();
+  document.getElementById('card-map').classList.remove('hidden');
+  drawMinimap();
+  // Stack the two columns so cards never overlap whatever their content height.
+  stackCards(['card-mission', 'card-dispatch', 'card-hint'], 16, 8);
+  stackCards(G.wheelOpen ? ['card-money', 'card-rank', 'card-crew', 'weapon-wheel'] : ['card-money', 'card-rank', 'card-weapons', 'card-crew'], 16, 6);
+  document.getElementById('card-weapons').classList.toggle('hidden', G.wheelOpen);
+  document.getElementById('weapon-wheel').classList.toggle('hidden', !G.wheelOpen);
+  if (G.wheelOpen) drawWeaponWheel();
+  document.getElementById('crosshair').classList.toggle('hidden', !!G.player.car || !(G.player.aiming || W.showcase === 3));
+}
+
+function showBanner(title, sub, seconds) {
+  G.banner = { title: title, sub: sub || '', t: seconds || 2 };
+}
+
+function setCardHtml(id, html) {
+  if (W.hudCache[id] === html) return;
+  W.hudCache[id] = html;
+  const el = document.getElementById(id);
+  el.innerHTML = html;
+  el.classList.toggle('hidden', html === '');
+}
+
+function stackCards(ids, top, gap) {
+  let y = top;
+  for (const id of ids) {
+    const el = document.getElementById(id);
+    if (el.classList.contains('hidden') && id !== 'weapon-wheel') continue;
+    el.style.top = y + 'px';
+    y += (id === 'weapon-wheel' ? 230 : el.offsetHeight) + gap;
+  }
+}
+
+function portraitUrl(face) {
+  if (!W.portraits[face.name]) W.portraits[face.name] = makePortraitCanvas(face, 96).toDataURL('image/png');
+  return W.portraits[face.name];
+}
+
+function faceById(id) {
+  return STORY_FACES[id] || CREW.find((c) => c.id === id) || STORY_FACES.dispatch;
+}
+
+function drawWeaponRowAndAmmo() {
+  let html = '';
+  WEAPONS.forEach((w, i) => {
+    const s = G.weapons[i];
+    html += '<div class="wtile' + (i === G.weaponIndex ? ' cur' : '') + (s.owned ? '' : ' none') + '">' + (i === G.weaponIndex ? '<span>' + w.name.toUpperCase() + '</span>' : '<span>' + (i + 1) + '</span>') + '</div>';
+  });
+  setCardHtml('card-weapons', html);
+  if (G.player.car) { setCardHtml('card-ammo', ''); return; }
+  const w = WEAPONS[G.weaponIndex], s = G.weapons[G.weaponIndex];
+  setCardHtml('card-ammo', '<div><div class="cap">' + w.cls + '</div><div class="big">' + w.name.toUpperCase() + '</div></div><div class="ammo">' + (w.mag ? (G.reloading > 0 ? 'RELOAD' : s.mag + ' <small>/ ' + s.reserve + '</small>') : '<small>MELEE</small>') + '</div>');
+}
+
+function drawVitalsAndPlace() {
+  const maxArmour = currentRankIndex() >= 2 ? 125 : 100;
+  setCardHtml('card-vitals', '<div class="line hp"><span>HEALTH</span><div class="bar"><i style="width:' + Math.round(clamp(G.health, 0, 100)) + '%"></i></div></div>' +
+    '<div class="line ar"><span>ARMOUR</span><div class="bar"><i style="width:' + Math.round(clamp(G.armour / maxArmour, 0, 1) * 100) + '%"></i></div></div>');
+  const p = playerPosition();
+  setCardHtml('card-place', streetNameAt(p.x, p.z).toUpperCase() + ' &middot; <span class="gold">' + districtAt(p.x, p.z).name + '</span> &middot; ' + formatClock(G.clock) + ' &middot; DAY ' + G.day + '/7');
+  setCardHtml('card-banner', G.banner ? '<div class="big">' + G.banner.title + '</div>' + (G.banner.sub ? '<div class="txt">' + G.banner.sub + '</div>' : '') : '');
+}
+
+function drawTalkCards(talking) {
+  if (talking) {
+    const d = G.dialogue, f = faceById(d.face);
+    setCardHtml('card-dialogue', '<img src="' + portraitUrl(f) + '" style="border-color:' + f.color + '"><div><div><span class="n" style="color:' + f.color + '">' + f.name + '</span><span class="r">' + f.role + '</span></div><div class="t">' + d.text + '</div><div class="k">ENTER - continue (' + (d.index + 1) + '/' + d.lines.length + ')</div></div>');
+  } else setCardHtml('card-dialogue', '');
+  if (G.chatter && !talking) {
+    const f = faceById(G.chatter.face);
+    setCardHtml('card-chatter', '<img src="' + portraitUrl(f) + '" style="border-color:' + f.color + '"><div><div class="n" style="color:' + f.color + '">' + f.name + (f.role ? ' <span class="dim">' + f.role.toUpperCase() + '</span>' : '') + '</div><div class="t">' + G.chatter.text + '</div></div>');
+  } else setCardHtml('card-chatter', '');
+  const station = RADIO_STATIONS[G.radioStation];
+  const line = G.wanted > 0 && G.radioLine ? '<b>TAPD RADIO</b> ' + G.radioLine : G.player.car && G.radioOn ? '<b>' + station.name + '</b> ' + station.show + (W.newsLine ? ' - ' + W.newsLine : ' - Q to change station') : '';
+  setCardHtml('card-radio', talking ? '' : line);
+  setCardHtml('card-hint', G.hint ? '<span class="cap" style="color:#63e6be">TIP</span> <span class="txt">&middot; ' + G.hint.text + '</span>' : '');
+  setCardHtml('intro-card', G.introCard ? '<div class="cap">' + G.introCard.head + '</div><div class="big">' + G.introCard.title + '</div><div class="txt">' + G.introCard.sub + '</div>' : '');
+}
+
+function drawPromptAndRing() {
+  const pr = G.prompt, ring = document.getElementById('ring');
+  setCardHtml('card-prompt', pr ? pr.text : '');
+  const show = !!pr && pr.progress !== undefined && pr.progress !== null;
+  ring.classList.toggle('hidden', !show);
+  if (!show) return;
+  const g = ring.getContext('2d');
+  g.clearRect(0, 0, 80, 80);
+  g.lineWidth = 10; g.strokeStyle = 'rgba(9,14,26,0.85)';
+  g.beginPath(); g.arc(40, 40, 32, 0, 6.3); g.stroke();
+  g.strokeStyle = '#ffd43b'; g.lineCap = 'round';
+  g.beginPath(); g.arc(40, 40, 32, -1.57, -1.57 + 6.283 * clamp(pr.progress, 0.02, 1)); g.stroke();
+  g.fillStyle = '#fff'; g.font = '900 24px Arial'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('E', 40, 42);
+}
+
+function drawWeaponWheel() {
+  const g = document.getElementById('wheel').getContext('2d'), c = 113;
+  g.clearRect(0, 0, 226, 226);
+  WEAPONS.forEach((w, i) => {
+    const a0 = -Math.PI / 2 + (i - 0.5) * (Math.PI / 3), a1 = a0 + Math.PI / 3, mid = (a0 + a1) / 2;
+    const sel = i === (W.wheelHover === undefined ? G.weaponIndex : W.wheelHover), owned = G.weapons[i].owned;
+    g.beginPath(); g.arc(c, c, 108, a0 + 0.03, a1 - 0.03); g.arc(c, c, 46, a1 - 0.06, a0 + 0.06, true); g.closePath();
+    g.fillStyle = sel ? '#ffd43b' : owned ? 'rgba(255,255,255,0.16)' : 'rgba(255,255,255,0.05)';
+    g.fill();
+    g.fillStyle = sel ? '#1a1300' : owned ? '#ffffff' : '#7d8797';
+    g.font = '900 15px Arial'; g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.fillText(w.cls, c + Math.cos(mid) * 78, c + Math.sin(mid) * 78 - 8);
+    g.fillText(owned ? (w.mag ? G.weapons[i].mag + '/' + G.weapons[i].reserve : 'READY') : 'LOCKED', c + Math.cos(mid) * 78, c + Math.sin(mid) * 78 + 9);
+  });
+  const cur = WEAPONS[W.wheelHover === undefined ? G.weaponIndex : W.wheelHover];
+  g.fillStyle = '#ffd43b'; g.font = 'italic 900 15px Arial';
+  g.fillText(cur.name.toUpperCase(), c, c - 8);
+  g.fillStyle = '#fff'; g.fillText('TAB', c, c + 10);
+}
